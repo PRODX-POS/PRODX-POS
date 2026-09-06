@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="100%" height="100%">
+  <defs>
+    <!-- Top-left chamfer arrow gradient (Golden Yellow to Amber) -->
+    <linearGradient id="prodx-grad-arrow" x1="190" y1="160" x2="300" y2="100" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFD100"/>
+      <stop offset="45%" stop-color="#FFAE00"/>
+      <stop offset="100%" stop-color="#FF7B00"/>
+    </linearGradient>
+
+    <!-- Top arch & outer loop gradient (Amber to Fiery Orange to Crimson) -->
+    <linearGradient id="prodx-grad-loop" x1="260" y1="100" x2="480" y2="350" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFA800"/>
+      <stop offset="25%" stop-color="#FF6B00"/>
+      <stop offset="60%" stop-color="#EE2B00"/>
+      <stop offset="100%" stop-color="#BA1200"/>
+    </linearGradient>
+
+    <!-- Vertical Stem Front (Vibrant Orange to Deep Red) -->
+    <linearGradient id="prodx-grad-stem" x1="200" y1="210" x2="260" y2="460" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF7B00"/>
+      <stop offset="30%" stop-color="#FF5200"/>
+      <stop offset="70%" stop-color="#D92000"/>
+      <stop offset="100%" stop-color="#B81400"/>
+    </linearGradient>
+
+    <!-- Inner Loop Depth Shadow -->
+    <linearGradient id="prodx-grad-inner-shadow" x1="270" y1="200" x2="380" y2="280" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#9E0C00"/>
+      <stop offset="60%" stop-color="#700600"/>
+      <stop offset="100%" stop-color="#BD1B00"/>
+    </linearGradient>
+
+    <!-- X Letter Gradient -->
+    <linearGradient id="prodx-grad-x" x1="390" y1="460" x2="455" y2="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFBA00"/>
+      <stop offset="50%" stop-color="#FF6A00"/>
+      <stop offset="100%" stop-color="#E62500"/>
+    </linearGradient>
+
+    <!-- Left Dash Line Gradient -->
+    <linearGradient id="prodx-grad-dash-left" x1="170" y1="542" x2="260" y2="542" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF6A00"/>
+      <stop offset="100%" stop-color="#FFBA00"/>
+    </linearGradient>
+
+    <!-- Right Dash Line Gradient -->
+    <linearGradient id="prodx-grad-dash-right" x1="340" y1="542" x2="430" y2="542" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFBA00"/>
+      <stop offset="100%" stop-color="#E62500"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 1. Top-Left Chamfer Arrow -->
+  <path d="M 200,185 L 260,125 L 320,125 L 260,185 Z" fill="url(#prodx-grad-arrow)"/>
+
+  <!-- 2. Main Ribbon Loop (P shape) -->
+  <path d="M 260,125 L 355,125 C 425,125 470,168 470,238 C 470,308 425,352 355,352 L 285,352 L 285,296 L 352,296 C 392,296 414,272 414,238 C 414,204 392,181 352,181 L 260,181 Z" fill="url(#prodx-grad-loop)"/>
+
+  <!-- 3. Inner Loop Shadow Fold -->
+  <path d="M 285,240 L 350,240 C 375,240 395,252 395,270 C 395,288 375,296 350,296 L 285,296 Z" fill="url(#prodx-grad-inner-shadow)"/>
+
+  <!-- 4. Front Vertical Stem (With 45° bottom bevel) -->
+  <path d="M 200,200 L 260,200 L 260,395 L 200,455 Z" fill="url(#prodx-grad-stem)"/>
+
+  <!-- 5. Wordmark: PROD (Black) + X (Gradient) -->
+  <text x="145" y="520" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="76" letter-spacing="-1" fill="#0A0A0C">PROD</text>
+  <text x="390" y="520" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="900" font-size="76" letter-spacing="-1" fill="url(#prodx-grad-x)">X</text>
+
+  <!-- 6. Line 2: — POS — -->
+  <line x1="170" y1="542" x2="245" y2="542" stroke="url(#prodx-grad-dash-left)" stroke-width="5" stroke-linecap="round"/>
+  <text x="300" y="550" text-anchor="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="800" font-size="26" letter-spacing="4" fill="#0A0A0C">POS</text>
+  <line x1="355" y1="542" x2="430" y2="542" stroke="url(#prodx-grad-dash-right)" stroke-width="5" stroke-linecap="round"/>
+
+  <!-- 7. Line 3: PROFESSIONAL POS SYSTEM -->
+  <text x="300" y="582" text-anchor="middle" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="700" font-size="14" letter-spacing="5" fill="#333742">PROFESSIONAL POS SYSTEM</text>
+</svg>

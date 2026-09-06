@@ -1,0 +1,830 @@
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { useAuth } from '../../context/AuthContext';
+import { useCart } from '../../context/CartContext';
+import { useToast } from '../../context/ToastContext';
+import { useLanguage } from '../../context/LanguageContext';
+import { catalogApi } from '../../adapters/mockAdapter';
+import { Product, Category } from '../../domain/catalog';
+import { ProductCard } from './ProductCard';
+import { CartPanel } from './CartPanel';
+import { SearchInput } from '../../components/common/SearchInput';
+import { Skeleton } from '../../components/common/Skeleton';
+import { EmptyState } from '../../components/common/EmptyState';
+import { Drawer } from '../../components/common/Drawer';
+import { Modal } from '../../components/common/Modal';
+import { Button } from '../../components/common/Button';
+import { formatMoney } from '../../domain/money';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { playScannerSound } from '../../services/soundService';
+import { BarcodeScannerTesterModal } from './BarcodeScannerTesterModal';
+import {
+  Barcode,
+  Search,
+  ShoppingCart,
+  SlidersHorizontal,
+  Sparkles,
+  AlertCircle,
+  Radio,
+  Zap,
+  CheckCircle2,
+  Clipboard,
+  Layers,
+} from 'lucide-react';
+
+export const PosScreen: React.FC = () => {
+  const { session } = useAuth();
+  const { addItem, totals, items } = useCart();
+  const { addToast } = useToast();
+  const { t, language } = useLanguage();
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('cat-all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [barcodeInput, setBarcodeInput] = useState<string>('');
+  const [isMobileCartOpen, setIsMobileCartOpen] = useState<boolean>(false);
+  const [mobileTab, setMobileTab] = useState<'catalog' | 'cart'>('catalog');
+  const [isScannerModalOpen, setIsScannerModalOpen] = useState<boolean>(false);
+  const [lastRecognizedProduct, setLastRecognizedProduct] = useState<Product | null>(null);
+
+  // Automatically switch back to Catalog view and close mobile cart drawers if the cart becomes empty (e.g. after clearCart or new sale)
+  useEffect(() => {
+    if (items.length === 0) {
+      if (mobileTab === 'cart') {
+        setMobileTab('catalog');
+      }
+      if (isMobileCartOpen) {
+        setIsMobileCartOpen(false);
+      }
+    }
+  }, [items.length, mobileTab, isMobileCartOpen]);
+
+  const [isBulkAddModalOpen, setIsBulkAddModalOpen] = useState<boolean>(false);
+  const [bulkBarcodeInput, setBulkBarcodeInput] = useState<string>('');
+  const [isBulkAdding, setIsBulkAdding] = useState<boolean>(false);
+  const [focusedProductIndex, setFocusedProductIndex] = useState<number>(-1);
+
+  // Connection monitoring and enabling state
+  const [isWindowFocused, setIsWindowFocused] = useState<boolean>(true);
+  const [isScannerEnabled, setIsScannerEnabled] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const handleFocus = () => setIsWindowFocused(true);
+    const handleBlur = () => setIsWindowFocused(false);
+
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, []);
+
+  // States and refs for barcode scanner flash and floating feedback
+  const [isFlashActive, setIsFlashActive] = useState<boolean>(false);
+  const [activeIndicator, setActiveIndicator] = useState<{
+    id: number;
+    name: string;
+    barcode: string;
+    price: string;
+  } | null>(null);
+
+  const flashTimeoutRef = React.useRef<any>(null);
+  const indicatorTimeoutRef = React.useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+      if (indicatorTimeoutRef.current) clearTimeout(indicatorTimeoutRef.current);
+    };
+  }, []);
+
+  // Load catalog function
+  const loadCatalog = useCallback(async () => {
+    if (!session) return;
+    setIsLoading(true);
+    try {
+      const [cats, prods] = await Promise.all([
+        catalogApi.getCategories(session.currentStore.id),
+        catalogApi.getProducts(session.currentStore.id),
+      ]);
+      setCategories([...cats]);
+      setProducts([...prods]);
+    } catch (err) {
+      console.error('[PosScreen] Failed to load catalog:', err);
+      addToast({
+        title: language === 'th' ? 'เกิดข้อผิดพลาดในการโหลดแคตตาล็อก' : 'Catalog Load Error',
+        message: language === 'th' ? 'ไม่สามารถเชื่อมต่อข้อมูลสินค้าจากเซิร์ฟเวอร์ได้' : 'Unable to fetch store catalog from API adapter.',
+        type: 'error',
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [session, addToast, language]);
+
+  // Load catalog on store change
+  useEffect(() => {
+    loadCatalog();
+  }, [loadCatalog]);
+
+  // Listen for completed transactions to trigger a full catalog state refresh (e.g. stock levels sync)
+  useEffect(() => {
+    const handleOrderCompleted = () => {
+      loadCatalog();
+    };
+    window.addEventListener('prodx:order-completed', handleOrderCompleted);
+    return () => {
+      window.removeEventListener('prodx:order-completed', handleOrderCompleted);
+    };
+  }, [loadCatalog]);
+
+  // Centralized Barcode Lookup & Cart Addition Handler
+  const handleBarcodeLookup = useCallback(
+    async (scannedCode: string, source: 'hardware' | 'manual' | 'simulator' = 'hardware') => {
+      const cleanCode = scannedCode.trim();
+      if (!cleanCode || !session) return;
+
+      // 1. Check local catalog cache for instant response
+      let foundProduct = products.find(
+        (p) =>
+          p.barcode.toLowerCase() === cleanCode.toLowerCase() ||
+          p.sku.toLowerCase() === cleanCode.toLowerCase()
+      );
+
+      // 2. Query catalog API adapter if not in current local state
+      if (!foundProduct) {
+        try {
+          const remoteProduct = await catalogApi.getProductByBarcode(session.currentStore.id, cleanCode);
+          if (remoteProduct) {
+            foundProduct = remoteProduct;
+          }
+        } catch (err) {
+          console.error('[PosScreen] Barcode remote query error:', err);
+        }
+      }
+
+      if (foundProduct) {
+        if (foundProduct.currentStock <= 0) {
+          playScannerSound('error');
+          addToast({
+            title: language === 'th' ? 'สินค้าหมดสต็อก' : 'Product Out of Stock',
+            message:
+              language === 'th'
+                ? `${foundProduct.name} (${cleanCode}) หมดสต็อก ไม่สามารถเพิ่มในบิลได้`
+                : `${foundProduct.name} (${cleanCode}) is currently out of stock.`,
+            type: 'warning',
+          });
+          return;
+        }
+
+        addItem(foundProduct, 1);
+        playScannerSound('success');
+        setLastRecognizedProduct(foundProduct);
+
+        // Subtle screen flash effect
+        setIsFlashActive(true);
+        if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+        flashTimeoutRef.current = setTimeout(() => {
+          setIsFlashActive(false);
+        }, 180);
+
+        // Floating scanner feedback badge
+        const indicatorId = Date.now();
+        setActiveIndicator({
+          id: indicatorId,
+          name: foundProduct.name,
+          barcode: cleanCode,
+          price: formatMoney(foundProduct.price),
+        });
+        if (indicatorTimeoutRef.current) clearTimeout(indicatorTimeoutRef.current);
+        indicatorTimeoutRef.current = setTimeout(() => {
+          setActiveIndicator(null);
+        }, 2000);
+
+        addToast({
+          title:
+            source === 'hardware'
+              ? (language === 'th' ? 'สแกนเนอร์ฮาร์ดแวร์ทำงาน' : 'Hardware Barcode Detected')
+              : (language === 'th' ? 'สแกนบาร์โค้ดสำเร็จ' : 'Barcode Scanned'),
+          message: `${foundProduct.name} • ${formatMoney(foundProduct.price)} (${cleanCode})`,
+          type: 'info',
+        });
+      } else {
+        playScannerSound('error');
+        addToast({
+          title: language === 'th' ? 'ไม่พบบาร์โค้ดสินค้า' : 'Barcode Not Found',
+          message:
+            language === 'th'
+              ? `ไม่พบรายการสินค้าที่ตรงกับบาร์โค้ด "${cleanCode}"`
+              : `No product registered for barcode "${cleanCode}"`,
+          type: 'warning',
+        });
+      }
+    },
+    [session, products, language, addItem, addToast]
+  );
+
+  // Hardware Barcode Scanner Hook
+  const {
+    lastScannedBarcode,
+    lastScannedAt,
+    scanCount,
+    isScanning,
+    simulateScan,
+  } = useBarcodeScanner({
+    enabled: isScannerEnabled && !isLoading,
+    onScan: (barcode) => {
+      handleBarcodeLookup(barcode, 'hardware');
+    },
+  });
+
+  // Handle manual form barcode submission
+  const handleBarcodeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!barcodeInput.trim()) return;
+    await handleBarcodeLookup(barcodeInput.trim(), 'manual');
+    setBarcodeInput('');
+  };
+
+  const handleBulkAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkBarcodeInput.trim() || !session) return;
+
+    setIsBulkAdding(true);
+    const codes = bulkBarcodeInput
+      .split(/[\s,;\n]+/)
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+
+    if (codes.length === 0) {
+      setIsBulkAdding(false);
+      return;
+    }
+
+    const addedList: Product[] = [];
+    const notFoundList: string[] = [];
+    const outOfStockList: Product[] = [];
+
+    for (const code of codes) {
+      let prod = products.find(
+        (p) =>
+          p.barcode.toLowerCase() === code.toLowerCase() ||
+          p.sku.toLowerCase() === code.toLowerCase()
+      );
+
+      if (!prod) {
+        try {
+          const remoteProd = await catalogApi.getProductByBarcode(session.currentStore.id, code);
+          if (remoteProd) {
+            prod = remoteProd;
+          }
+        } catch (err) {
+          console.error('[BulkAdd] Error loading barcode:', code, err);
+        }
+      }
+
+      if (prod) {
+        if (prod.currentStock <= 0) {
+          outOfStockList.push(prod);
+        } else {
+          addItem(prod, 1);
+          addedList.push(prod);
+        }
+      } else {
+        notFoundList.push(code);
+      }
+    }
+
+    setIsBulkAdding(false);
+    setIsBulkAddModalOpen(false);
+    setBulkBarcodeInput('');
+
+    if (addedList.length > 0) {
+      playScannerSound('success');
+      
+      let msg = language === 'th'
+        ? `เพิ่มสินค้าสำเร็จ ${addedList.length} รายการ`
+        : `Successfully added ${addedList.length} items to the cart.`;
+
+      if (outOfStockList.length > 0) {
+        msg += language === 'th'
+          ? ` (สินค้าหมด ${outOfStockList.length} รายการ)`
+          : ` (${outOfStockList.length} items out of stock)`;
+      }
+
+      if (notFoundList.length > 0) {
+        msg += language === 'th'
+          ? ` (ไม่พบ ${notFoundList.length} รายการ: ${notFoundList.slice(0, 3).join(', ')}${notFoundList.length > 3 ? '...' : ''})`
+          : ` (${notFoundList.length} not found: ${notFoundList.slice(0, 3).join(', ')}${notFoundList.length > 3 ? '...' : ''})`;
+      }
+
+      addToast({
+        title: language === 'th' ? 'นำเข้ารหัสบาร์โค้ดแบบกลุ่มสำเร็จ' : 'Bulk Import Complete',
+        message: msg,
+        type: notFoundList.length > 0 || outOfStockList.length > 0 ? 'warning' : 'success',
+      });
+    } else {
+      playScannerSound('error');
+      addToast({
+        title: language === 'th' ? 'การนำเข้ารหัสแบบกลุ่มล้มเหลว' : 'Bulk Import Failed',
+        message: language === 'th'
+          ? `ไม่พบสินค้าหรือสินค้าหมดสต็อกสำหรับบาร์โค้ดที่ระบุ (${codes.length} รหัส)`
+          : `No valid or in-stock products found for the provided barcodes (${codes.length} codes).`,
+        type: 'error',
+      });
+    }
+  };
+
+  // Filter products by selected category and search string
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      const matchesCategory =
+        selectedCategory === 'cat-all' || p.categoryId === selectedCategory;
+      const q = searchQuery.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        p.barcode.includes(q);
+      return matchesCategory && matchesSearch;
+    });
+  }, [products, selectedCategory, searchQuery]);
+
+  // Reset focus when filtered products change
+  useEffect(() => {
+    setFocusedProductIndex(-1);
+  }, [filteredProducts]);
+
+  // Keyboard navigation for product grid
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if a modal is open
+      if (isBulkAddModalOpen || isScannerModalOpen || isMobileCartOpen) return;
+
+      const activeTag = document.activeElement?.tagName;
+      const isInputFocused = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT';
+
+      if (isInputFocused) {
+        if (e.key === 'ArrowDown' && document.activeElement?.id === 'pos-search-input') {
+          e.preventDefault();
+          (document.activeElement as HTMLElement).blur();
+          setFocusedProductIndex(0);
+          setTimeout(() => {
+            document.getElementById(`product-card-0`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }, 0);
+        }
+        return;
+      }
+
+      if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        
+        if (focusedProductIndex === -1) {
+          setFocusedProductIndex(0);
+          return;
+        }
+
+        setFocusedProductIndex((prev) => {
+          let next = prev;
+          if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+            next = Math.min(prev + 1, filteredProducts.length - 1);
+          } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+            next = Math.max(prev - 1, 0);
+          }
+          
+          if (next !== prev) {
+            // Give React a tick to update state, then scroll (or just scroll immediately based on the ID we predict)
+            setTimeout(() => {
+              document.getElementById(`product-card-${next}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 0);
+          }
+          return next;
+        });
+      } else if (e.key === 'Enter') {
+        if (focusedProductIndex >= 0 && focusedProductIndex < filteredProducts.length) {
+          e.preventDefault();
+          const prod = filteredProducts[focusedProductIndex];
+          if (prod.currentStock > 0) {
+            playScannerSound('click');
+            addItem(prod, 1);
+          }
+        }
+      } else if (e.key === 'Escape') {
+        setFocusedProductIndex(-1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [filteredProducts, focusedProductIndex, addItem, isBulkAddModalOpen, isScannerModalOpen, isMobileCartOpen]);
+
+  return (
+    <div className="flex-1 flex flex-col lg:flex-row h-full overflow-hidden bg-background">
+      {/* Mobile Tab Switcher */}
+      <div className="lg:hidden px-4 py-2.5 bg-card border-b border-crisp border-border flex items-center gap-2 shrink-0 z-30">
+        <button
+          type="button"
+          onClick={() => setMobileTab('catalog')}
+          className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+            mobileTab === 'catalog'
+              ? 'bg-primary text-white shadow-2xs'
+              : 'bg-background text-text/70 hover:text-text border border-border'
+          }`}
+        >
+          <Layers className="h-4 w-4" />
+          <span>{language === 'th' ? 'เลือกสินค้า (Catalog)' : 'Products'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileTab('cart')}
+          className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 relative ${
+            mobileTab === 'cart'
+              ? 'bg-primary text-white shadow-2xs'
+              : 'bg-background text-text/70 hover:text-text border border-border'
+          }`}
+        >
+          <ShoppingCart className="h-4 w-4" />
+          <span>{language === 'th' ? 'ตะกร้าสินค้า (Cart)' : 'Cart'}</span>
+          {totals.totalItemsCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-black h-5 w-5 rounded-full flex items-center justify-center shadow-md">
+              {totals.totalItemsCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* Left Workspace: Search, Categories & Catalog Grid */}
+      <div className={`flex-1 flex flex-col h-[calc(100%-56px)] lg:h-full min-h-0 min-w-0 overflow-hidden bg-background ${mobileTab === 'cart' ? 'hidden lg:flex' : 'flex'}`}>
+        {/* Top Operational Toolbar: Search, Barcode Input & Hardware Scanner Pill */}
+        <div className="p-4 border-b border-crisp border-border bg-card flex flex-col lg:flex-row gap-3 shrink-0">
+          <div className="flex-1 min-w-0">
+            <SearchInput
+              id="pos-search-input"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onClear={() => setSearchQuery('')}
+              placeholder={t.pos.searchPlaceholder}
+            />
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Barcode Quick Scanner Form */}
+            <form onSubmit={handleBarcodeSubmit} className="flex items-center gap-2 flex-1 sm:w-60 md:w-64">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  placeholder={language === 'th' ? 'สแกน / กรอกบาร์โค้ด' : 'Scan / Enter Barcode'}
+                  className="w-full min-h-[44px] h-11 rounded-lg border-crisp border border-border bg-card text-sm sm:text-xs pl-9 pr-3 py-2.5 font-mono text-text placeholder-text/40 focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+                />
+                <Barcode className="h-4 w-4 text-text/40 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+              <button
+                type="submit"
+                disabled={!barcodeInput.trim()}
+                className="min-h-[44px] h-11 px-4 rounded-lg bg-primary hover:bg-primary/90 text-white text-xs font-bold tracking-wide disabled:opacity-40 cursor-pointer transition-all shrink-0 flex items-center justify-center shadow-2xs active:scale-95"
+              >
+                {language === 'th' ? 'สแกน' : 'Scan'}
+              </button>
+            </form>
+
+            <button
+              type="button"
+              onClick={() => {
+                playScannerSound('click');
+                setIsBulkAddModalOpen(true);
+              }}
+              title={language === 'th' ? 'นำเข้าบาร์โค้ดแบบกลุ่ม' : 'Bulk Barcode Import'}
+              className="min-h-[44px] h-11 px-3.5 rounded-lg bg-card hover:bg-background border-crisp border border-border text-text/70 hover:text-text transition-colors cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-2xs"
+            >
+              <Clipboard className="h-4 w-4" />
+            </button>
+
+            {/* Hardware Scanner Status & Simulator Launcher Button */}
+            <div className="flex items-center gap-1.5 bg-card border-crisp border border-border rounded-lg p-1 h-11 shrink-0 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setIsScannerModalOpen(true)}
+                title={language === 'th' ? 'เครื่องสแกนบาร์โค้ดฮาร์ดแวร์ & ตัวจำลอง' : 'Hardware Barcode Scanner & Simulator'}
+                className="px-2.5 py-1 h-full hover:bg-background text-text/70 hover:text-text flex items-center gap-2 text-xs font-semibold cursor-pointer rounded-lg transition-all border border-transparent hover:border-crisp hover:border-border"
+              >
+                <div className="relative flex items-center justify-center">
+                  <span className={`h-2.5 w-2.5 rounded-full ${
+                    !isScannerEnabled 
+                      ? 'bg-border dark:bg-background' 
+                      : !isWindowFocused 
+                        ? 'bg-amber-500 animate-pulse' 
+                        : isScanning 
+                          ? 'bg-primary animate-ping' 
+                          : 'bg-emerald-500'
+                  }`} />
+                </div>
+                
+                <div className="flex flex-col text-left justify-center">
+                  <span className="text-[9px] text-text/50 uppercase font-bold tracking-wider leading-none">
+                    {language === 'th' ? 'เครื่องสแกน' : 'HID Scanner'}
+                  </span>
+                  <span className="text-[10px] font-bold text-text leading-tight">
+                    {!isScannerEnabled ? (
+                      <span className="text-text/50">
+                        {language === 'th' ? 'ปิด' : 'Off'}
+                      </span>
+                    ) : !isWindowFocused ? (
+                      <span className="text-amber-500">
+                        {language === 'th' ? 'ไม่โฟกัส' : 'Unfocused'}
+                      </span>
+                    ) : (
+                      <span className="text-emerald-500">
+                        {language === 'th' ? 'พร้อมใช้งาน' : 'Ready'}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </button>
+
+              <div className="h-4 w-px bg-border border-crisp" />
+              <button
+                type="button"
+                onClick={() => {
+                  playScannerSound('click');
+                  setIsScannerEnabled(!isScannerEnabled);
+                  addToast({
+                    title: language === 'th' ? 'อัปเดตสแกนเนอร์ฮาร์ดแวร์' : 'Scanner Config Updated',
+                    message: !isScannerEnabled
+                      ? (language === 'th' ? 'เปิดใช้งานการดักฟังคีย์บอร์ดแล้ว' : 'Keyboard wedge listener active.')
+                      : (language === 'th' ? 'ปิดใช้งานเครื่องสแกนชั่วคราวแล้ว' : 'Wedge listener paused to bypass keyboard interrupts.'),
+                    type: 'info'
+                  });
+                }}
+                title={isScannerEnabled ? (language === 'th' ? 'คลิกเพื่อหยุดสแกนชั่วคราว' : 'Pause scanner listener') : (language === 'th' ? 'คลิกเพื่อเปิดสแกนเนอร์' : 'Activate scanner listener')}
+                className="px-2 h-full flex items-center justify-center text-text/50 hover:text-text transition-colors cursor-pointer rounded-lg hover:bg-background"
+              >
+                <div className={`w-7 h-4 rounded-full p-0.5 transition-colors duration-200 ease-in-out ${isScannerEnabled ? 'bg-emerald-500' : 'bg-border dark:bg-background'}`}>
+                  <div className={`w-3 h-3 rounded-full bg-white shadow-sm transform duration-200 ease-in-out ${isScannerEnabled ? 'translate-x-3' : 'translate-x-0'}`} />
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Categories Carousel / Pill Bar */}
+        <div className="px-4 py-3 border-b border-crisp border-border bg-card flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0">
+          {categories.map((cat) => {
+            const isSelected = selectedCategory === cat.id;
+            const categoryLabel = cat.id === 'cat-all' ? t.pos.allCategories : cat.name;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => {
+                  playScannerSound('click');
+                  setSelectedCategory(cat.id);
+                }}
+                className={`min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                  isSelected
+                    ? 'bg-primary text-white border-crisp border border-primary'
+                    : 'bg-card text-text/70 border-crisp border border-border hover:text-text hover:bg-background active:scale-95'
+                }`}
+              >
+                {cat.color && (
+                  <span
+                    className="h-2.5 w-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: cat.color }}
+                  />
+                )}
+                <span>{categoryLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Product Catalog Grid Scroll Area */}
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5 pb-24 lg:pb-5 no-scrollbar">
+          {isLoading ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="rounded-lg border-crisp border border-border bg-card p-3.5 space-y-2.5 shadow-2xs"
+                >
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-1/2" />
+                  <div className="pt-2.5 border-t border-crisp border-border flex justify-between items-center">
+                    <Skeleton className="h-5 w-14" />
+                    <Skeleton className="h-7 w-7 rounded-lg" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : filteredProducts.length === 0 ? (
+            <EmptyState
+              icon={<Search className="h-6 w-6 text-text/40" />}
+              title={language === 'th' ? 'ไม่พบสินค้า' : 'No Products Found'}
+              description={
+                searchQuery
+                  ? (language === 'th' ? `ไม่มีสินค้าตรงกับคำค้นหา "${searchQuery}"` : `No items match the search query "${searchQuery}".`)
+                  : (language === 'th' ? 'ไม่มีสินค้าในหมวดหมู่นี้' : 'No products found in this category.')
+              }
+              actionLabel={language === 'th' ? 'ล้างตัวกรอง' : 'Clear Filter'}
+              onAction={() => {
+                setSearchQuery('');
+                setSelectedCategory('cat-all');
+              }}
+              className="my-12 max-w-md mx-auto"
+            />
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3.5 content-start">
+              {filteredProducts.map((product, index) => (
+                <ProductCard
+                  key={product.id}
+                  id={`product-card-${index}`}
+                  product={product}
+                  isFocused={index === focusedProductIndex}
+                  onAddToCart={(p) => {
+                    playScannerSound('click');
+                    addItem(p, 1);
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Mobile Floating Cart Summary Bar */}
+        <AnimatePresence>
+          {totals.totalItemsCount > 0 && (
+            <motion.div
+              initial={{ y: 150, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 150, opacity: 0 }}
+              className="lg:hidden absolute bottom-4 left-4 right-4 p-4 border border-crisp border-primary/20 bg-card flex items-center justify-between shadow-2xl rounded-2xl z-40"
+            >
+              <div>
+                <div className="text-[11px] text-text/70 font-semibold">
+                  {t.pos.cartTitle} (<span className="font-mono">{totals.totalItemsCount}</span> {t.pos.itemCount})
+                </div>
+                <div className="text-lg font-black font-mono text-primary">
+                  {formatMoney(totals.grandTotal)}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsMobileCartOpen(true)}
+                className="min-h-[48px] h-12 flex items-center gap-2.5 px-6 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-sm shadow-2xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95"
+              >
+                <ShoppingCart className="h-4.5 w-4.5" />
+                <span>{t.pos.checkoutBtn}</span>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Desktop/Tablet Right Side Cart Panel / Mobile Cart View */}
+      <div className={`w-full lg:w-[45%] xl:w-[40%] h-[calc(100%-56px)] lg:h-full min-h-0 shrink-0 border-l border-crisp border-border bg-card ${mobileTab === 'cart' ? 'flex flex-col flex-1 lg:flex-initial' : 'hidden lg:block'}`}>
+        <CartPanel />
+      </div>
+
+      {/* Mobile Cart Drawer */}
+      <Drawer
+        isOpen={isMobileCartOpen}
+        onClose={() => setIsMobileCartOpen(false)}
+        title={t.pos.cartTitle}
+        side="right"
+        width="w-full sm:max-w-md"
+        noPadding={true}
+      >
+        <div className="h-full flex flex-col">
+          <CartPanel />
+        </div>
+      </Drawer>
+
+      {/* Barcode Scanner Simulator & Testing Modal */}
+      <BarcodeScannerTesterModal
+        isOpen={isScannerModalOpen}
+        onClose={() => setIsScannerModalOpen(false)}
+        products={products}
+        onSimulateScan={(code) => {
+          simulateScan(code);
+        }}
+        lastScannedBarcode={lastScannedBarcode}
+        lastScannedAt={lastScannedAt}
+        scanCount={scanCount}
+      />
+
+      {/* Bulk Add Barcodes Modal */}
+      <Modal
+        isOpen={isBulkAddModalOpen}
+        onClose={() => {
+          if (!isBulkAdding) {
+            setIsBulkAddModalOpen(false);
+            setBulkBarcodeInput('');
+          }
+        }}
+        title={language === 'th' ? 'วางบาร์โค้ดแบบกลุ่ม (Bulk Barcode Import)' : 'Bulk Barcode Import'}
+      >
+        <form onSubmit={handleBulkAdd} className="space-y-4">
+          <div className="space-y-1.5 text-left">
+            <label className="text-xs font-bold text-text/70 uppercase tracking-wider">
+              {language === 'th' ? 'รายการรหัสบาร์โค้ด' : 'Barcode Entries List'}
+            </label>
+            <textarea
+              rows={6}
+              value={bulkBarcodeInput}
+              onChange={(e) => setBulkBarcodeInput(e.target.value)}
+              disabled={isBulkAdding}
+              placeholder={
+                language === 'th'
+                  ? "วางรหัสบาร์โค้ดคั่นด้วยเครื่องหมายจุลภาค (,), บรรทัดใหม่ หรือเว้นวรรค\ne.g. 8851014111223\n8851014111445\n8852024111333"
+                  : "Paste barcodes separated by commas (,), spaces, semicolons (;), or newlines\ne.g. 8851014111223, 8851014111445, 8852024111333"
+              }
+              className="w-full rounded-lg border-crisp border border-border bg-card p-4 text-xs font-mono text-text placeholder-text/40 focus:outline-none focus:ring-2 focus:ring-primary transition-colors resize-none leading-relaxed"
+            />
+            <p className="text-[10px] text-text/50 leading-normal">
+              {language === 'th'
+                ? 'ระบบจะจับคู่กับฐานข้อมูลและเพิ่มสินค้าเข้าตะกร้าโดยอัตโนมัติเฉพาะรายการที่มีสต็อกคงเหลือ'
+                : 'Matches entries against store catalog and automatically stages them with 1 unit in your cart.'}
+            </p>
+          </div>
+
+          <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-crisp border-border">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isBulkAdding}
+              onClick={() => {
+                playScannerSound('click');
+                setIsBulkAddModalOpen(false);
+                setBulkBarcodeInput('');
+              }}
+              className="text-xs font-bold rounded-lg border-crisp border-border"
+            >
+              {language === 'th' ? 'ยกเลิก' : 'Cancel'}
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={isBulkAdding || !bulkBarcodeInput.trim()}
+              isLoading={isBulkAdding}
+              leftIcon={<Layers className="h-3.5 w-3.5" />}
+              className="text-xs font-bold rounded-lg"
+            >
+              {language === 'th' ? 'นำเข้าและเพิ่มลงรถเข็น' : 'Import & Stage items'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Barcode Scan Visual Feedback Overlays */}
+      <AnimatePresence>
+        {isFlashActive && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 pointer-events-none z-[9999] border-[6px] border-emerald-500/40 dark:border-emerald-400/40 bg-emerald-500/[0.015]"
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {activeIndicator && (
+          <motion.div
+            key={activeIndicator.id}
+            initial={{ opacity: 0, y: -40, scale: 0.9, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, scale: 1, x: '-50%' }}
+            exit={{ opacity: 0, y: -20, scale: 0.95, x: '-50%' }}
+            transition={{ type: 'spring', stiffness: 400, damping: 24 }}
+            className="fixed top-6 left-1/2 -translate-x-1/2 z-[10000] bg-card text-text shadow-2xl border-crisp border border-border rounded-lg px-4 py-3 flex items-center gap-3 backdrop-blur-md w-full max-w-xs sm:max-w-sm"
+          >
+            <div className="h-8 w-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30">
+              <CheckCircle2 className="h-5 w-5 animate-bounce" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] font-bold truncate text-text leading-tight">{activeIndicator.name}</div>
+              <div className="text-[9px] text-text/50 font-mono flex items-center gap-1.5 mt-0.5">
+                <Barcode className="h-3.5 w-3.5 opacity-60 shrink-0 text-primary" />
+                <span className="truncate">{activeIndicator.barcode}</span>
+                <span className="h-1 w-1 rounded-full bg-border shrink-0" />
+                <span className="text-emerald-400 font-bold shrink-0">{activeIndicator.price}</span>
+              </div>
+            </div>
+            <div className="bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-mono font-black text-xs px-2 py-0.5 rounded-lg shrink-0">
+              +1
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
+

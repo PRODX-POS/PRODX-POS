@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: var(--primary-color);
+  --color-primary-dark: var(--primary-dark);
+  --color-primary-glow: var(--primary-glow);
+  --color-background: var(--bg-color);
+  --color-card: var(--card-color);
+  --color-text: var(--text-color);
+  --color-border: var(--border-color);
+
+  /* Override standard Tailwind neutral shades for cohesive enterprise SaaS theme */
+  --color-white: var(--card-color);
+  --color-slate-50: var(--bg-color);
+  --color-zinc-50: var(--bg-color);
+  --color-slate-100: var(--bg-color);
+  --color-zinc-100: var(--bg-color);
+  
+  --color-slate-900: var(--text-color);
+  --color-zinc-900: var(--text-color);
+  
+  --color-slate-200: var(--border-color);
+  --color-zinc-200: var(--border-color);
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --primary-color: #2563EB;
+    --primary-dark: #1D4ED8;
+    --primary-glow: rgba(59, 130, 246, 0.2);
+    --bg-color: #F8FAFC;
+    --card-color: #FFFFFF;
+    --text-color: #0F172A;
+    --border-color: #E2E8F0;
+  }
+
+  :root.dark {
+    color-scheme: dark;
+    --primary-color: #3B82F6;
+    --primary-dark: #2563EB;
+    --primary-glow: rgba(59, 130, 246, 0.2);
+    --bg-color: #090D16;
+    --card-color: #0F172A;
+    --text-color: #F8FAFC;
+    --border-color: #1E293B;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-text);
+    font-family: 'K2D', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* High-tech SaaS subtle dot matrix background */
+.tech-dot-matrix {
+  background-image: radial-gradient(rgba(37, 99, 235, 0.15) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.tech-grid-mesh {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+}
+
+:root.dark .tech-grid-mesh,
+.dark .tech-grid-mesh {
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+}
+
+/* Crisp 1px border styling */
+.border-crisp {
+  border-width: 1px;
+}
+
+/* Scrollbars & utilities */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Tactile Active Scaling Utilities for Touch & Desktop Feedback */
+.active-scale {
+  transition: transform 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.active-scale:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.active-scale-sm {
+  transition: transform 0.12s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.active-scale-sm:active:not(:disabled) {
+  transform: scale(0.95);
+}

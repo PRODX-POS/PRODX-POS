@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=K2D:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>PRODX POS — Retail Operating System</title>
+    <meta name="description" content="Production-grade Point of Sale frontend foundation featuring modular architecture, decimal-safe financial calculations, offline resilience, and enterprise design system." />
+    <meta property="og:title" content="PRODX POS — Retail Operating System" />
+    <meta property="og:description" content="Production-grade Point of Sale frontend foundation featuring modular architecture, decimal-safe financial calculations, offline resilience, and enterprise design system." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      (function() {
+        try {
+          var PRESETS = {
+            enterprise_blue: { primary: '#2563EB', background: '#F8FAFC', card: '#FFFFFF', text: '#0F172A', border: '#E2E8F0', isDark: false },
+            deep_obsidian: { primary: '#3B82F6', background: '#090D16', card: '#0F172A', text: '#F8FAFC', border: '#1E293B', isDark: true },
+            modern: { primary: '#3B82F6', background: '#F8FAFC', card: '#FFFFFF', text: '#0F172A', border: '#E2E8F0', isDark: false },
+            minimal: { primary: '#0F172A', background: '#F8FAFC', card: '#FFFFFF', text: '#0F172A', border: '#E2E8F0', isDark: false },
+            dark_elegant: { primary: '#60A5FA', background: '#0B0D11', card: '#151821', text: '#F1F3F5', border: '#2A2E3D', isDark: true },
+            emerald: { primary: '#10B981', background: '#F0FDF4', card: '#FFFFFF', text: '#064E3B', border: '#D1FAE5', isDark: false },
+            cyberpunk: { primary: '#38BDF8', background: '#0B0F19', card: '#111827', text: '#F9FAFB', border: '#1E293B', isDark: true },
+            sunset: { primary: '#F97316', background: '#FFF8F5', card: '#FFFFFF', text: '#5B1E00', border: '#FFE4D6', isDark: false },
+            ocean: { primary: '#0284C7', background: '#F0FDFA', card: '#FFFFFF', text: '#0F172A', border: '#E2E8F0', isDark: false },
+            lavender: { primary: '#6366F1', background: '#F8FAFC', card: '#FFFFFF', text: '#0F172A', border: '#E2E8F0', isDark: false }
+          };
+
+          var savedPresetId = localStorage.getItem('prodx_pos_theme_preset') || 'enterprise_blue';
+          var preset = PRESETS[savedPresetId] || PRESETS.enterprise_blue;
+          var savedMode = localStorage.getItem('prodx_pos_theme_mode');
+          var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          
+          var isDark = false;
+          if (savedMode === 'dark') {
+            isDark = true;
+          } else if (savedMode === 'light') {
+            isDark = false;
+          } else if (savedMode === 'system') {
+            isDark = systemDark;
+          } else {
+            isDark = preset.isDark;
+          }
+
+          var customAccent = localStorage.getItem('prodx_custom_accent_color');
+          var root = document.documentElement;
+
+          var bgColor = preset.background;
+          var cardColor = preset.card;
+          var textColor = preset.text;
+          var borderColor = preset.border;
+          var primaryColor = customAccent || preset.primary;
+          var primaryDarkColor = '#1D4ED8';
+          var primaryGlow = 'rgba(37, 99, 235, 0.2)';
+
+          if (isDark) {
+            if (preset.isDark) {
+              bgColor = preset.background;
+              cardColor = preset.card;
+              textColor = preset.text;
+              borderColor = preset.border;
+              primaryColor = customAccent || preset.primary;
+            } else {
+              bgColor = '#090D16';
+              cardColor = '#0F172A';
+              textColor = '#F8FAFC';
+              borderColor = '#1E293B';
+              primaryColor = customAccent || '#3B82F6';
+            }
+            primaryDarkColor = '#2563EB';
+            primaryGlow = 'rgba(59, 130, 246, 0.25)';
+          } else {
+            if (!preset.isDark) {
+              bgColor = preset.background;
+              cardColor = preset.card;
+              textColor = preset.text;
+              borderColor = preset.border;
+              primaryColor = customAccent || preset.primary;
+            } else {
+              bgColor = '#F8FAFC';
+              cardColor = '#FFFFFF';
+              textColor = '#0F172A';
+              borderColor = '#E2E8F0';
+              primaryColor = customAccent || '#2563EB';
+            }
+            primaryDarkColor = '#1D4ED8';
+            primaryGlow = 'rgba(37, 99, 235, 0.2)';
+          }
+
+          root.style.setProperty('--primary-color', primaryColor);
+          root.style.setProperty('--primary-dark', primaryDarkColor);
+          root.style.setProperty('--primary-glow', primaryGlow);
+          root.style.setProperty('--bg-color', bgColor);
+          root.style.setProperty('--card-color', cardColor);
+          root.style.setProperty('--text-color', textColor);
+          root.style.setProperty('--border-color', borderColor);
+
+          if (isDark) {
+            root.classList.add('dark');
+          } else {
+            root.classList.remove('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

@@ -1,0 +1,63 @@
+import React from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { useOffline } from '../../context/OfflineContext';
+import { Terminal, Shield, Database, Cpu } from 'lucide-react';
+
+export const StatusBar: React.FC = () => {
+  const { session } = useAuth();
+  const { isOnline, pendingCount } = useOffline();
+
+  if (!session) return null;
+
+  return (
+    <footer className="h-8 w-full max-w-full overflow-x-hidden border-t border-border border-crisp bg-card/80 px-3 sm:px-6 flex items-center justify-between text-[10px] text-text/60 font-mono shrink-0 select-none z-20">
+      {/* Left items */}
+      <div className="flex items-center gap-3 sm:gap-4 uppercase tracking-wider font-semibold">
+        <span className="flex items-center gap-1.5">
+          <Terminal className="h-3 w-3 text-text/40" />
+          <span className="text-text/60">{session.organization.slug}</span>
+          <span className="text-text/30">/</span>
+          <span className="text-text font-bold">{session.currentStore.code}</span>
+        </span>
+
+        <span className="hidden sm:inline-flex items-center gap-1.5">
+          <Shield className="h-3 w-3 text-emerald-600 dark:text-emerald-500" />
+          <span className="text-text/60">ROLE:</span>
+          <span className="text-emerald-600 dark:text-emerald-400 font-bold">{session.currentUser.role}</span>
+        </span>
+
+        <span className="hidden md:inline-flex items-center gap-1">
+          <span className="text-text/60">REG:</span>
+          <span className="text-text/80">{session.registerId}</span>
+        </span>
+      </div>
+
+      {/* Right items */}
+      <div className="flex items-center gap-3 sm:gap-4 uppercase tracking-wider font-semibold">
+        <span className="hidden xl:inline-flex items-center gap-1 text-text/60 border border-border border-crisp px-1.5 py-0.5 rounded bg-background/80">
+          <span>ADAPTER: CLIENT-MOCK DEV FOUNDATION</span>
+        </span>
+
+        <span className="hidden lg:inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+          <Cpu className="h-3 w-3" />
+          <span>DECIMAL-SAFE FINANCIAL CORE</span>
+        </span>
+
+        <span className="flex items-center gap-1.5">
+          <Database className="h-3 w-3 text-text/40" />
+          <span className="text-text/60">OUTBOX:</span>
+          <span className={`font-bold ${pendingCount > 0 ? 'text-amber-600 dark:text-amber-400 animate-pulse' : 'text-text/80'}`}>
+            {pendingCount} {pendingCount === 1 ? 'queue' : 'queued'}
+          </span>
+        </span>
+
+        <div className="flex items-center gap-1.5">
+          <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+          <span className={isOnline ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-amber-600 dark:text-amber-400 font-bold'}>
+            {isOnline ? 'LIVE' : 'OFFLINE'}
+          </span>
+        </div>
+      </div>
+    </footer>
+  );
+};

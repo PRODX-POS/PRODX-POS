@@ -1,0 +1,6 @@
+{
+  "name": "PRODX POS",
+  "description": "Production-grade Point of Sale frontend foundation featuring modular architecture, decimal-safe financial calculations, offline resilience, and enterprise design system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

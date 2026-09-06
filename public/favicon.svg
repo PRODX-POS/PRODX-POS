@@ -1,0 +1,56 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="fav-arrow-tip" x1="60" y1="50" x2="100" y2="35" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#FFC700" />
+      <stop offset="50%" stopColor="#FFAA00" />
+      <stop offset="100%" stopColor="#FF7A00" />
+    </linearGradient>
+    <linearGradient id="fav-top-arch" x1="85" y1="34" x2="175" y2="45" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#FFAA00" />
+      <stop offset="25%" stopColor="#FF8C00" />
+      <stop offset="65%" stopColor="#FF5A00" />
+      <stop offset="100%" stopColor="#EA3000" />
+    </linearGradient>
+    <linearGradient id="fav-outer-loop" x1="175" y1="45" x2="135" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#FF6A00" />
+      <stop offset="45%" stopColor="#EE2E00" />
+      <stop offset="85%" stopColor="#D41E00" />
+      <stop offset="100%" stopColor="#B31500" />
+    </linearGradient>
+    <linearGradient id="fav-under-return" x1="150" y1="124" x2="88" y2="92" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#DE2C00" />
+      <stop offset="55%" stopColor="#FF5A00" />
+      <stop offset="100%" stopColor="#FF8500" />
+    </linearGradient>
+    <linearGradient id="fav-inner-cavity" x1="90" y1="65" x2="142" y2="95" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#B31600" />
+      <stop offset="50%" stopColor="#8C0D00" />
+      <stop offset="100%" stopColor="#DE3200" />
+    </linearGradient>
+    <linearGradient id="fav-stem-front" x1="72" y1="70" x2="78" y2="162" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#FF8200" />
+      <stop offset="35%" stopColor="#FF5500" />
+      <stop offset="75%" stopColor="#D92200" />
+      <stop offset="100%" stopColor="#BF1900" />
+    </linearGradient>
+    <linearGradient id="fav-stem-top" x1="72" y1="65" x2="108" y2="78" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#FFBA00" />
+      <stop offset="40%" stopColor="#FFA000" />
+      <stop offset="100%" stopColor="#FF6A00" />
+    </linearGradient>
+    <linearGradient id="fav-stem-inner" x1="94" y1="76" x2="94" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#A81400" />
+      <stop offset="100%" stopColor="#780A00" />
+    </linearGradient>
+  </defs>
+
+  <path d="M72 68 L94 76 L94 142 L72 160 Z" fill="url(#fav-stem-front)" />
+  <path d="M72 68 L94 76 L108 68 L86 60 Z" fill="url(#fav-stem-top)" />
+  <path d="M94 76 L108 68 L108 92 L94 104 Z" fill="url(#fav-stem-inner)" />
+  <path d="M68 45 L86 35 L102 37 L86 60 Z" fill="url(#fav-arrow-tip)" />
+  <path d="M68 45 L86 60 L132 50 C152 46 168 58 168 76 C168 85 162 94 150 98 L142 84 C150 81 154 76 154 70 C154 60 144 58 128 60 L86 60 L68 45 Z" fill="url(#fav-top-arch)" />
+  <path d="M132 50 C156 46 174 60 174 82 C174 106 156 122 130 126 L108 128 L108 108 L128 106 C144 103 155 93 155 80 C155 68 145 60 128 62 Z" fill="url(#fav-outer-loop)" />
+  <path d="M108 68 L128 62 C145 60 155 70 155 80 C155 93 144 103 128 106 L108 108 L108 90 Z" fill="url(#fav-inner-cavity)" />
+  <path d="M94 104 L108 96 L108 108 L128 106 C140 104 148 97 152 88 L158 97 C152 110 138 120 122 123 L94 128 Z" fill="url(#fav-under-return)" />
+</svg>
+

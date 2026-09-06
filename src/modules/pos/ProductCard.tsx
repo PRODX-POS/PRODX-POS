@@ -1,0 +1,88 @@
+import React from 'react';
+import { Product } from '../../domain/catalog';
+import { formatMoney } from '../../domain/money';
+import { useLanguage } from '../../context/LanguageContext';
+import { AlertCircle, Plus } from 'lucide-react';
+
+export interface ProductCardProps {
+  product: Product;
+  onAddToCart: (product: Product) => void;
+  isFocused?: boolean;
+  id?: string;
+}
+
+export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart, isFocused = false, id }) => {
+  const { t } = useLanguage();
+  const isLowStock = product.currentStock <= product.reorderPoint;
+  const isOutOfStock = product.currentStock <= 0;
+
+  return (
+    <div
+      id={id}
+      role="button"
+      tabIndex={isOutOfStock ? -1 : 0}
+      onClick={() => {
+        if (!isOutOfStock) onAddToCart(product);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          if (!isOutOfStock) onAddToCart(product);
+        }
+      }}
+      className={`group relative min-h-[128px] rounded-lg border-crisp border p-3.5 sm:p-4 text-left transition-all select-none flex flex-col justify-between shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 dark:focus-visible:ring-offset-card ${
+        isOutOfStock
+          ? 'opacity-50 border-border bg-card/60 cursor-not-allowed'
+          : isFocused
+            ? 'ring-2 ring-primary border-primary bg-primary/10 cursor-pointer active:scale-[0.98]'
+            : 'border-border bg-card hover:border-primary/50 hover:shadow-xs cursor-pointer active:scale-[0.98]'
+      }`}
+    >
+      {/* Top Details */}
+      <div>
+        <div className="flex items-start justify-between gap-1.5 mb-1.5 sm:mb-2">
+          <span className="text-[10px] sm:text-[11px] font-mono text-text/50 font-bold uppercase tracking-wider truncate">
+            {product.sku}
+          </span>
+
+          {/* Stock indicator badge */}
+          {isOutOfStock ? (
+            <span className="text-[9px] sm:text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 shrink-0">
+              {t.pos.outOfStock}
+            </span>
+          ) : isLowStock ? (
+            <span className="text-[9px] sm:text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1 shrink-0">
+              <AlertCircle className="h-3 w-3" />
+              <span className="font-mono">{product.currentStock}</span>
+            </span>
+          ) : (
+            <span className="text-[9px] sm:text-[10px] font-medium text-text/50 shrink-0">
+              <span className="font-mono">{product.currentStock}</span> {t.pos.inStock}
+            </span>
+          )}
+        </div>
+
+        <h3 className="text-xs sm:text-sm font-bold text-text line-clamp-2 leading-snug group-hover:text-primary transition-colors">
+          {product.name}
+        </h3>
+
+        {product.description && (
+          <p className="mt-1 text-[10px] sm:text-[11px] text-text/70 line-clamp-1 sm:line-clamp-2 leading-normal">
+            {product.description}
+          </p>
+        )}
+      </div>
+
+      {/* Bottom Price & Add Action */}
+      <div className="mt-2.5 sm:mt-3 pt-2 sm:pt-2.5 border-t border-border border-crisp flex items-center justify-between gap-1">
+        <div className="font-mono text-xs sm:text-base font-bold text-primary truncate">
+          {formatMoney(product.price)}
+        </div>
+
+        <div className="min-h-[38px] min-w-[38px] h-9 w-9 rounded-lg bg-background border-crisp border border-border text-text/70 flex items-center justify-center group-hover:bg-primary group-hover:text-white group-hover:border-primary transition-all shrink-0 shadow-2xs">
+          <Plus className="h-4 w-4" />
+        </div>
+      </div>
+    </div>
+  );
+};

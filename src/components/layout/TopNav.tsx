@@ -1,0 +1,549 @@
+import React, { useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
+import { useLanguage } from '../../context/LanguageContext';
+import { useCart } from '../../context/CartContext';
+import { useShift } from '../../context/ShiftContext';
+import { useOffline } from '../../context/OfflineContext';
+import {
+  Sun,
+  Moon,
+  Clock,
+  Store as StoreIcon,
+  ChevronDown,
+  LogOut,
+  Menu,
+  Globe,
+  Check,
+  Search,
+  Settings,
+  X,
+  Tv,
+  Lock,
+  Cloud,
+  RefreshCw,
+  ShoppingCart
+} from 'lucide-react';
+import { ProdxLogo } from '../common/ProdxLogo';
+import { NavRoute } from './Sidebar';
+import { ConnectivityBadge } from './ConnectivityBadge';
+import { CustomerDisplayLauncherModal } from '../customerDisplay/CustomerDisplayLauncherModal';
+import { GlobalSearchInput } from './GlobalSearchInput';
+import { getZIndexClass } from '../../utils/ZIndexManager';
+
+export interface TopNavProps {
+  currentRoute?: NavRoute;
+  onNavigate?: (route: NavRoute) => void;
+  onOpenMobileMenu: () => void;
+  onOpenHoldModal: () => void;
+  onOpenCommandPalette: () => void;
+}
+
+export const TopNav: React.FC<TopNavProps> = ({
+  currentRoute,
+  onNavigate,
+  onOpenMobileMenu,
+  onOpenHoldModal,
+  onOpenCommandPalette,
+}) => {
+  const { session, logout, switchStore, switchCurrency, switchDemoRole, lockSystem } = useAuth();
+  const { theme, toggleTheme } = useTheme();
+  const { language, setLanguage, t } = useLanguage();
+  const { heldCarts } = useCart();
+  const { currentShift } = useShift();
+  const { isOnline, pendingCount, isSyncing } = useOffline();
+
+  const [isStoreMenuOpen, setIsStoreMenuOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
+  const [isCurrencyMenuOpen, setIsCurrencyMenuOpen] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isCustomerDisplayModalOpen, setIsCustomerDisplayModalOpen] = useState(false);
+
+  const getCurrentCurrencySymbol = () => {
+    const cur = session?.currentStore?.currency || 'THB';
+    if (cur === 'THB') return '฿';
+    if (cur === 'USD') return '$';
+    if (cur === 'EUR') return '€';
+    if (cur === 'JPY') return '¥';
+    if (cur === 'GBP') return '£';
+    if (cur === 'AUD') return 'A$';
+    return '$';
+  };
+
+  if (!session) return null;
+
+  const handleConfirmLogout = () => {
+    setShowLogoutModal(false);
+    logout();
+  };
+
+  return (
+    <>
+      {/* Backdrop for closing open dropdowns */}
+      {(isStoreMenuOpen || isUserMenuOpen || isLangMenuOpen || isCurrencyMenuOpen) && (
+        <div
+          className={`fixed inset-0 ${getZIndexClass('dropdownBackdrop')} bg-transparent`}
+          onClick={() => {
+            setIsStoreMenuOpen(false);
+            setIsUserMenuOpen(false);
+            setIsLangMenuOpen(false);
+            setIsCurrencyMenuOpen(false);
+          }}
+        />
+      )}
+
+      <header className={`relative ${getZIndexClass('header')} bg-card border-b border-border h-14 sm:h-16 lg:h-16 w-full max-w-full px-2 sm:px-4 lg:px-6 flex items-center justify-between shrink-0 select-none overflow-visible`}>
+        {/* ========================================================================= */}
+        {/* ZONE 1: Context & Navigation (Mobile Menu, Brand, Store, Register, Shift) */}
+        {/* ========================================================================= */}
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 min-w-0">
+          {/* Mobile Drawer Trigger */}
+          <button
+            type="button"
+            onClick={onOpenMobileMenu}
+            className="lg:hidden min-w-[44px] min-h-[44px] p-2.5 rounded-xl text-text/70 hover:text-text hover:bg-background/80 transition-all duration-150 cursor-pointer flex items-center justify-center shrink-0 active:scale-95"
+            aria-label="Open navigation menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+
+          {/* Desktop Brand Logo */}
+          <div className="hidden sm:flex items-center shrink-0 pr-1 sm:pr-2">
+            <ProdxLogo variant="horizontal" size="sm" showTagline={false} />
+          </div>
+
+          {/* Divider on larger screens */}
+          <div className="hidden md:block h-5 w-[1px] bg-border shrink-0" />
+
+          {/* Store Selector Dropdown */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setIsStoreMenuOpen(!isStoreMenuOpen);
+                setIsCurrencyMenuOpen(false);
+                setIsLangMenuOpen(false);
+                setIsUserMenuOpen(false);
+              }}
+              className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 min-h-[44px] rounded-xl border border-border border-crisp bg-background/80 hover:bg-background text-xs font-bold text-text transition-all duration-150 cursor-pointer active:scale-95"
+            >
+              <StoreIcon className="h-3.5 w-3.5 text-text/60 shrink-0" />
+              <span className="max-w-[110px] sm:max-w-[130px] md:max-w-[170px] lg:max-w-[200px] truncate">
+                {session.currentStore.name}
+              </span>
+              <ChevronDown className="h-3.5 w-3.5 text-text/50 shrink-0" />
+            </button>
+
+            {isStoreMenuOpen && (
+              <div
+                className={`${getZIndexClass('dropdown')} absolute left-0 mt-2 w-72 sm:w-80 max-w-[95vw] rounded-2xl border border-border border-crisp bg-card shadow-2xl py-2 animate-in fade-in zoom-in-95 duration-100`}
+              >
+                <div className="px-3 py-1.5 text-[10px] font-bold text-text/50 uppercase tracking-wider">
+                  {t.topNav.selectStore}
+                </div>
+                {session.organization.stores.map((store) => (
+                  <button
+                    key={store.id}
+                    type="button"
+                    onClick={() => {
+                      switchStore(store);
+                      setIsStoreMenuOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2.5 min-h-[44px] text-xs flex items-center justify-between hover:bg-background/80 transition-all duration-150 cursor-pointer ${
+                      store.id === session.currentStore.id
+                        ? 'text-primary font-bold bg-primary/10'
+                        : 'text-text/70'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-bold">{store.name}</div>
+                      <div className="text-[11px] text-text/50 font-mono mt-0.5">{store.code} · {store.timezone}</div>
+                    </div>
+                    {store.id === session.currentStore.id && (
+                      <Check className="h-4 w-4 text-primary" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Terminal / POS Register Tag */}
+          <div className="hidden xl:flex items-center px-2.5 py-1.5 min-h-[44px] rounded-xl bg-background/80 border border-border border-crisp text-text/70 text-[11px] font-mono shrink-0">
+            {session.registerId}
+          </div>
+
+          {/* Active Shift Indicator */}
+          <div className="hidden 2xl:flex items-center gap-2 px-2.5 py-1.5 min-h-[44px] rounded-xl border border-border border-crisp bg-background/80 shrink-0">
+             <div className={`w-2 h-2 rounded-full ${currentShift ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+             <span className="text-[10px] font-bold text-text/70 uppercase">
+                {currentShift ? t.topNav.shiftOpen : t.topNav.noShift}
+             </span>
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* ZONE 2: Search, Utilities & Actions (Hidden or compact on mobile) */}
+        {/* ========================================================================= */}
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 ml-auto pr-1 sm:pr-2">
+          {/* Global Search Input (Hidden on mobile) */}
+          <div className="hidden lg:block w-48 xl:w-64">
+            <GlobalSearchInput onNavigate={onNavigate} />
+          </div>
+
+          {/* Command Palette Trigger Shortcut Button (Hidden on mobile) */}
+          <button
+            type="button"
+            onClick={onOpenCommandPalette}
+            className="hidden lg:flex items-center gap-1.5 px-2.5 py-2 min-h-[44px] rounded-xl border border-border border-crisp bg-background/80 hover:bg-background text-text/70 hover:text-text text-xs font-semibold transition-all duration-150 cursor-pointer active:scale-95"
+            title="Search or Command (Ctrl+K / ⌘K)"
+          >
+            <Search className="h-3.5 w-3.5 text-text/50" />
+            <span className="font-mono text-[10px] bg-card px-1.5 py-0.5 rounded border border-border/60">⌘K</span>
+          </button>
+
+          {/* Held Orders Quick Access Button (Hidden on mobile) */}
+          <button
+            type="button"
+            onClick={onOpenHoldModal}
+            className="hidden lg:flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl border border-border border-crisp bg-background/80 hover:bg-background text-xs font-bold text-text transition-all duration-150 cursor-pointer active:scale-95 relative"
+            title="Held Orders / Suspended Carts"
+          >
+            <ShoppingCart className="h-4 w-4 text-text/70" />
+            <span className="hidden xl:inline">{language === 'th' ? 'พักบิล' : 'Held'}</span>
+            {heldCarts.length > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-primary text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center shadow-xs">
+                {heldCarts.length}
+              </span>
+            )}
+          </button>
+
+          {/* Connectivity Badge & Offline Outbox Center */}
+          <div className="hidden sm:block">
+            <ConnectivityBadge />
+          </div>
+
+          {/* Customer Facing Display 2nd Monitor Launcher (Hidden on mobile) */}
+          <button
+            type="button"
+            onClick={() => setIsCustomerDisplayModalOpen(true)}
+            className="hidden lg:flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl border border-border border-crisp bg-background/80 hover:bg-background text-text/80 text-xs font-bold transition-all duration-150 cursor-pointer active:scale-95 justify-center"
+            title="เปิดหน้าจอลูกค้า (Customer-Facing Display 2nd Monitor)"
+          >
+            <Tv className="h-4 w-4 shrink-0 text-text/60" />
+            <span className="hidden xl:inline">{language === 'th' ? 'จอลูกค้า (CFD)' : 'Customer Display'}</span>
+          </button>
+
+          {/* Base Currency Switcher Dropdown */}
+          <div className="relative hidden lg:block">
+            <button
+              type="button"
+              onClick={() => {
+                setIsCurrencyMenuOpen(!isCurrencyMenuOpen);
+                setIsStoreMenuOpen(false);
+                setIsLangMenuOpen(false);
+                setIsUserMenuOpen(false);
+              }}
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 min-h-[44px] min-w-[44px] justify-center rounded-xl border border-border border-crisp bg-background/80 hover:bg-background text-text/80 hover:text-text text-xs font-bold transition-all duration-150 cursor-pointer active:scale-95"
+              title={language === 'th' ? 'เปลี่ยนสกุลเงินหลัก' : 'Switch Base Currency'}
+            >
+              <span className="text-text font-mono">{getCurrentCurrencySymbol()}</span>
+              <span className="font-mono hidden sm:inline">{session.currentStore.currency || 'THB'}</span>
+              <ChevronDown className="h-3 w-3 text-text/50" />
+            </button>
+
+            {isCurrencyMenuOpen && (
+              <div
+                className={`${getZIndexClass('dropdown')} absolute right-0 mt-2 w-48 max-w-[90vw] overflow-x-hidden rounded-2xl border border-border border-crisp bg-card shadow-2xl py-2 animate-in fade-in zoom-in-95 duration-100`}
+                onMouseLeave={() => setIsCurrencyMenuOpen(false)}
+              >
+                <div className="px-3 py-1.5 text-[10px] font-bold text-text/50 uppercase tracking-wider">
+                  {language === 'th' ? 'สกุลเงินหลัก' : 'Base Currency'}
+                </div>
+                {[
+                  { code: 'THB', symbol: '฿', name: 'THB (฿)' },
+                  { code: 'USD', symbol: '$', name: 'USD ($)' },
+                  { code: 'EUR', symbol: '€', name: 'EUR (€)' },
+                  { code: 'JPY', symbol: '¥', name: 'JPY (¥)' },
+                  { code: 'GBP', symbol: '£', name: 'GBP (£)' },
+                  { code: 'AUD', symbol: 'A$', name: 'AUD (A$)' },
+                ].map((cur) => (
+                  <button
+                    key={cur.code}
+                    type="button"
+                    onClick={() => {
+                      switchCurrency(cur.code);
+                      setIsCurrencyMenuOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2.5 min-h-[44px] text-xs flex items-center justify-between hover:bg-background/80 transition-all duration-150 cursor-pointer ${
+                      (session.currentStore.currency || 'THB') === cur.code
+                        ? 'text-primary font-bold bg-primary/10'
+                        : 'text-text/70'
+                    }`}
+                  >
+                    <span>{cur.name}</span>
+                    {(session.currentStore.currency || 'THB') === cur.code && (
+                      <Check className="h-4 w-4 text-primary" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Language Switcher Dropdown */}
+          <div className="relative hidden lg:block">
+            <button
+              type="button"
+              onClick={() => {
+                setIsLangMenuOpen(!isLangMenuOpen);
+                setIsStoreMenuOpen(false);
+                setIsCurrencyMenuOpen(false);
+                setIsUserMenuOpen(false);
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 min-h-[44px] min-w-[44px] justify-center rounded-xl border border-border border-crisp bg-background/80 hover:bg-background text-text/80 hover:text-text text-xs font-bold transition-all duration-150 cursor-pointer active:scale-95"
+              aria-label={t.topNav.selectLang}
+            >
+              <Globe className="h-3.5 w-3.5 text-text/60" />
+              <span>{language === 'th' ? 'TH' : 'EN'}</span>
+            </button>
+
+            {isLangMenuOpen && (
+              <div
+                className={`${getZIndexClass('dropdown')} absolute right-0 mt-2 w-32 max-w-[90vw] overflow-x-hidden rounded-2xl border border-border border-crisp bg-card shadow-2xl py-2 animate-in fade-in zoom-in-95 duration-100`}
+                onMouseLeave={() => setIsLangMenuOpen(false)}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLanguage('th');
+                    setIsLangMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2.5 min-h-[44px] text-xs flex items-center justify-between cursor-pointer hover:bg-background/80 ${
+                    language === 'th' ? 'font-bold text-primary bg-primary/10' : 'text-text/70'
+                  }`}
+                >
+                  <span>ไทย</span>
+                  {language === 'th' && <Check className="h-4 w-4 text-primary" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLanguage('en');
+                    setIsLangMenuOpen(false);
+                  }}
+                  className={`w-full text-left px-3 py-2.5 min-h-[44px] text-xs flex items-center justify-between cursor-pointer hover:bg-background/80 ${
+                    language === 'en' ? 'font-bold text-primary bg-primary/10' : 'text-text/70'
+                  }`}
+                >
+                  <span>English</span>
+                  {language === 'en' && <Check className="h-4 w-4 text-primary" />}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Theme Toggle */}
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="hidden lg:flex min-w-[44px] min-h-[44px] items-center justify-center p-2 rounded-xl border border-border border-crisp hover:bg-background text-text/70 transition-all duration-150 cursor-pointer active:scale-95"
+          >
+            {theme === 'dark' ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-primary" />}
+          </button>
+
+          {/* Cashier / User Profile & Comprehensive Account Menu */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setIsUserMenuOpen(!isUserMenuOpen);
+                setIsStoreMenuOpen(false);
+                setIsCurrencyMenuOpen(false);
+                setIsLangMenuOpen(false);
+              }}
+              className="flex items-center gap-2 pl-2.5 pr-2 py-1.5 min-h-[44px] min-w-[44px] rounded-xl border border-border border-crisp bg-background/80 hover:bg-background transition-all duration-150 cursor-pointer active:scale-95"
+            >
+              <div className="flex flex-col items-end hidden xl:flex">
+                <span className="text-xs font-bold text-text leading-tight">{session.currentUser.name}</span>
+                <span className="text-[10px] font-bold text-text/50 uppercase leading-tight">{session.currentUser.role}</span>
+              </div>
+              <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-xs font-bold text-white shadow-xs">
+                {session.currentUser.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+              </div>
+            </button>
+
+            {isUserMenuOpen && (
+              <div
+                className={`${getZIndexClass('dropdown')} absolute right-0 mt-2 w-64 max-w-[90vw] overflow-x-hidden rounded-2xl border border-border border-crisp bg-card shadow-2xl py-2 animate-in fade-in zoom-in-95 duration-100`}
+                onMouseLeave={() => setIsUserMenuOpen(false)}
+              >
+                {/* User Details */}
+                <div className="px-4 pb-3 border-b border-border border-crisp">
+                  <div className="text-sm font-bold text-text">
+                    {session.currentUser.name}
+                  </div>
+                  <div className="text-xs text-text/60">{session.currentUser.email}</div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-md bg-background border border-border text-[10px] font-bold text-text/70 uppercase">
+                      {session.currentUser.role}
+                    </span>
+                    <span className="text-[10px] text-text/50 font-mono">
+                      {session.currentUser.employeeCode}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Mobile Extra Controls */}
+                <div className="lg:hidden px-3 py-2 border-b border-border border-crisp grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLanguage(language === 'th' ? 'en' : 'th')}
+                    className="flex items-center justify-center gap-2 py-2 min-h-[44px] rounded-xl border border-border border-crisp text-xs font-bold text-text/80 hover:bg-background cursor-pointer active:scale-95"
+                  >
+                    <Globe className="h-4 w-4" />
+                    <span>{language === 'th' ? 'EN' : 'TH'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleTheme}
+                    className="flex items-center justify-center gap-2 py-2 min-h-[44px] rounded-xl border border-border border-crisp text-xs font-bold text-text/80 hover:bg-background cursor-pointer active:scale-95"
+                  >
+                    {theme === 'dark' ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-primary" />}
+                    <span>{theme === 'dark' ? 'Light' : 'Dark'}</span>
+                  </button>
+                </div>
+
+                {/* Quick Navigation to Settings from User Menu */}
+                {onNavigate && (
+                  <div className="py-1 px-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        onNavigate('settings');
+                      }}
+                      className="w-full px-3 py-2.5 min-h-[44px] rounded-xl text-left text-xs font-bold text-text/80 hover:bg-background flex items-center gap-2 cursor-pointer transition-colors active:scale-95"
+                    >
+                      <Settings className="h-4 w-4 text-text/60" />
+                      <span>{language === 'th' ? 'ตั้งค่าระบบ' : 'Settings'}</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Lock Terminal Option */}
+                <div className="py-1 px-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      lockSystem();
+                    }}
+                    className="w-full px-3 py-2.5 min-h-[44px] rounded-xl text-left text-xs font-bold text-text/80 hover:bg-background flex items-center gap-2 cursor-pointer transition-colors active:scale-95"
+                  >
+                    <Lock className="h-4 w-4 text-text/60" />
+                    <span>{language === 'th' ? 'ล็อกหน้าจอ' : 'Lock Terminal'}</span>
+                  </button>
+                </div>
+
+                {/* Quick Role Switcher for testing RBAC boundaries */}
+                <div className="py-2 px-3 border-t border-border border-crisp">
+                  <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider mb-2">
+                    {t.topNav.testRbac}
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(['cashier', 'manager', 'admin'] as const).map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => {
+                          switchDemoRole(r);
+                          setIsUserMenuOpen(false);
+                        }}
+                        className={`text-[10px] py-2 min-h-[40px] rounded-lg font-bold text-center capitalize cursor-pointer transition-colors active:scale-95 ${
+                          session.currentUser.role === r
+                            ? 'bg-primary text-white shadow-xs'
+                            : 'bg-background border border-border text-text/70 hover:text-text'
+                        }`}
+                      >
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* High-visibility Logout button in dropdown */}
+                <div className="p-2 border-t border-border border-crisp">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      setShowLogoutModal(true);
+                    }}
+                    className="w-full px-3 py-2.5 min-h-[44px] rounded-xl text-left text-xs font-bold text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/20 flex items-center gap-2 cursor-pointer transition-colors active:scale-95"
+                  >
+                    <LogOut className="h-4 w-4 shrink-0" />
+                    <span>{t.topNav.signOut}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Logout Confirmation Modal */}
+      {showLogoutModal && (
+        <div className={`fixed inset-0 ${getZIndexClass('modal')} flex items-center justify-center p-4 bg-zinc-950/60 dark:bg-black/80 backdrop-blur-sm transition-opacity animate-in fade-in duration-150`}>
+          <div className="w-full max-w-sm rounded-2xl border border-border border-crisp bg-card p-6 text-center shadow-xl animate-in zoom-in-95 duration-150">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowLogoutModal(false)}
+                className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-text/50 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-background transition-colors cursor-pointer"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="my-2 flex items-center justify-center">
+              <div className="h-12 w-12 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center border border-rose-200/60 dark:border-rose-900/60">
+                <LogOut className="h-6 w-6" />
+              </div>
+            </div>
+            <h3 className="text-base font-semibold text-text tracking-tight mt-3">
+              {language === 'th' ? 'ต้องการออกจากระบบหรือไม่?' : 'Sign out of POS Terminal?'}
+            </h3>
+            <p className="text-xs text-text/60 mt-1.5 leading-relaxed">
+              {language === 'th'
+                ? `คุณกำลังออกจากระบบในนาม ${session?.currentUser.name || ''} (${session?.registerId || ''}) สาขา ${session?.currentStore.name || ''}`
+                : `You are signed in as ${session?.currentUser.name || ''} on ${session?.registerId || ''} (${session?.currentStore.name || ''}).`}
+            </p>
+            <div className="grid grid-cols-2 gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowLogoutModal(false)}
+                className="h-12 min-h-[48px] px-4 rounded-xl border border-border border-crisp bg-card text-text/80 hover:bg-background text-xs font-semibold cursor-pointer transition-colors active:scale-95"
+              >
+                {language === 'th' ? 'ยกเลิก' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmLogout}
+                className="h-12 min-h-[48px] px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold cursor-pointer transition-colors shadow-2xs active:scale-95"
+              >
+                {language === 'th' ? 'ยืนยันออกระบบ' : 'Confirm Sign Out'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Display Launcher Modal */}
+      <CustomerDisplayLauncherModal
+        isOpen={isCustomerDisplayModalOpen}
+        onClose={() => setIsCustomerDisplayModalOpen(false)}
+      />
+    </>
+  );
+};
