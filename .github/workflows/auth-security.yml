@@ -1,0 +1,48 @@
+name: Auth Security Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  auth-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Type check
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Reject direct mock auth wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R --line-number --include='*.ts' --include='*.tsx' \
+            "from '../adapters/mockAdapter'" src/context/AuthContext.tsx; then
+            echo "Direct mock authentication import detected in AuthContext. Use authApiFactory instead."
+            exit 1
+          fi
+
+      - name: Reject universal demo unlock credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R -n -E --include='*.ts' --include='*.tsx' \
+            "['\"](1234|0000|admin)['\"]" src; then
+            echo "Universal demo unlock credential detected in source."
+            exit 1
+          fi
