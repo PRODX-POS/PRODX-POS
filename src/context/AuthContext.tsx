@@ -29,6 +29,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const STORAGE_KEY = 'prodx_pos_session';
 const TIMEOUT_STORAGE_KEY = 'prodx_pos_inactivity_timeout';
 const CUSTOM_STORE_KEY = 'prodx_custom_store_profile';
+const DEMO_ROLE_SWITCH_ENABLED = import.meta.env.DEV;
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<SessionContext | null>(null);
@@ -170,8 +171,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const switchDemoRole = (role: 'admin' | 'manager' | 'cashier') => {
-    if (!session) return;
-    const targetUser = SEED_USERS.find((u) => u.role === role) || session.currentUser;
+    if (!DEMO_ROLE_SWITCH_ENABLED || !session) return;
+    const targetUser = SEED_USERS.find((u) => u.role === role);
+    if (!targetUser) return;
     const updated: SessionContext = {
       ...session,
       currentUser: targetUser,
@@ -193,25 +195,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const unlockSystem = async (pinOrPassword: string): Promise<boolean> => {
     if (!session) return false;
+
+    // Universal demo credentials must never be accepted by the application.
+    // The current frontend mock supports employee-code unlock only in dev mode.
+    // Production lock/unlock must be implemented by the authenticated backend API.
+    if (!import.meta.env.DEV) return false;
+
     const trimmed = pinOrPassword.trim();
-    if (
-      trimmed === '1234' ||
-      trimmed === '0000' ||
-      trimmed === session.currentUser.employeeCode ||
-      trimmed.toLowerCase() === 'admin'
-    ) {
+    if (!trimmed) return false;
+
+    if (trimmed.toLowerCase() === session.currentUser.employeeCode.toLowerCase()) {
       setIsLocked(false);
       lastActivityRef.current = Date.now();
       return true;
     }
-    const matched = SEED_USERS.find(
-      (u) => u.employeeCode.toLowerCase() === trimmed.toLowerCase() || trimmed === '1234'
-    );
-    if (matched) {
-      setIsLocked(false);
-      lastActivityRef.current = Date.now();
-      return true;
-    }
+
     return false;
   };
 
