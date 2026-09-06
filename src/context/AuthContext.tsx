@@ -5,7 +5,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Store, Organization, SessionContext, Permission, hasPermission } from '../domain/auth';
 import { authApi } from '../adapters/authApiFactory';
-import { SEED_USERS } from '../adapters/mockAdapter';
 import { LoginRequest } from '../adapters/types';
 
 interface AuthContextType {
@@ -141,11 +140,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const switchDemoRole = (role: 'admin' | 'manager' | 'cashier') => {
     if (!DEMO_ROLE_SWITCH_ENABLED || !session) return;
-    const targetUser = SEED_USERS.find((u) => u.role === role);
-    if (!targetUser) return;
-    const updated = { ...session, currentUser: targetUser };
-    setSession(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    void import('../adapters/demoUsers').then(({ SEED_USERS }) => {
+      if (!DEMO_ROLE_SWITCH_ENABLED || !session) return;
+      const targetUser = SEED_USERS.find((u) => u.role === role);
+      if (!targetUser) return;
+      const updated = { ...session, currentUser: targetUser };
+      setSession(updated);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    });
   };
 
   const can = (permission: Permission): boolean => !session ? false : hasPermission(session.currentUser, permission);
