@@ -122,19 +122,19 @@ export const ConnectivityBadge: React.FC = () => {
             ? 'เชื่อมต่อเซิร์ฟเวอร์เรียบร้อย ข้อมูลทั้งหมดซิงก์แล้ว (คลิกเพื่อดูสถานะระบบ)'
             : 'Online & Fully Synchronized (Click for system diagnostics)'
         }
-        className={`group relative flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all duration-150 active:scale-95 cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+        className={`group relative flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2 py-1 min-h-[36px] sm:min-h-[44px] rounded-xl border text-xs font-semibold transition-all duration-200 active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
           !isOnline
-            ? 'border-amber-500/40 bg-amber-500/15 text-amber-900 dark:text-amber-200 hover:bg-amber-500/25 ring-1 ring-amber-500/20'
+            ? 'border-amber-500/40 bg-amber-500/15 text-amber-900 dark:text-amber-200 hover:bg-amber-500/25 ring-1 ring-amber-500/20 shadow-2xs'
             : pendingCount > 0
-            ? 'border-orange-500/40 bg-orange-500/10 text-orange-900 dark:text-orange-200 hover:bg-orange-500/20 ring-1 ring-orange-500/20'
-            : 'border-border border-crisp bg-card text-text/80 hover:bg-background'
+            ? 'border-orange-500/40 bg-orange-500/10 text-orange-900 dark:text-orange-200 hover:bg-orange-500/20 ring-1 ring-orange-500/20 shadow-2xs'
+            : 'border-emerald-500/40 dark:border-emerald-500/50 bg-emerald-500/10 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.2)] hover:shadow-[0_0_16px_rgba(16,185,129,0.35)]'
         }`}
       >
-        {/* Animated Sync-Progress Ring Indicator */}
-        <div className="relative flex items-center justify-center shrink-0 w-5 h-5">
+        {/* Animated Sync-Progress or Modern Rhythmic LIVE Pulse */}
+        <div className="relative flex items-center justify-center shrink-0">
           {pendingCount > 0 || totalItems > 0 ? (
-            <div className="relative flex items-center justify-center w-5 h-5" title={`${pendingPercentage}% pending (${pendingCount}/${totalItems || pendingCount} items)`}>
-              <svg className={`w-5 h-5 transform -rotate-90 animate-in fade-in duration-200 ${isSyncing ? 'animate-pulse' : ''}`} viewBox="0 0 24 24">
+            <div className="relative flex items-center justify-center w-4 h-4" title={`${pendingPercentage}% pending (${pendingCount}/${totalItems || pendingCount} items)`}>
+              <svg className={`w-4 h-4 transform -rotate-90 animate-in fade-in duration-200 ${isSyncing ? 'animate-pulse' : ''}`} viewBox="0 0 24 24">
                 <circle
                   cx="12"
                   cy="12"
@@ -159,7 +159,7 @@ export const ConnectivityBadge: React.FC = () => {
                   strokeLinecap="round"
                 />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-[8px] font-mono font-bold" style={{ color: 'var(--primary-color)' }}>
+              <span className="absolute inset-0 flex items-center justify-center text-[7px] font-mono font-bold" style={{ color: 'var(--primary-color)' }}>
                 {pendingCount}
               </span>
             </div>
@@ -169,58 +169,59 @@ export const ConnectivityBadge: React.FC = () => {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
               </span>
-              <WifiOff className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 animate-pulse" />
+              <WifiOff className="h-3 w-3 text-amber-600 dark:text-amber-400 animate-pulse" />
             </>
           ) : isSyncing ? (
-            <RefreshCw className="h-3.5 w-3.5 text-primary animate-spin" />
-          ) : pendingCount > 0 ? (
-            <div className="relative flex items-center justify-center">
-              <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500" />
-              </span>
-              <RefreshCw className="h-3.5 w-3.5 text-orange-500 dark:text-orange-400" />
-            </div>
+            <RefreshCw className="h-3 w-3 text-emerald-500 animate-spin" />
           ) : (
-            <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-emerald-500 shrink-0" />
-              <Wifi className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            </span>
+            /* Premium Rhythmic Animated LIVE Signal Wave & Glowing Pulse Dot */
+            <div className="flex items-center gap-1 shrink-0">
+              {/* Rhythmic 3-Bar Audio/Signal Equalizer Waves */}
+              <div className="flex items-end gap-[1.5px] h-3 w-2.5 shrink-0 justify-center">
+                <span className="w-[2px] bg-emerald-500 dark:bg-emerald-400 rounded-full animate-live-bar-1" />
+                <span className="w-[2px] bg-emerald-400 dark:bg-emerald-300 rounded-full animate-live-bar-2" />
+                <span className="w-[2px] bg-emerald-500 dark:bg-emerald-400 rounded-full animate-live-bar-3" />
+              </div>
+              {/* Concentric Pulsing Glow Rings */}
+              <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.9)]" />
+              </span>
+            </div>
           )}
         </div>
 
-        {/* Text Labels & Status Display */}
-        <div className="flex items-center gap-1.5 min-w-0">
+        {/* Text Labels & Compact LIVE Badge */}
+        <div className="flex items-center gap-1 min-w-0">
           {!isOnline ? (
             <div className="flex items-center gap-1">
-              <span className="font-bold text-amber-900 dark:text-amber-200 text-xs">
+              <span className="font-bold text-amber-900 dark:text-amber-200 text-[11px]">
                 {isSimulatedOffline
                   ? (language === 'th' ? 'ออฟไลน์ (จำลอง)' : 'Offline (Sim)')
                   : (language === 'th' ? 'ออฟไลน์' : 'Offline')}
               </span>
-              <span className="hidden sm:inline-flex px-1.5 py-0.5 rounded-md bg-amber-500/20 text-[10px] font-semibold text-amber-800 dark:text-amber-300">
-                {language === 'th' ? 'Outbox ท้องถิ่น' : 'Local Outbox'}
-              </span>
             </div>
           ) : isSyncing ? (
-            <span className="font-bold text-orange-600 dark:text-orange-400 text-xs flex items-center gap-1">
-              <span>{language === 'th' ? 'กำลังซิงก์...' : 'Syncing...'}</span>
+            <span className="font-bold text-emerald-600 dark:text-emerald-400 text-[10px] flex items-center gap-1 font-mono">
+              <span>{language === 'th' ? 'ซิงก์...' : 'Sync...'}</span>
             </span>
           ) : pendingCount > 0 ? (
-            <span className="text-xs font-bold text-orange-700 dark:text-orange-300">
-              {language === 'th' ? 'รอซิงก์' : 'Sync Pending'}
+            <span className="text-[11px] font-bold text-orange-700 dark:text-orange-300">
+              {language === 'th' ? 'รอซิงก์' : 'Pending'}
             </span>
           ) : (
-            <span className="hidden xl:inline text-xs font-semibold text-text/80">
-              {language === 'th' ? 'ออนไลน์' : 'Online'}
-            </span>
+            <div className="flex items-center gap-1">
+              <span className="px-1 py-0.2 rounded bg-emerald-500/20 dark:bg-emerald-500/25 border border-emerald-500/40 text-emerald-700 dark:text-emerald-300 text-[9px] font-black font-mono tracking-wider uppercase">
+                LIVE
+              </span>
+            </div>
           )}
 
           {/* Pending Outbox Count Pill */}
           {pendingCount > 0 && (
             <span
               id="connectivity-pending-pill"
-              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-orange-500 text-white font-black font-mono text-[10px] shadow-2xs animate-pulse"
+              className="flex items-center gap-0.5 px-1 py-0.2 rounded-full bg-orange-500 text-white font-black font-mono text-[9px] shadow-2xs animate-pulse"
               title={`${pendingCount} pending task(s)`}
             >
               {pendingCount}

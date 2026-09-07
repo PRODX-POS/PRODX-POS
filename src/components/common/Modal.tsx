@@ -61,7 +61,7 @@ export const Modal: React.FC<ModalProps> = ({
     <div
       id={id}
       className={`fixed inset-0 ${getZIndexClass('modal')} flex items-center justify-center ${
-        fullScreenOnMobile ? 'p-0 sm:p-4 pt-16 sm:pt-4' : 'p-4 pt-16 sm:pt-4'
+        fullScreenOnMobile ? 'p-0 sm:p-4' : 'p-3 sm:p-4'
       } bg-black/60 dark:bg-black/80 backdrop-blur-sm animate-in fade-in duration-150`}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -72,7 +72,7 @@ export const Modal: React.FC<ModalProps> = ({
         tabIndex={-1}
         className={`w-full ${maxWidthStyles[maxWidth]} ${
           fullScreenOnMobile
-            ? 'max-h-[calc(100vh-2rem)] sm:max-h-[90vh] sm:rounded-2xl rounded-xl border sm:border'
+            ? 'h-full sm:h-auto max-h-full sm:max-h-[90vh] sm:rounded-2xl rounded-none sm:border border-0'
             : 'rounded-2xl max-h-[90vh] border'
         } border-crisp border-border bg-card text-text shadow-xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col outline-none`}
         role="dialog"
@@ -82,11 +82,11 @@ export const Modal: React.FC<ModalProps> = ({
       >
         <div className="flex items-start justify-between px-6 py-4 border-b border-border border-crisp shrink-0 gap-4 bg-card">
           <div className="min-w-0 flex-1">
-            <h3 id={titleId} className="text-base font-semibold text-text tracking-tight leading-snug">
+            <h3 id={titleId} className="text-heading-3 text-text">
               {title}
             </h3>
             {description && (
-              <p id={descId} className="mt-1 text-xs text-text/70 leading-relaxed">
+              <p id={descId} className="mt-1 text-caption text-text/70">
                 {description}
               </p>
             )}

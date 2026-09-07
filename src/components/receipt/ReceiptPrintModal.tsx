@@ -30,7 +30,7 @@ import {
 interface ReceiptPrintModalProps {
   isOpen: boolean;
   onClose: () => void;
-  order: Order;
+  order?: Order | null;
   onCustomizeTemplate?: () => void;
 }
 
@@ -55,6 +55,8 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
 
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(activeTemplate.id);
   const [copies, setCopies] = useState<number>(1);
+
+  if (!isOpen || !order) return null;
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId) || activeTemplate;
 
@@ -196,8 +198,6 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
         <ReceiptPaperPreview
           order={order}
           template={selectedTemplate}
-          onPrint={handlePrint}
-          isPrinting={isPrinting}
         />
       </div>
     </Modal>

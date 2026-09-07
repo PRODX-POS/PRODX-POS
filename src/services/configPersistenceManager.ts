@@ -16,7 +16,7 @@ const DEFAULT_CONFIG: AppConfiguration = {
   },
   theme: {
     mode: 'system',
-    presetId: 'enterprise_blue',
+    presetId: 'enterprise_obsidian',
   },
 };
 

@@ -5,6 +5,7 @@ import { Badge } from '../../../components/common/Badge';
 import { useLanguage } from '../../../context/LanguageContext';
 import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext';
+import { LanguageSwitcher } from '../../../components/common/LanguageSwitcher';
 import { SUPPORTED_CURRENCIES, CurrencyService } from '../../../services/currency/currencyService';
 import { StoreProfileFormState } from '../types';
 
@@ -17,7 +18,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
   formData,
   onChangeField,
 }) => {
-  const { language, setLanguage, t } = useLanguage();
+  const { language, t } = useLanguage();
   const { session, switchCurrency } = useAuth();
   const { addToast } = useToast();
 
@@ -59,7 +60,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                   value={formData.storeName}
                   onChange={(e) => onChangeField('storeName', e.target.value)}
                   placeholder="e.g. PRODX Flagship CentralWorld"
-                  className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs font-semibold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                  className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
                   required
                 />
               </div>
@@ -75,7 +76,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                 value={formData.storeCode}
                 onChange={(e) => onChangeField('storeCode', e.target.value)}
                 placeholder="e.g. BKK-01"
-                className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs font-mono font-semibold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-mono font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
                 required
               />
             </div>
@@ -90,7 +91,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                 value={formData.branchName}
                 onChange={(e) => onChangeField('branchName', e.target.value)}
                 placeholder="e.g. สาขาเซ็นทรัลเวิลด์ ชั้น 4"
-                className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs font-semibold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
               />
             </div>
 
@@ -105,7 +106,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                   value={formData.storePhone}
                   onChange={(e) => onChangeField('storePhone', e.target.value)}
                   placeholder="e.g. 02-123-4567, 089-999-8888"
-                  className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs font-semibold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                  className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
                 />
               </div>
             </div>
@@ -121,7 +122,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
               value={formData.storeAddress}
               onChange={(e) => onChangeField('storeAddress', e.target.value)}
               placeholder="e.g. 999/9 ถนนพระราม 1 แขวงปทุมวัน เขตปทุมวัน กรุงเทพฯ 10330"
-              className="w-full p-2.5 rounded-md border border-border bg-background text-xs text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition resize-none"
+              className="w-full p-3 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition resize-none shadow-2xs"
             />
           </div>
 
@@ -136,7 +137,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                 value={formData.receiptHeaderMsg}
                 onChange={(e) => onChangeField('receiptHeaderMsg', e.target.value)}
                 placeholder="e.g. ยินดีต้อนรับสู่ PRODX Flagship"
-                className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
               />
             </div>
             <div className="space-y-1.5">
@@ -148,14 +149,14 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                 value={formData.receiptFooterMsg}
                 onChange={(e) => onChangeField('receiptFooterMsg', e.target.value)}
                 placeholder="e.g. ขอบคุณที่ใช้บริการ / สินค้าซื้อแล้วไม่รับเปลี่ยนคืน"
-                className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
               />
             </div>
           </div>
         </CardBody>
       </Card>
 
-      {/* Regional & Localization Settings Card */}
+      {/* 1. System Language Settings Card (2-Column x 2-Row Grid) */}
       <Card className="border border-border/80 shadow-sm rounded-lg overflow-hidden">
         <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -164,77 +165,168 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
             </div>
             <div className="min-w-0 flex-1">
               <h3 className="text-sm font-bold text-text truncate">
-                {language === 'th' ? 'การตั้งค่าระดับภูมิภาคและภาษา (Regional & Localization)' : 'Regional & Localization'}
+                {language === 'th' ? 'การตั้งค่าภาษาระบบ (System Interface Language)' : 'System Interface Language'}
               </h3>
               <p className="text-[11px] text-text/50 truncate">
-                {language === 'th' ? 'กำหนดภาษาหน้าจอ โซนเวลา และสกุลเงินมาตรฐานของระบบ' : 'Interface language, time zone alignment, and standard monetary base.'}
+                {language === 'th' ? 'เลือกภาษาหลักสำหรับการแสดงผลส่วนติดต่อผู้ใช้ (UI) เมนู ปุ่มคำสั่ง และรายงานทั้งระบบ' : 'Select system-wide interface language for POS screens, menus, and real-time reports.'}
               </p>
             </div>
+            <Badge variant="primary" size="sm" className="font-mono text-[10px] shrink-0 uppercase">
+              {language} Active
+            </Badge>
+          </div>
+        </CardHeader>
+
+        <CardBody className="p-5 space-y-4">
+          <LanguageSwitcher
+            variant="grid"
+            gridColumns="grid-cols-2"
+            showDetails={true}
+            onSelect={(newLng) => {
+              addToast({
+                title: newLng === 'th' ? 'เปลี่ยนภาษาระบบสำเร็จ' : newLng === 'zh' ? '系统语言已更新' : newLng === 'ja' ? 'システム言語を変更しました' : 'System Language Updated',
+                message: `PRODX POS interface language switched to ${newLng.toUpperCase()}.`,
+                type: 'info',
+              });
+            }}
+          />
+        </CardBody>
+      </Card>
+
+      {/* 2. Regional Language & Locale Display Card (2-Column x 2-Row Grid) */}
+      <Card className="border border-border/80 shadow-sm rounded-lg overflow-hidden">
+        <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <div className="p-1.5 rounded-md bg-primary/10 text-primary shrink-0">
+              <MapPin className="h-4 w-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-bold text-text truncate">
+                {language === 'th' ? 'การแสดงผลภาษาส่วนภูมิภาค (Regional Language & Locale Display)' : 'Regional Language & Locale Display'}
+              </h3>
+              <p className="text-[11px] text-text/50 truncate">
+                {language === 'th' ? 'การแสดงผลรหัสภูมิภาค รูปแบบวันที่ สกุลเงินท้องถิ่น และตัวเลขแยกตามประเทศ' : 'Regional format alignment for local date, currency symbols, and country codes.'}
+              </p>
+            </div>
+            <Badge variant="neutral" size="sm" className="font-mono text-[10px] shrink-0">
+              2x2 Grid
+            </Badge>
           </div>
         </CardHeader>
 
         <CardBody className="p-5 space-y-5">
-          {/* Language Selector */}
-          <div className="space-y-2.5">
-            <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
-              {language === 'th' ? 'ภาษาของระบบ (System Interface Language)' : 'System Language'}
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg">
-              <button
-                type="button"
-                onClick={() => {
-                  setLanguage('th');
-                  addToast({
-                    title: 'เปลี่ยนภาษาเป็น ภาษาไทย',
-                    message: 'ระบบได้สลับการแสดงผลเป็นภาษาไทยเรียบร้อยแล้ว',
-                    type: 'info',
-                  });
-                }}
-                className={`p-3 rounded-lg border flex items-center justify-between cursor-pointer transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
-                  language === 'th'
-                    ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'
-                    : 'border-border bg-card text-text hover:bg-background'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span className="text-lg">🇹🇭</span>
-                  <div className="text-left">
-                    <div className="text-xs font-semibold">ภาษาไทย (TH)</div>
-                    <div className="text-[10px] text-text/50">Thai Localization</div>
+          {/* 2-Column x 2-Row Regional Format Cards */}
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5">
+            {[
+              {
+                code: 'th-TH',
+                langCode: 'th',
+                flag: '🇹🇭',
+                title: 'ภาษาไทย (ประเทศไทย)',
+                titleEn: 'Thai (Thailand)',
+                dateFormat: 'DD/MM/YYYY (25/10/2026)',
+                numberFormat: '฿1,234,567.89',
+                currency: 'THB (฿)',
+                timezone: 'Asia/Bangkok (UTC+07:00)',
+                badge: 'th-TH',
+              },
+              {
+                code: 'en-US',
+                langCode: 'en',
+                flag: '🇺🇸',
+                title: 'English (United States / Global)',
+                titleEn: 'English (US / Global)',
+                dateFormat: 'MM/DD/YYYY (10/25/2026)',
+                numberFormat: '$1,234,567.89',
+                currency: 'USD ($)',
+                timezone: 'UTC / Global Standard',
+                badge: 'en-US',
+              },
+              {
+                code: 'zh-CN',
+                langCode: 'zh',
+                flag: '🇨🇳',
+                title: '简体中文 (中国 / 亚洲)',
+                titleEn: 'Chinese Simplified (China / Asia)',
+                dateFormat: 'YYYY-MM-DD (2026-10-25)',
+                numberFormat: '¥1,234,567.89',
+                currency: 'CNY (¥)',
+                timezone: 'Asia/Shanghai (UTC+08:00)',
+                badge: 'zh-CN',
+              },
+              {
+                code: 'ja-JP',
+                langCode: 'ja',
+                flag: '🇯🇵',
+                title: '日本語 (日本)',
+                titleEn: 'Japanese (Japan)',
+                dateFormat: 'YYYY/MM/DD (2026/10/25)',
+                numberFormat: '¥1,234,567',
+                currency: 'JPY (¥)',
+                timezone: 'Asia/Tokyo (UTC+09:00)',
+                badge: 'ja-JP',
+              },
+            ].map((reg) => {
+              const isSelected = language === reg.langCode;
+              return (
+                <div
+                  key={reg.code}
+                  onClick={() => {
+                    if (language !== reg.langCode) {
+                      addToast({
+                        title: language === 'th' ? 'ปรับใช้รูปแบบภูมิภาคแล้ว' : 'Regional Locale Selected',
+                        message: `Set locale formatting to ${reg.titleEn} (${reg.code})`,
+                        type: 'success',
+                      });
+                    }
+                  }}
+                  className={`p-3 sm:p-4 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-2.5 group relative ${
+                    isSelected
+                      ? 'border-primary bg-primary/5 ring-2 ring-primary/20 shadow-xs'
+                      : 'border-border bg-card hover:bg-background/80 hover:border-text/30'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0">
+                      <span className="text-xl sm:text-2xl leading-none shrink-0">{reg.flag}</span>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-text truncate">{reg.title}</div>
+                        <div className="text-[10px] text-text/50 font-medium truncate">{reg.titleEn}</div>
+                      </div>
+                    </div>
+                    {isSelected ? (
+                      <span className="flex items-center gap-0.5 px-1.5 sm:px-2 py-0.5 rounded-full bg-primary text-white text-[9px] sm:text-[10px] font-black uppercase shadow-xs shrink-0">
+                        <Check className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                        <span>Active</span>
+                      </span>
+                    ) : (
+                      <Badge variant="neutral" size="sm" className="font-mono text-[9px] shrink-0">
+                        {reg.badge}
+                      </Badge>
+                    )}
                   </div>
-                </div>
-                {language === 'th' && <Check className="h-4 w-4 text-primary" />}
-              </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setLanguage('en');
-                  addToast({
-                    title: 'Language set to English',
-                    message: 'System display language has been switched to English.',
-                    type: 'info',
-                  });
-                }}
-                className={`p-3 rounded-lg border flex items-center justify-between cursor-pointer transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
-                  language === 'en'
-                    ? 'border-primary bg-primary/10 text-primary font-bold shadow-xs'
-                    : 'border-border bg-card text-text hover:bg-background'
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <span className="text-lg">🇺🇸</span>
-                  <div className="text-left">
-                    <div className="text-xs font-semibold">English (EN)</div>
-                    <div className="text-[10px] text-text/50">Global Standard</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-2 border-t border-border/60 text-[10px] text-text/60">
+                    <div className="min-w-0">
+                      <span className="text-[9px] sm:text-[10px] text-text/40 block font-medium truncate">วันที่ (Date Format)</span>
+                      <span className="font-mono text-text/80 text-[9px] sm:text-[10px] font-bold block truncate">{reg.dateFormat}</span>
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-[9px] sm:text-[10px] text-text/40 block font-medium truncate">สกุลเงิน (Currency)</span>
+                      <span className="font-mono text-text/80 text-[9px] sm:text-[10px] font-bold block truncate">{reg.numberFormat}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 text-[9px] sm:text-[10px] text-text/50 font-mono gap-1">
+                    <span className="truncate">TZ: {reg.timezone}</span>
+                    <span className="text-primary font-bold shrink-0">{reg.currency}</span>
                   </div>
                 </div>
-                {language === 'en' && <Check className="h-4 w-4 text-primary" />}
-              </button>
-            </div>
+              );
+            })}
           </div>
 
-          {/* Timezone and Date Format */}
+          {/* Timezone and Date Format Controls */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-border/60">
             <div className="space-y-1.5">
               <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide flex items-center gap-1.5">
@@ -264,10 +356,10 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
                 defaultValue="DD/MM/YYYY"
                 className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs font-semibold text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
               >
-                <option value="DD/MM/YYYY">DD/MM/YYYY (e.g. 24/10/2026)</option>
+                <option value="DD/MM/YYYY">DD/MM/YYYY (e.g. 25/10/2026)</option>
                 <option value="YYYY-MM-DD">YYYY-MM-DD (ISO 8601)</option>
                 <option value="MM/DD/YYYY">MM/DD/YYYY (US Standard)</option>
-                <option value="D MMM YYYY">D MMM YYYY (e.g. 24 Oct 2026)</option>
+                <option value="D MMM YYYY">D MMM YYYY (e.g. 25 Oct 2026)</option>
               </select>
             </div>
           </div>

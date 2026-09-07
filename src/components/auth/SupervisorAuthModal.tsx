@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Role } from '../../domain/auth';
 import { SEED_USERS } from '../../adapters/mockAdapter';
 import { useLanguage } from '../../context/LanguageContext';
+import { useAuth } from '../../context/AuthContext';
 import { playScannerSound } from '../../services/soundService';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
@@ -15,7 +16,10 @@ import {
   Lock,
   UserCheck,
   AlertCircle,
+  Fingerprint,
+  Loader2,
 } from 'lucide-react';
+import { authenticatePasskey } from '../../services/webauthnService';
 
 export interface SupervisorAuthModalProps {
   isOpen: boolean;
@@ -35,13 +39,15 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
   onAuthorized,
 }) => {
   const { language } = useLanguage();
+  const { staffUsers, getStaffPin } = useAuth();
   const [pin, setPin] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedSupervisor, setSelectedSupervisor] = useState<User | null>(null);
   const [overrideReason, setOverrideReason] = useState('');
+  const [isVerifyingPasskey, setIsVerifyingPasskey] = useState(false);
 
   // Eligible supervisors from system users
-  const eligibleSupervisors = SEED_USERS.filter((u) =>
+  const eligibleSupervisors = (staffUsers && staffUsers.length > 0 ? staffUsers : SEED_USERS).filter((u) =>
     requiredRole === 'admin' ? u.role === 'admin' : u.role === 'admin' || u.role === 'manager'
   );
 
@@ -100,16 +106,18 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
   };
 
   const handleVerifyPin = () => {
-    // Check known PINs: Admin '1234' (Alex Vance), Manager '5678' (Sarah Connor), or any 4+ digit demo pin
+    // Check known PINs: custom supervisor pin, admin '1234', manager '5678'
     let matchedSupervisor: User | undefined;
 
-    if (pin === '1234') {
-      matchedSupervisor = eligibleSupervisors.find((u) => u.role === 'admin');
-    } else if (pin === '5678') {
-      matchedSupervisor = eligibleSupervisors.find((u) => u.role === 'manager');
-    } else if (selectedSupervisor && pin.length >= 4) {
-      // Allow selected supervisor with demo PIN
+    if (selectedSupervisor && getStaffPin(selectedSupervisor.id) === pin) {
       matchedSupervisor = selectedSupervisor;
+    } else if (pin === '1234') {
+      matchedSupervisor = eligibleSupervisors.find((u) => u.role === 'admin') || selectedSupervisor || eligibleSupervisors[0];
+    } else if (pin === '5678') {
+      matchedSupervisor = eligibleSupervisors.find((u) => u.role === 'manager') || selectedSupervisor || eligibleSupervisors[0];
+    } else {
+      // Check all eligible supervisors
+      matchedSupervisor = eligibleSupervisors.find((u) => getStaffPin(u.id) === pin);
     }
 
     if (matchedSupervisor) {
@@ -120,10 +128,39 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
       playScannerSound('error');
       setErrorMsg(
         language === 'th'
-          ? 'รหัส PIN ผู้จัดการไม่ถูกต้อง (ลอง 1234 หรือ 5678)'
-          : 'Invalid supervisor PIN (try 1234 or 5678)'
+          ? 'รหัส PIN ผู้จัดการไม่ถูกต้อง (ลอง 1234 หรือ 5678 หรือ PIN ที่ตั้งไว้)'
+          : 'Invalid supervisor PIN (try 1234, 5678, or configured PIN)'
       );
       setPin('');
+    }
+  };
+
+  const handlePasskeyOverride = async () => {
+    setIsVerifyingPasskey(true);
+    setErrorMsg(null);
+    try {
+      const target = selectedSupervisor || eligibleSupervisors[0];
+      const result = await authenticatePasskey(
+        target ? { id: target.id, email: target.email, name: target.name } : undefined
+      );
+
+      if (result.success && result.credential) {
+        const matched = eligibleSupervisors.find(
+          (u) => u.email.toLowerCase() === result.credential?.userEmail.toLowerCase()
+        ) || eligibleSupervisors[0];
+
+        playScannerSound('supervisor_authorized');
+        onAuthorized(matched, `Passkey Verified: ${overrideReason || actionDescription}`);
+        onClose();
+      } else {
+        playScannerSound('error');
+        setErrorMsg(result.error || (language === 'th' ? 'ชีวมิติไม่ผ่าน' : 'Biometric verification cancelled'));
+      }
+    } catch (err: any) {
+      playScannerSound('error');
+      setErrorMsg(err.message || 'Biometric authentication failed');
+    } finally {
+      setIsVerifyingPasskey(false);
     }
   };
 
@@ -282,6 +319,29 @@ export const SupervisorAuthModal: React.FC<SupervisorAuthModalProps> = ({
             className="h-11 rounded-lg bg-background hover:bg-background dark:hover:bg-slate-700 flex items-center justify-center text-text/70 border border-border border-crisp transition-all cursor-pointer"
           >
             <Delete className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Biometric Passkey Override Option */}
+        <div className="pt-2 max-w-xs mx-auto">
+          <button
+            type="button"
+            onClick={handlePasskeyOverride}
+            disabled={isVerifyingPasskey}
+            className="w-full h-11 rounded-xl bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98 shadow-xs"
+          >
+            {isVerifyingPasskey ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>
+                <Fingerprint className="w-4 h-4" />
+                <span>
+                  {language === 'th'
+                    ? 'อนุมัติด้วยชีวมิติผู้จัดการ (Passkey)'
+                    : 'Authorize with Manager Passkey'}
+                </span>
+              </>
+            )}
           </button>
         </div>
       </div>

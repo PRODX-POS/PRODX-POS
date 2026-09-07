@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useBreadcrumb, BreadcrumbLevel } from '../../context/BreadcrumbContext';
 import { catalogApi } from '../../adapters/mockAdapter';
 import { Product, InventoryLedgerEntry, StockMovementReason, Category } from '../../domain/catalog';
 import { formatMoney, createMoney } from '../../domain/money';
@@ -34,13 +35,17 @@ import {
   Printer,
   Sparkles,
   RefreshCw,
+  UploadCloud,
 } from 'lucide-react';
 import { ShelfLabelPrintModal } from '../../components/inventory/ShelfLabelPrintModal';
+import { BulkInventoryUploadModal } from '../../components/inventory/BulkInventoryUploadModal';
+import { BulkImportResult } from '../../domain/catalog';
 
 export const InventoryScreen: React.FC = () => {
   const { session, can } = useAuth();
   const { addToast } = useToast();
   const { t, language } = useLanguage();
+  const { setSubLevels } = useBreadcrumb();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<readonly Category[]>([]);
@@ -51,6 +56,74 @@ export const InventoryScreen: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [activeTab, setActiveTab] = useState<'catalog' | 'ledger' | 'restock'>('catalog');
   const [isShelfLabelModalOpen, setIsShelfLabelModalOpen] = useState(false);
+  const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
+
+  // Synchronize Inventory navigation depth with global breadcrumbs
+  useEffect(() => {
+    const levels: BreadcrumbLevel[] = [];
+
+    let tabLabel = { th: 'รายการสินค้า', en: 'Catalog' };
+    if (activeTab === 'ledger') {
+      tabLabel = { th: 'ประวัติความเคลื่อนไหว', en: 'Stock Ledger' };
+    } else if (activeTab === 'restock') {
+      tabLabel = { th: 'เติมสต็อกสมาร์ท', en: 'Smart Restock' };
+    }
+
+    levels.push({
+      id: 'inv-tab',
+      label: tabLabel,
+      onClick: () => {
+        setActiveTab('catalog');
+        setSelectedCategory('all');
+        setSelectedStockFilter('all');
+        setSearchQuery('');
+      },
+    });
+
+    if (searchQuery.trim()) {
+      levels.push({
+        id: 'inv-search',
+        label: { th: `ค้นหา: "${searchQuery}"`, en: `Search: "${searchQuery}"` },
+        onClick: () => setSearchQuery(''),
+      });
+    } else if (selectedCategory !== 'all') {
+      const catObj = categories.find((c) => c.id === selectedCategory);
+      if (catObj) {
+        levels.push({
+          id: 'inv-cat',
+          label: catObj.name,
+          onClick: () => setSelectedCategory('all'),
+        });
+      }
+    } else if (selectedStockFilter !== 'all') {
+      let filterName = { th: 'กรองสถานะสต็อก', en: 'Stock Filter' };
+      if (selectedStockFilter === 'low_stock') filterName = { th: 'เตือนสินค้าใกล้หมด', en: 'Low Stock Alerts' };
+      if (selectedStockFilter === 'out_of_stock') filterName = { th: 'สินค้าหมดคลัง', en: 'Out of Stock' };
+      if (selectedStockFilter === 'in_stock') filterName = { th: 'พร้อมขาย', en: 'In Stock' };
+      if (selectedStockFilter === 'velocity_risk') filterName = { th: 'เสี่ยงขายหมดไว', en: 'Velocity Risk' };
+
+      levels.push({
+        id: 'inv-filter',
+        label: filterName,
+        onClick: () => setSelectedStockFilter('all'),
+      });
+    }
+
+    setSubLevels(levels);
+  }, [activeTab, selectedCategory, selectedStockFilter, searchQuery, categories, setSubLevels]);
+
+  const handleBulkImportComplete = async (result: BulkImportResult) => {
+    if (session) {
+      const [freshProducts, freshCategories, freshLedger] = await Promise.all([
+        catalogApi.getProducts(session.currentStore.id),
+        catalogApi.getCategories(session.currentStore.id),
+        catalogApi.getInventoryLedger(session.currentStore.id),
+      ]);
+      setProducts([...freshProducts]);
+      setCategories([...freshCategories]);
+      setLedgerEntries([...freshLedger]);
+    }
+  };
 
   // Smart Restock States
   const [selectedRestockIds, setSelectedRestockIds] = useState<string[]>([]);
@@ -488,15 +561,24 @@ export const InventoryScreen: React.FC = () => {
       {/* 1. Header & Navigation Tabs */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between pb-4 sm:pb-6 border-b border-border/50">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight text-text">
+          <h1 className="text-heading-1 text-text">
             {t.inventory.title}
           </h1>
-          <p className="text-xs text-text/60 mt-0.5">
+          <p className="text-caption text-text/70 mt-0.5">
             {t.inventory.subtitle}
           </p>
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 shrink-0">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setIsBulkUploadModalOpen(true)}
+            leftIcon={<UploadCloud className="h-4 w-4 text-primary" />}
+          >
+            {language === 'th' ? 'นำเข้าข้อมูลสินค้า (Bulk Upload)' : 'Bulk Upload'}
+          </Button>
+
           <Button
             variant="secondary"
             size="sm"
@@ -943,6 +1025,16 @@ export const InventoryScreen: React.FC = () => {
               <p className="text-xs text-text/50">
                 {language === 'th' ? 'ลองค้นหาด้วยคำอื่น หรือเลือกหมวดหมู่อื่น' : 'Try adjusting your search filters or categories.'}
               </p>
+              <div className="pt-2">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => setIsBulkUploadModalOpen(true)}
+                  leftIcon={<UploadCloud className="h-4 w-4" />}
+                >
+                  {language === 'th' ? 'นำเข้าสินค้าจากไฟล์ CSV/JSON' : 'Upload Catalog via CSV/JSON'}
+                </Button>
+              </div>
             </div>
           ) : viewMode === 'grid' ? (
             /* ================================================================ */
@@ -2025,6 +2117,15 @@ export const InventoryScreen: React.FC = () => {
         isOpen={isShelfLabelModalOpen}
         onClose={() => setIsShelfLabelModalOpen(false)}
         products={products}
+      />
+
+      {/* 7. Enterprise Bulk Inventory CSV/JSON Upload Modal */}
+      <BulkInventoryUploadModal
+        isOpen={isBulkUploadModalOpen}
+        onClose={() => setIsBulkUploadModalOpen(false)}
+        existingProducts={products}
+        categories={categories}
+        onImportComplete={handleBulkImportComplete}
       />
     </div>
   );

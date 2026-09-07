@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
-import { useTheme, THEME_PRESETS } from '../../context/ThemeContext';
-import { Palette, Check, Image as ImageIcon, Trash2, Upload, RotateCcw } from 'lucide-react';
+import { useTheme, THEME_PRESETS, ThemePreset } from '../../context/ThemeContext';
+import { Palette, Check, Image as ImageIcon, Trash2, Upload, RotateCcw, Sparkles } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 
 export const ThemePicker: React.FC = () => {
@@ -38,14 +38,14 @@ export const ThemePicker: React.FC = () => {
   };
 
   const SWATCHES = [
-    '#3B82F6', // Blue
-    '#FF6A00', // Sunset Orange
-    '#10B981', // Emerald
-    '#EC4899', // Pink
-    '#8B5CF6', // Purple
-    '#D4AF37', // Gold
-    '#EF4444', // Red
-    '#06B6D4', // Cyan
+    { hex: '#3B82F6', label: 'Electric Sapphire' },
+    { hex: '#2563EB', label: 'Royal Ocean' },
+    { hex: '#059669', label: 'Emerald Jade' },
+    { hex: '#06B6D4', label: 'Cyber Cyan' },
+    { hex: '#EA580C', label: 'Sunset Terracotta' },
+    { hex: '#6366F1', label: 'Cosmic Indigo' },
+    { hex: '#EC4899', label: 'Neon Rose' },
+    { hex: '#D97706', label: 'Golden Amber' },
   ];
 
   return (
@@ -57,18 +57,18 @@ export const ThemePicker: React.FC = () => {
             <Palette className="h-5 w-5 text-primary" />
             <div>
               <h3 className="text-sm font-black text-text">
-                {language === 'th' ? 'โมเดิร์นดีไซน์ & พรีเซตธีมระบบ' : 'Design Theme & Presets'}
+                {language === 'th' ? 'โมเดิร์นดีไซน์ & พรีเซตธีมระบบ 6 แบบ' : 'Global 6-Preset Theme System'}
               </h3>
               <p className="text-[11px] text-text/60 mt-0.5">
                 {language === 'th' 
-                  ? 'เปลี่ยนรูปแบบ สีสัน และดีไซน์ระบบทั้งหมดได้ง่ายๆ เพียง 1 คลิก' 
+                  ? 'เปลี่ยนรูปแบบ สีสัน และดีไซน์ระบบทั้งหมดได้ทันทีเพียง 1 คลิก' 
                   : 'Instantly transform your POS layout, colors, and styling with 1-click presets.'}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
           {THEME_PRESETS.map((preset) => {
             const isActive = activePresetId === preset.id && !customAccentColor;
             return (
@@ -78,33 +78,43 @@ export const ThemePicker: React.FC = () => {
                   setPreset(preset.id);
                   handleResetAccent(); // reset custom override when preset is selected
                 }}
-                className={`group relative p-3.5 rounded-2xl border text-left transition-all duration-200 cursor-pointer overflow-hidden ${
+                className={`group relative p-3.5 rounded-2xl border text-left transition-all duration-200 cursor-pointer overflow-hidden flex flex-col justify-between gap-3 ${
                   isActive
-                    ? 'border-primary bg-primary/5 dark:bg-primary/10 shadow-2xs ring-1 ring-primary'
-                    : 'border-border border-crisp bg-background/50/80 dark:bg-white/5 hover:border-border dark:hover:border-white/20 hover:scale-[1.02]'
+                    ? 'border-primary bg-primary/5 shadow-2xs ring-1 ring-primary'
+                    : 'border-border bg-background/50 hover:border-primary/50 hover:scale-[1.01]'
                 }`}
               >
-                {/* Preset Mini Canvas Preview */}
-                <div className="flex gap-1.5 mb-2.5">
-                  <div 
-                    className="w-5 h-5 rounded-full border border-border dark:border-white/10 shadow-2xs flex items-center justify-center shrink-0" 
-                    style={{ backgroundColor: preset.primary }}
-                  >
-                    {isActive && <Check className="h-3 w-3 text-white dark:text-text/70 stroke-[3]" />}
+                {/* Preset Swatches Preview */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1 p-1 rounded-lg bg-card border border-border">
+                    {preset.swatches.map((color, sIdx) => (
+                      <div
+                        key={sIdx}
+                        className="w-4 h-4 rounded-md border border-border/40"
+                        style={{ backgroundColor: color }}
+                      />
+                    ))}
                   </div>
-                  <div className="flex-1 flex gap-1 h-5 rounded-lg overflow-hidden border border-border border-crisp p-0.5" style={{ backgroundColor: preset.background }}>
-                    <div className="w-1/2 h-full rounded-xs shadow-2xs" style={{ backgroundColor: preset.card }} />
-                    <div className="w-1/2 h-full rounded-xs" style={{ backgroundColor: preset.primary }} />
+
+                  <div className="flex items-center gap-1">
+                    <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md bg-card text-text/60 border border-border">
+                      {preset.badge}
+                    </span>
+                    {isActive && (
+                      <div className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center">
+                        <Check className="h-3 w-3 stroke-[3]" />
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Title & Badge */}
+                {/* Title & Tagline */}
                 <div className="space-y-0.5">
-                  <span className="block text-xs font-extrabold text-text truncate">
-                    {language === 'th' ? preset.name.th.split(' (')[0] : preset.name.en}
+                  <span className="block text-xs font-black text-text group-hover:text-primary transition-colors">
+                    {preset.name[language]}
                   </span>
-                  <span className="inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-zinc-200/60 dark:bg-white/5 text-text/60 capitalize">
-                    {preset.isDark ? (language === 'th' ? 'ดาร์กธีม' : 'Dark Mode') : (language === 'th' ? 'ไลท์ธีม' : 'Light Mode')}
+                  <span className="block text-[10px] font-semibold text-text/60 line-clamp-1">
+                    {preset.tagline[language]}
                   </span>
                 </div>
               </button>
@@ -129,25 +139,26 @@ export const ThemePicker: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {SWATCHES.map((color) => (
+            {SWATCHES.map((swatch) => (
               <button
-                key={color}
+                key={swatch.hex}
                 type="button"
-                onClick={() => setCustomAccentColor(color)}
+                onClick={() => setCustomAccentColor(swatch.hex)}
                 className="w-8 h-8 rounded-full border border-border border-crisp shadow-sm relative transition-all active:scale-95 cursor-pointer hover:scale-110 flex items-center justify-center shrink-0"
-                style={{ backgroundColor: color }}
+                style={{ backgroundColor: swatch.hex }}
+                title={swatch.label}
               >
-                {customAccentColor === color && (
+                {customAccentColor === swatch.hex && (
                   <Check className="h-4 w-4 text-white stroke-[3.5]" />
                 )}
               </button>
             ))}
 
             {/* Custom Color Input */}
-            <div className="flex items-center gap-2 border border-border border-crisp rounded-xl p-1.5 bg-background/50/80 dark:bg-white/5 shrink-0">
+            <div className="flex items-center gap-2 border border-border border-crisp rounded-xl p-1.5 bg-background/50 shrink-0">
               <input
                 type="color"
-                value={customAccentColor || '#2563EB'}
+                value={customAccentColor || '#3B82F6'}
                 onChange={(e) => setCustomAccentColor(e.target.value)}
                 className="w-6 h-6 rounded-lg border-0 cursor-pointer overflow-hidden p-0 bg-transparent shrink-0"
               />
@@ -179,13 +190,13 @@ export const ThemePicker: React.FC = () => {
             <p className="text-[11px] text-text/60 mt-1">
               {language === 'th'
                 ? 'อัปโหลดภาพโลโก้ของร้านค้า ไฟล์นี้จะจัดเก็บในหน่วยความจำเบราว์เซอร์ และพิมพ์บนใบเสร็จอย่างสวยงาม'
-                : 'Upload your store branding logo. This is stored offline in the browser cache and custom styled on print templates.'}
+                : 'Upload your store branding logo. Stored in configuration and styled on print templates.'}
             </p>
           </div>
 
           <div className="flex items-center gap-4">
             {/* Logo Preview */}
-            <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-border border-crisp bg-background/50/80 dark:bg-white/5 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
+            <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-border border-crisp bg-background/50 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
               {customLogo ? (
                 <img
                   src={customLogo}
@@ -194,7 +205,7 @@ export const ThemePicker: React.FC = () => {
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <ImageIcon className="h-6 w-6 text-text/60 dark:text-white/10" />
+                <ImageIcon className="h-6 w-6 text-text/40" />
               )}
             </div>
 
@@ -229,7 +240,7 @@ export const ThemePicker: React.FC = () => {
                 className="hidden"
               />
               <span className="text-[10px] text-text/40">
-                {language === 'th' ? 'แนะนำสัดส่วน 1:1, รองรับไฟล์ JPG, PNG (สูงสุด 1MB)' : '1:1 ratio recommended. Supports JPG, PNG up to 1MB.'}
+                {language === 'th' ? 'แนะนำสัดส่วน 1:1, รองรับไฟล์ JPG, PNG, SVG (สูงสุด 1MB)' : '1:1 ratio recommended. Supports JPG, PNG, SVG up to 1MB.'}
               </span>
             </div>
           </div>

@@ -59,6 +59,11 @@ export const SettingsKeyboardShortcutsModal: React.FC<SettingsKeyboardShortcutsM
       category: language === 'th' ? 'การสลับหมวดหมู่' : 'Tab Navigation',
     },
     {
+      keys: ['Alt', 'D'],
+      action: language === 'th' ? 'เปิดศูนย์วินิจฉัยสุขภาพและโทรมาตรระบบ (System Health Diagnostics)' : 'Open System Diagnostic & Health Telemetry HUD',
+      category: language === 'th' ? 'การวินิจฉัยระบบ' : 'System Diagnostics',
+    },
+    {
       keys: ['↑', '↓', '←', '→'],
       action: language === 'th' ? 'เลื่อนโฟกัสระหว่างแท็บในรายการ' : 'Cycle through sidebar tabs',
       category: language === 'th' ? 'การนำทางด้วยคีย์บอร์ด' : 'Keyboard Navigation',

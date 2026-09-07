@@ -5,8 +5,9 @@ import { useLanguage } from '../../context/LanguageContext';
 import { playScannerSound } from '../../services/soundService';
 import { CartLineItem } from './CartLineItem';
 import { CustomerSelectModal } from './CustomerSelectModal';
-import { CheckoutModal } from './CheckoutModal';
+import { PaymentConfirmationModal } from './PaymentConfirmationModal';
 import { Button } from '../../components/common/Button';
+import { Badge } from '../../components/common/Badge';
 import { EmptyState } from '../../components/common/EmptyState';
 import { formatMoney } from '../../domain/money';
 import { Order } from '../../domain/order';
@@ -21,6 +22,8 @@ import {
   ChevronDown,
   Eye,
   RotateCcw,
+  Sparkles,
+  ShoppingBag,
 } from 'lucide-react';
 import { CartReceiptPreviewModal } from '../../components/receipt/CartReceiptPreviewModal';
 import { DiscountModal } from './DiscountModal';
@@ -66,102 +69,146 @@ export const CartPanel: React.FC = () => {
   const hasItems = items.length > 0;
 
   return (
-    <div className="h-full flex flex-col bg-card border-l border-border border-crisp select-none">
-      {/* Top Customer Attach Header */}
-      <div className="p-3 sm:p-4 border-b border-border border-crisp flex items-center justify-between gap-2 shrink-0 bg-card">
-        <button
-          type="button"
-          onClick={() => {
-            playScannerSound('click');
-            setIsCustomerModalOpen(true);
-          }}
-          className={`min-h-[44px] flex-1 flex items-center gap-2.5 px-3.5 py-2.5 rounded-lg border-crisp border text-xs font-bold transition-colors cursor-pointer text-left truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-            customer
-              ? 'border-border bg-background text-text shadow-2xs'
-              : 'border-border hover:border-primary/50 text-text/70 bg-card'
-          }`}
-        >
-          {customer ? (
-            <>
-              <UserCheck className="h-4.5 w-4.5 shrink-0 text-primary" />
-              <span className="truncate">{customer.name}</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-card border border-border text-text font-bold shrink-0">
-                {customer.loyaltyPoints} {language === 'th' ? 'คะแนน' : 'pts'}
-              </span>
-            </>
-          ) : (
-            <>
-              <UserPlus className="h-4.5 w-4.5 shrink-0 opacity-70" />
-              <span className="truncate">{language === 'th' ? 'เลือกลูกค้า / สะสมคะแนน' : 'Add Customer / Loyalty'}</span>
-            </>
-          )}
-        </button>
-
-        {hasItems && (
+    <div className="h-full w-full flex flex-col bg-card select-none overflow-hidden">
+      {/* ========================================================================= */}
+      {/* 1. TOP SECTION (15% HEIGHT): Customer Attachment, Ticket Meta & Actions    */}
+      {/* ========================================================================= */}
+      <div className="h-[15%] min-h-[56px] max-h-[15%] shrink-0 border-b border-border border-crisp bg-card px-3 sm:px-4 py-2 flex flex-col justify-center items-center overflow-hidden">
+        <div className="w-full flex items-center justify-between gap-2">
+          {/* Customer Attachment / Member Loyalty Button */}
           <button
             type="button"
             onClick={() => {
               playScannerSound('click');
-              setIsClearConfirmOpen(true);
+              setIsCustomerModalOpen(true);
             }}
-            className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg border border-transparent hover:border-rose-200 dark:hover:border-rose-900 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-text/50 hover:text-rose-600 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 active:scale-95"
-            title={t.pos.clearCart}
-            aria-label={t.pos.clearCart}
+            className={`min-h-[44px] flex-1 flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border-crisp border text-xs font-bold transition-all cursor-pointer truncate focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active-scale ${
+              customer
+                ? 'border-primary/40 bg-primary/5 text-text'
+                : 'border-border hover:border-primary/50 text-text/70 bg-background/50 hover:bg-background'
+            }`}
           >
-            <Trash2 className="h-4.5 w-4.5" />
+            <div className="flex items-center gap-2 min-w-0 truncate">
+              {customer ? (
+                <>
+                  <div className="p-1 rounded-md bg-primary/10 text-primary shrink-0">
+                    <UserCheck className="h-3.5 w-3.5" />
+                  </div>
+                  <span className="truncate font-bold text-text text-xs">{customer.name}</span>
+                </>
+              ) : (
+                <>
+                  <div className="p-1 rounded-md bg-card text-text/50 shrink-0">
+                    <UserPlus className="h-3.5 w-3.5" />
+                  </div>
+                  <span className="truncate text-xs font-semibold">
+                    {language === 'th' ? 'เลือกลูกค้า / สะสมคะแนน' : 'Add Customer / Loyalty'}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {customer ? (
+              <Badge variant="primary" size="xs" className="shrink-0 font-mono font-bold">
+                {customer.loyaltyPoints} {language === 'th' ? 'แต้ม' : 'pts'}
+              </Badge>
+            ) : (
+              <span className="text-[10px] text-text/40 shrink-0 font-mono">
+                {language === 'th' ? 'แตะเลือก' : 'Select'}
+              </span>
+            )}
           </button>
-        )}
+
+          {/* Quick Ticket Badge & Clear Cart Shortcut */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {heldCarts.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  playScannerSound('click');
+                  setIsHoldModalOpen(true);
+                }}
+                title={language === 'th' ? `บิลที่พักไว้ (${heldCarts.length})` : `Parked Orders (${heldCarts.length})`}
+                className="min-h-[44px] px-2.5 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors active-scale"
+              >
+                <PauseCircle className="h-3.5 w-3.5" />
+                <span className="font-mono text-[11px]">{heldCarts.length}</span>
+              </button>
+            )}
+
+            <div className="px-2 py-1 rounded-lg border border-border/80 bg-background/60 text-text/70 text-[11px] font-mono font-bold flex items-center gap-1">
+              <ShoppingBag className="h-3 w-3 text-primary" />
+              <span>{totals.totalItemsCount}</span>
+            </div>
+
+            {hasItems && (
+              <button
+                type="button"
+                onClick={() => {
+                  playScannerSound('click');
+                  setIsClearConfirmOpen(true);
+                }}
+                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg border border-border/60 hover:border-rose-200 dark:hover:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-text/50 hover:text-rose-600 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 active-scale"
+                title={t.pos.clearCart}
+                aria-label={t.pos.clearCart}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Cart Items List */}
-      <div className="flex-1 overflow-y-auto p-3 no-scrollbar bg-background">
+      {/* ========================================================================= */}
+      {/* 2. BODY SECTION (45% HEIGHT): Scrollable Line Items List                   */}
+      {/* ========================================================================= */}
+      <div className="h-[45%] min-h-0 max-h-[45%] flex-1 overflow-y-auto p-2.5 sm:p-3 bg-background/40 custom-scrollbar flex flex-col justify-start">
         {!hasItems ? (
-          <div className="h-full flex flex-col justify-center items-center">
+          <div className="flex-1 flex flex-col justify-center items-center text-center p-4 my-auto">
             <EmptyState
               icon={<ShoppingCart className="h-6 w-6 text-text/30" />}
               title={t.pos.emptyCart}
               description={t.pos.emptyCartDesc}
-              className="border-none bg-transparent pb-4"
+              className="border-none bg-transparent py-2"
             />
             {heldCarts.length > 0 && (
               <Button
                 variant="outline"
-                className="mt-2 text-xs font-bold border-border border-crisp rounded-lg"
+                size="sm"
+                className="mt-2 text-xs font-bold border-border border-crisp theme-btn-radius active-scale"
                 onClick={() => setIsHoldModalOpen(true)}
+                leftIcon={<PauseCircle className="h-3.5 w-3.5 text-amber-500" />}
               >
                 {language === 'th' ? `เรียกคืนบิลที่พักไว้ (${heldCarts.length})` : `Retrieve Parked Orders (${heldCarts.length})`}
               </Button>
             )}
           </div>
         ) : (
-          <div className="space-y-0">
+          <div className="space-y-2 w-full">
             <AnimatePresence initial={false}>
               {items.map((item) => (
                 <motion.div
                   key={item.lineId}
-                  initial={{ opacity: 0, x: 15, height: 0 }}
-                  animate={{ opacity: 1, x: 0, height: 'auto' }}
-                  exit={{ opacity: 0, x: -15, height: 0 }}
-                  transition={{ type: 'spring', stiffness: 450, damping: 30 }}
-                  className="overflow-hidden"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
                 >
-                  <div className="pb-2">
-                    <CartLineItem
-                      item={item}
-                      onUpdateQuantity={updateQuantity}
-                      onRequestDiscount={() => {
-                        setDiscountModalConfig({
-                          isOpen: true,
-                          targetType: 'item',
-                          targetId: item.lineId,
-                          targetName: item.product.name,
-                          currentBps: item.discountBps,
-                          basePriceCents: item.unitPrice.amountInCents * item.quantity,
-                        });
-                      }}
-                      onRemove={removeItem}
-                    />
-                  </div>
+                  <CartLineItem
+                    item={item}
+                    onUpdateQuantity={updateQuantity}
+                    onRequestDiscount={() => {
+                      setDiscountModalConfig({
+                        isOpen: true,
+                        targetType: 'item',
+                        targetId: item.lineId,
+                        targetName: item.product.name,
+                        currentBps: item.discountBps,
+                        basePriceCents: item.unitPrice.amountInCents * item.quantity,
+                      });
+                    }}
+                    onRemove={removeItem}
+                  />
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -169,48 +216,56 @@ export const CartPanel: React.FC = () => {
         )}
       </div>
 
-      {/* Cart Summary & Actions Footer */}
-      {hasItems && (
-        <div className="p-4 border-t border-border border-crisp bg-card shrink-0 space-y-3 shadow-2xs">
-          {/* Order Level Discount Selector */}
-          <div className="relative">
-            <div className="flex items-center justify-between text-xs text-text/70">
-              <span className="flex items-center gap-1.5 font-bold">
-                <Percent className="h-3.5 w-3.5 opacity-70" />
-                <span>{language === 'th' ? 'ส่วนลดท้ายบิล:' : 'Ticket Discount:'}</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setDiscountModalConfig({
-                    isOpen: true,
-                    targetType: 'cart',
-                    targetName: language === 'th' ? 'ส่วนลดท้ายบิล' : 'Ticket Discount',
-                    currentBps: orderDiscountBps,
-                    // Cart discount applies to gross - item discounts
-                    basePriceCents: totals.grossSubtotal.amountInCents - totals.itemDiscounts.amountInCents,
-                  });
-                }}
-                className="min-h-[36px] px-2.5 py-1 rounded-lg font-bold text-primary flex items-center gap-1 hover:bg-background transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <span>
-                  {orderDiscountBps > 0 ? (
-                    <>
-                      <span className="font-mono">{orderDiscountBps / 100}%</span>{' '}
-                      {language === 'th' ? 'ใช้แล้ว' : 'Applied'}
-                    </>
-                  ) : (
-                    language === 'th' ? 'เพิ่มส่วนลด' : 'Add Discount'
-                  )}
-                </span>
-              </button>
+      {/* ========================================================================= */}
+      {/* 3. BOTTOM SECTION (40% HEIGHT): Ticket Discounts, Financial Summary & CTAs */}
+      {/* ========================================================================= */}
+      <div className="h-[40%] min-h-0 max-h-[40%] shrink-0 border-t border-border border-crisp bg-card p-2.5 sm:p-3.5 flex flex-col justify-between overflow-y-auto custom-scrollbar shadow-xs">
+        {/* Upper Part: Discounts & Financial Breakdown */}
+        <div className="space-y-1.5">
+          {/* Order Level Discount Selector Row */}
+          <div className="flex items-center justify-between text-xs pb-1 border-b border-border/40">
+            <div className="flex items-center gap-1.5 font-semibold text-text/70">
+              <Percent className="h-3.5 w-3.5 text-primary/70" />
+              <span>{language === 'th' ? 'ส่วนลดท้ายบิล:' : 'Ticket Discount:'}</span>
             </div>
+            <button
+              type="button"
+              disabled={!hasItems}
+              onClick={() => {
+                if (!hasItems) return;
+                setDiscountModalConfig({
+                  isOpen: true,
+                  targetType: 'cart',
+                  targetName: language === 'th' ? 'ส่วนลดท้ายบิล' : 'Ticket Discount',
+                  currentBps: orderDiscountBps,
+                  basePriceCents: totals.grossSubtotal.amountInCents - totals.itemDiscounts.amountInCents,
+                });
+              }}
+              className={`min-h-[26px] px-2 py-0.5 rounded-md font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer ${
+                orderDiscountBps > 0
+                  ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                  : hasItems
+                  ? 'text-primary hover:bg-primary/10'
+                  : 'text-text/30 cursor-not-allowed'
+              }`}
+            >
+              <span>
+                {orderDiscountBps > 0 ? (
+                  <>
+                    <span className="font-mono">{orderDiscountBps / 100}%</span>{' '}
+                    {language === 'th' ? 'ใช้แล้ว' : 'Applied'}
+                  </>
+                ) : (
+                  language === 'th' ? '+ ใส่ส่วนลด' : '+ Add Discount'
+                )}
+              </span>
+            </button>
           </div>
 
-          {/* Breakdown Lines */}
-          <div className="space-y-1.5 text-xs">
+          {/* Breakdown Rows */}
+          <div className="space-y-1 text-xs">
             <div className="flex justify-between text-text/70 font-medium">
-              <span>{t.pos.subtotal} (<span className="font-mono">{totals.totalItemsCount}</span> {t.pos.itemCount})</span>
+              <span>{t.pos.subtotal} ({totals.totalItemsCount} {t.pos.itemCount})</span>
               <span className="font-mono text-text font-bold">{formatMoney(totals.grossSubtotal)}</span>
             </div>
 
@@ -223,94 +278,126 @@ export const CartPanel: React.FC = () => {
 
             {totals.orderDiscount.amountInCents > 0 && (
               <div className="flex justify-between text-rose-600 dark:text-rose-400 font-medium">
-                <span>{language === 'th' ? 'ส่วนลดท้ายบิล' : 'Ticket Discount'} (<span className="font-mono">{orderDiscountBps / 100}%</span>)</span>
+                <span>{language === 'th' ? 'ส่วนลดท้ายบิล' : 'Ticket Discount'} ({orderDiscountBps / 100}%)</span>
                 <span className="font-mono font-bold">-{formatMoney(totals.orderDiscount)}</span>
               </div>
             )}
 
-            <div className="flex justify-between text-text/70 font-medium">
+            <div className="flex justify-between text-text/50 text-[11px]">
               <span>{t.pos.vatIncluded}</span>
-              <span className="font-mono text-text font-bold">{formatMoney(totals.totalTax)}</span>
+              <span className="font-mono font-medium">{formatMoney(totals.totalTax)}</span>
             </div>
 
-            <div className="pt-3 border-t border-border border-crisp flex flex-col gap-1 mt-3">
-              <div className="flex justify-between items-baseline">
-                <span className="text-sm font-bold text-text uppercase tracking-wider">
+            {/* Prominent Grand Total Block */}
+            <div className="pt-1.5 border-t border-border/80 flex items-baseline justify-between mt-0.5">
+              <div>
+                <span className="text-xs sm:text-sm font-black text-text uppercase tracking-wide">
                   {t.pos.total}
                 </span>
-                <span className="text-2xl font-bold font-mono text-primary tracking-tight">
+                {secondaryTotals && (
+                  <div className="text-[10px] text-text/50 font-medium">
+                    ≈ {formatMoney(secondaryTotals.grandTotal)} ({activeSecondaryCurrency})
+                  </div>
+                )}
+              </div>
+              <div className="text-right">
+                <span className="text-xl sm:text-2xl font-black font-mono text-primary tracking-tight">
                   {formatMoney(totals.grandTotal)}
                 </span>
               </div>
-              {secondaryTotals && (
-                <div className="flex justify-between items-center text-[11px] text-text/70 mt-1 font-medium">
-                  <span>{language === 'th' ? `มูลค่าเทียบเท่า (${activeSecondaryCurrency})` : `Estimate (${activeSecondaryCurrency})`}</span>
-                  <span className="font-mono text-text font-bold">
-                    {formatMoney(secondaryTotals.grandTotal)}
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Checkout & Park Ticket Actions */}
-          <div className="pt-2 flex flex-col gap-2">
-            <Button
-              variant="outline"
-              size="md"
-              onClick={() => {
-                playScannerSound('click');
-                setIsClearConfirmOpen(true);
-              }}
-              className="w-full text-xs font-bold border-rose-200 dark:border-rose-950/60 hover:bg-rose-50 dark:hover:bg-rose-950/20 text-rose-600 dark:text-rose-400 rounded-lg h-11 min-h-[44px]"
-              leftIcon={<RotateCcw className="h-4 w-4" />}
-            >
-              {language === 'th' ? 'เริ่มขายใหม่ (ล้างตะกร้า)' : 'New Sale (Clear Cart)'}
-            </Button>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  playScannerSound('click');
-                  setIsParkModalOpen(true);
-                }}
-                title={t.pos.holdCart}
-                className="min-h-[52px] min-w-[52px] h-[52px] w-[52px] flex items-center justify-center rounded-lg border-crisp border border-border bg-card text-text hover:bg-background active:scale-95 transition-all cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <PauseCircle className="h-5 w-5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  playScannerSound('click');
-                  setIsReceiptPreviewOpen(true);
-                }}
-                title={language === 'th' ? 'ดูตัวอย่างใบเสร็จดิจิทัล' : 'Digital Receipt Preview'}
-                className="min-h-[52px] min-w-[52px] h-[52px] w-[52px] flex items-center justify-center rounded-lg border-crisp border border-border bg-card text-text hover:bg-background active:scale-95 transition-all cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <Eye className="h-5 w-5" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  playScannerSound('click');
-                  setIsCheckoutModalOpen(true);
-                }}
-                className="flex-1 min-h-[52px] h-[52px] flex items-center justify-center gap-2 rounded-lg bg-primary hover:opacity-90 active:scale-[0.98] text-white font-bold text-sm tracking-wide shadow-2xs transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-              >
-                <CreditCard className="h-5 w-5" />
-                <span>{t.pos.checkoutBtn}</span>
-                <span className="font-mono font-black">{formatMoney(totals.grandTotal)}</span>
-              </button>
             </div>
           </div>
         </div>
-      )}
 
-      {/* Modals */}
+        {/* Lower Part: Action Buttons & Primary Checkout CTA */}
+        <div className="pt-2 space-y-1.5">
+          {/* Secondary Quick Toolbar */}
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              type="button"
+              disabled={!hasItems}
+              onClick={() => {
+                if (!hasItems) return;
+                playScannerSound('click');
+                setIsClearConfirmOpen(true);
+              }}
+              title={language === 'th' ? 'เริ่มขายใหม่ / ล้างตะกร้า' : 'New Sale (Clear)'}
+              className={`min-h-[36px] h-9 px-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all theme-btn-radius active-scale ${
+                hasItems
+                  ? 'border-rose-200 dark:border-rose-950/60 bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100/50 cursor-pointer'
+                  : 'border-border/40 text-text/30 bg-card cursor-not-allowed opacity-50'
+              }`}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span className="truncate">{language === 'th' ? 'ล้างบิล' : 'Clear'}</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={!hasItems}
+              onClick={() => {
+                if (!hasItems) return;
+                playScannerSound('click');
+                setIsParkModalOpen(true);
+              }}
+              title={t.pos.holdCart}
+              className={`min-h-[36px] h-9 px-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all theme-btn-radius active-scale ${
+                hasItems
+                  ? 'border-border bg-background text-text hover:border-primary/50 cursor-pointer'
+                  : 'border-border/40 text-text/30 bg-card cursor-not-allowed opacity-50'
+              }`}
+            >
+              <PauseCircle className="h-3.5 w-3.5" />
+              <span className="truncate">{language === 'th' ? 'พักบิล' : 'Park'}</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={!hasItems}
+              onClick={() => {
+                if (!hasItems) return;
+                playScannerSound('click');
+                setIsReceiptPreviewOpen(true);
+              }}
+              title={language === 'th' ? 'ดูตัวอย่างใบเสร็จ' : 'Receipt Preview'}
+              className={`min-h-[36px] h-9 px-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition-all theme-btn-radius active-scale ${
+                hasItems
+                  ? 'border-border bg-background text-text hover:border-primary/50 cursor-pointer'
+                  : 'border-border/40 text-text/30 bg-card cursor-not-allowed opacity-50'
+              }`}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              <span className="truncate">{language === 'th' ? 'ใบเสร็จ' : 'Receipt'}</span>
+            </button>
+          </div>
+
+          {/* Primary Checkout Button CTA */}
+          <button
+            type="button"
+            disabled={!hasItems}
+            onClick={() => {
+              if (!hasItems) return;
+              playScannerSound('click');
+              setIsCheckoutModalOpen(true);
+            }}
+            className={`w-full min-h-[44px] h-11 sm:h-11.5 flex items-center justify-between px-4 rounded-xl font-bold text-sm tracking-wide shadow-sm transition-all theme-btn-radius active-scale ${
+              hasItems
+                ? 'bg-primary hover:bg-primary/95 text-white cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40'
+                : 'bg-border/60 text-text/40 cursor-not-allowed'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <CreditCard className="h-4.5 w-4.5" />
+              <span>{t.pos.checkoutBtn}</span>
+            </div>
+            <span className="font-mono font-black text-base sm:text-lg">
+              {formatMoney(totals.grandTotal)}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* Modals & Dialogs */}
       <CustomerSelectModal
         isOpen={isCustomerModalOpen}
         onClose={() => setIsCustomerModalOpen(false)}
@@ -318,7 +405,7 @@ export const CartPanel: React.FC = () => {
         onSelectCustomer={setCustomer}
       />
 
-      <CheckoutModal
+      <PaymentConfirmationModal
         isOpen={isCheckoutModalOpen}
         onClose={() => setIsCheckoutModalOpen(false)}
         onOrderCompleted={(ord: Order) => {
@@ -374,7 +461,7 @@ export const CartPanel: React.FC = () => {
           <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full">
             <Button
               variant="danger"
-              className="w-full sm:flex-1 rounded-lg order-1 sm:order-2"
+              className="w-full sm:flex-1 rounded-lg order-1 sm:order-2 theme-btn-radius active-scale"
               onClick={() => {
                 playScannerSound('warning');
                 clearCart();
@@ -386,7 +473,7 @@ export const CartPanel: React.FC = () => {
             </Button>
             <Button
               variant="outline"
-              className="w-full sm:w-auto rounded-lg border-crisp border-border order-2 sm:order-1"
+              className="w-full sm:w-auto rounded-lg border-crisp border-border order-2 sm:order-1 theme-btn-radius active-scale"
               onClick={() => setIsClearConfirmOpen(false)}
             >
               {language === 'th' ? 'ยกเลิก' : 'Cancel'}
@@ -405,3 +492,4 @@ export const CartPanel: React.FC = () => {
     </div>
   );
 };
+

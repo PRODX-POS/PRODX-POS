@@ -14,24 +14,24 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 const variantStyles: Record<ButtonVariant, string> = {
   primary:
-    'bg-primary hover:bg-primary-dark active:opacity-90 text-white font-semibold shadow-2xs',
+    'bg-primary hover:bg-primary-dark text-white font-semibold shadow-xs hover:shadow-sm ring-1 ring-primary/20',
   secondary:
-    'bg-card text-text hover:bg-background active:opacity-90 font-medium border-crisp border border-border shadow-2xs',
+    'bg-card text-text hover:bg-background font-semibold border border-border border-crisp shadow-2xs hover:border-text/20',
   outline:
-    'bg-transparent text-text hover:bg-background active:opacity-90 border-crisp border border-border font-medium',
+    'bg-transparent text-text hover:bg-background border border-border border-crisp font-semibold hover:border-primary/50',
   ghost:
-    'bg-transparent text-text/70 hover:text-text hover:bg-background font-medium',
+    'bg-transparent text-text/70 hover:text-text hover:bg-background/80 font-semibold',
   danger:
-    'bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-semibold',
+    'bg-rose-600 hover:bg-rose-700 text-white font-semibold shadow-xs ring-1 ring-rose-500/20',
   success:
-    'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-semibold',
+    'bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-xs ring-1 ring-emerald-500/20',
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
-  sm: 'h-[36px] min-h-[36px] px-3.5 text-xs font-medium gap-1.5 rounded-md',
-  md: 'h-[44px] min-h-[44px] px-4 text-sm font-medium gap-2 rounded-lg',
-  lg: 'h-[52px] min-h-[52px] px-6 text-base font-semibold gap-2.5 rounded-lg',
-  icon: 'h-[44px] w-[44px] min-h-[44px] min-w-[44px] p-0 items-center justify-center rounded-lg',
+  sm: 'h-[44px] min-h-[44px] px-3 text-xs font-semibold gap-1.5 theme-btn-radius',
+  md: 'h-[44px] min-h-[44px] px-3.5 sm:px-4 text-xs sm:text-sm font-semibold gap-2 theme-btn-radius',
+  lg: 'h-[48px] min-h-[48px] px-5 sm:px-6 text-sm sm:text-base font-bold gap-2.5 theme-btn-radius',
+  icon: 'h-[44px] w-[44px] min-h-[44px] min-w-[44px] p-0 items-center justify-center theme-btn-radius',
 };
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -53,7 +53,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         disabled={disabled || isLoading}
-        className={`inline-flex items-center justify-center transition-all duration-150 active:scale-[0.98] select-none font-medium whitespace-nowrap focus:outline-none focus-visible:outline-none focus:ring-2 focus:ring-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50 disabled:pointer-events-none disabled:active:scale-100 cursor-pointer ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
+        className={`inline-flex items-center justify-center transition-all duration-150 ease-out active-scale select-none whitespace-nowrap focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-40 disabled:pointer-events-none disabled:active:scale-100 cursor-pointer ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
         {...props}
       >
         {isLoading ? (

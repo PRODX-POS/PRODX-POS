@@ -212,6 +212,22 @@ User Agent: ${navigator.userAgent}`;
                   <RefreshCw className="h-3.5 w-3.5" />
                   <span>รีเฟรชระบบ (Reload POS)</span>
                 </button>
+
+                <button
+                  id="btn-error-hard-reload-clear"
+                  type="button"
+                  onClick={() => {
+                    try {
+                      localStorage.clear();
+                      sessionStorage.clear();
+                    } catch {}
+                    window.location.reload();
+                  }}
+                  className="py-2.5 px-4 rounded-xl font-bold text-rose-600 dark:text-rose-400 text-xs bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 active:scale-[0.99] transition-all flex items-center justify-center gap-2 cursor-pointer sm:col-span-2"
+                >
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  <span>บังคับรีโหลดและล้างแคช (Force Reload & Clear Local Cache)</span>
+                </button>
               </div>
 
               {/* Diagnostic Tools Toggle */}
@@ -352,3 +368,19 @@ User Agent: ${navigator.userAgent}`;
     );
   }
 }
+
+export interface GlobalErrorRecoveryProviderProps {
+  children: React.ReactNode;
+  moduleName?: string;
+}
+
+export const GlobalErrorRecoveryProvider: React.FC<GlobalErrorRecoveryProviderProps> = ({
+  children,
+  moduleName = 'PRODX POS Enterprise Recovery Engine',
+}) => {
+  return (
+    <ErrorBoundary isGlobal={true} moduleName={moduleName}>
+      {children}
+    </ErrorBoundary>
+  );
+};

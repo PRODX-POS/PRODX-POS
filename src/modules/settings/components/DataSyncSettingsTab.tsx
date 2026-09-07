@@ -15,12 +15,15 @@ import {
   AlertTriangle,
   RotateCcw,
   Sparkles,
+  Activity,
+  Zap,
 } from 'lucide-react';
 import { Card, CardHeader, CardBody } from '../../../components/common/Card';
 import { Badge } from '../../../components/common/Badge';
 import { Button } from '../../../components/common/Button';
 import { Modal } from '../../../components/common/Modal';
 import { OfflineSyncProgressIndicator } from '../../../components/common/OfflineSyncProgressIndicator';
+import { SystemDiagnosticOverlay } from './SystemDiagnosticOverlay';
 import { useLanguage } from '../../../context/LanguageContext';
 import { useOffline } from '../../../context/OfflineContext';
 import { useToast } from '../../../context/ToastContext';
@@ -44,6 +47,7 @@ export const DataSyncSettingsTab: React.FC = () => {
   const [simulatedLatency, setSimulatedLatency] = useState<number>(() => mockState.getSimulatedLatency());
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [isDiagnosticOverlayOpen, setIsDiagnosticOverlayOpen] = useState(false);
 
   // IndexedDB cache inspection counts
   const [cachedStats, setCachedStats] = useState({
@@ -95,6 +99,46 @@ export const DataSyncSettingsTab: React.FC = () => {
       message: language === 'th' ? 'ข้อมูล Outbox ทั้งหมดถูกส่งขึ้นเซิร์ฟเวอร์เรียบร้อย' : 'All outbox records synchronized.',
       type: 'success',
     });
+  };
+
+  const handleExportUserRolesAndTheme = () => {
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const staffDirectory = JSON.parse(localStorage.getItem('prodx_pos_staff_directory') || '[]');
+      const rolePerms = JSON.parse(localStorage.getItem('prodx_pos_role_permissions') || '{}');
+      const appearanceCfg = JSON.parse(localStorage.getItem('prodx_pos_appearance_settings') || '{}');
+
+      const exportData = {
+        exportType: 'PRODX_USER_ROLES_AND_THEME_EXPORT',
+        exportVersion: '2.4.0',
+        exportedAt: new Date().toISOString(),
+        userToRoleMappings: staffDirectory,
+        rolePermissions: rolePerms,
+        themeConfigurations: appearanceCfg,
+      };
+
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(exportData, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', `prodx_user_roles_theme_export_${today}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      localStorage.setItem('prodx_last_settings_export_date', today);
+
+      addToast({
+        title: language === 'th' ? 'สำรองข้อมูลสิทธิ์ผู้ใช้และธีมสำเร็จ' : 'Settings Exported',
+        message: language === 'th' ? 'ไฟล์ JSON การจับคู่บทบาทผู้ใช้และการตั้งค่าธีมถูกดาวน์โหลดแล้ว' : 'User-to-role mappings and theme configurations JSON downloaded.',
+        type: 'success',
+      });
+    } catch (e) {
+      addToast({
+        title: language === 'th' ? 'การส่งออกล้มเหลว' : 'Export Failed',
+        message: String(e),
+        type: 'error',
+      });
+    }
   };
 
   const handleExportSystemBackup = async () => {
@@ -176,6 +220,40 @@ export const DataSyncSettingsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* 0. Real-time System Diagnostic & Storage Telemetry Hub Card */}
+      <div className="p-4 sm:p-5 rounded-xl border border-primary/30 bg-primary/5 dark:bg-primary/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-start sm:items-center gap-3.5">
+          <div className="p-2.5 rounded-xl bg-primary text-white shadow-xs">
+            <Activity className="h-5 w-5 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold text-text">
+                {language === 'th' ? 'ศูนย์วินิจฉัยสุขภาพและโทรมาตรระบบ (System Health Diagnostics)' : 'System Diagnostics & Telemetry HUD'}
+              </h3>
+              <Badge variant="primary" size="sm">
+                LIVE
+              </Badge>
+            </div>
+            <p className="text-xs text-text/60 mt-0.5">
+              {language === 'th'
+                ? 'ตรวจวัดสถานะซิงก์ Cloud, การใช้แคช IndexedDB, โควต้าพื้นที่จัดเก็บบราวเซอร์, และรันชุดทดสอบระบบอัตโนมัติ'
+                : 'Inspect real-time cloud sync, IndexedDB cache records, browser storage quota, and execute automated benchmarks.'}
+            </p>
+          </div>
+        </div>
+
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => setIsDiagnosticOverlayOpen(true)}
+          className="theme-btn-radius font-bold text-xs shrink-0 self-start sm:self-auto"
+          leftIcon={<Zap className="h-4 w-4" />}
+        >
+          {language === 'th' ? 'เปิดศูนย์วินิจฉัยระบบ' : 'Launch Diagnostic HUD'}
+        </Button>
+      </div>
+
       {/* 1. Real-Time Offline Outbox & Visual Sync Progress Indicator */}
       <OfflineSyncProgressIndicator
         showQueueList={true}
@@ -416,7 +494,32 @@ export const DataSyncSettingsTab: React.FC = () => {
           </div>
 
           {/* Backup & System Reset Actions */}
-          <div className="pt-4 border-t border-border/60 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="pt-4 border-t border-border/60 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* Export User-to-Role Mappings & Theme Configurations */}
+            <div className="p-4 rounded-lg border border-primary/30 bg-primary/5 dark:bg-primary/10 flex flex-col justify-between gap-3">
+              <div>
+                <div className="text-xs font-bold text-primary flex items-center gap-2">
+                  <Download className="h-4 w-4 text-primary" />
+                  <span>{language === 'th' ? 'สำรองสิทธิ์และธีม (Export Settings JSON)' : 'Export User Roles & Theme'}</span>
+                </div>
+                <div className="text-[11px] text-text/70 mt-1">
+                  {language === 'th'
+                    ? 'ดาวน์โหลด JSON การจับคู่บทบาทผู้ใช้และการตั้งค่าธีม เพื่อความต่อเนื่องทางธุรกิจ'
+                    : 'Download JSON of user-to-role mappings and theme configurations.'}
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={handleExportUserRolesAndTheme}
+                className="w-full rounded-md font-bold text-xs"
+                leftIcon={<Download className="h-3.5 w-3.5" />}
+              >
+                {language === 'th' ? 'ดาวน์โหลดสิทธิ์และธีม (JSON)' : 'Export Roles & Theme JSON'}
+              </Button>
+            </div>
+
             {/* Export Backup JSON */}
             <div className="p-4 rounded-lg border border-border/80 bg-card/60 flex flex-col justify-between gap-3">
               <div>
@@ -532,6 +635,14 @@ export const DataSyncSettingsTab: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Real-Time System Diagnostic Telemetry Modal */}
+      {isDiagnosticOverlayOpen && (
+        <SystemDiagnosticOverlay
+          isOpen={isDiagnosticOverlayOpen}
+          onClose={() => setIsDiagnosticOverlayOpen(false)}
+        />
+      )}
     </div>
   );
 };

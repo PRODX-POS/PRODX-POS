@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useShift } from '../../context/ShiftContext';
 import { useOffline } from '../../context/OfflineContext';
@@ -7,39 +7,44 @@ import { orderApi, catalogApi } from '../../adapters/mockAdapter';
 import { Order } from '../../domain/order';
 import { Product } from '../../domain/catalog';
 import { formatMoney, createMoney } from '../../domain/money';
-import { Card, CardHeader, CardBody } from '../../components/common/Card';
-import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
-import { Skeleton } from '../../components/common/Skeleton';
 import {
-  TrendingUp,
-  Receipt,
-  DollarSign,
   AlertTriangle,
   Banknote,
   ShoppingCart,
-  Boxes,
   ArrowUpRight,
-  Clock,
-  CheckCircle2,
-  Users,
-  CreditCard,
-  QrCode,
-  Sparkles,
-  Activity,
-  Layers,
   Store,
-  ChevronRight,
-  Calendar,
   RotateCcw,
-  Filter,
+  Calendar,
+  SlidersHorizontal,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
+  Check,
 } from 'lucide-react';
 import { NavRoute } from '../../components/layout/Sidebar';
 import { DateRangePicker, DateRange } from './DateRangePicker';
+import { DashboardMetrics, HourlyDataPoint } from './types';
+import { RolePerspectiveBanner } from './components/RolePerspectiveBanner';
+import { ManagerFinancialKPIs } from './components/ManagerFinancialKPIs';
+import { StaffOperationalKPIs } from './components/StaffOperationalKPIs';
+import { HourlyVelocityChart } from './components/HourlyVelocityChart';
+import { DashboardQuickActions } from './components/DashboardQuickActions';
+import { RecentTransactionsSection } from './components/RecentTransactionsSection';
 
 export interface DashboardScreenProps {
   onNavigate: (route: NavRoute) => void;
 }
+
+const DEFAULT_WIDGET_ORDER = ['low_stock', 'kpis', 'hourly_chart', 'quick_actions', 'recent_orders'];
+
+const WIDGET_TITLES: Record<string, { th: string; en: string }> = {
+  low_stock: { th: 'แจ้งเตือนสินค้าคงคลังต่ำ', en: 'Low-Stock Alerts & Inventory Status' },
+  kpis: { th: 'ตัวชี้วัดทางการเงินและรอบการขาย (KPIs)', en: 'Sales & Financial KPIs' },
+  hourly_chart: { th: 'กราฟแนวโน้มยอดขายรายชั่วโมง', en: 'Hourly Velocity & Sales Trend' },
+  quick_actions: { th: 'ทางลัดการทำงานด่วน (POS Launchpad)', en: 'Quick Actions Launchpad' },
+  recent_orders: { th: 'คำสั่งซื้อและธุรกรรมล่าสุด', en: 'Recent Transactions & Orders' },
+};
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) => {
   const { session } = useAuth();
@@ -47,17 +52,32 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
   const { pendingCount } = useOffline();
   const { t, language } = useLanguage();
 
-  const isFinancialAuthorized = session?.currentUser?.role === 'admin' || session?.currentUser?.role === 'manager';
+  const userRole = session?.currentUser?.role || 'cashier';
+  const isFinancialAuthorized = userRole === 'admin' || userRole === 'manager';
 
   const [orders, setOrders] = useState<readonly Order[]>([]);
   const [products, setProducts] = useState<readonly Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeChartMetric, setActiveChartMetric] = useState<'sales' | 'orders'>('sales');
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [lowStockThreshold, setLowStockThreshold] = useState<number>(() => {
     const cached = localStorage.getItem('prodx_low_stock_threshold');
     return cached ? parseInt(cached, 10) : 15;
   });
+
+  // Drag-and-drop widget layout state
+  const [widgetOrder, setWidgetOrder] = useState<string[]>(() => {
+    const storeId = session?.currentStore?.id || 'default';
+    const saved = localStorage.getItem(`prodx_dashboard_widget_order_${storeId}`);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length === 5) return parsed;
+      } catch (e) {}
+    }
+    return DEFAULT_WIDGET_ORDER;
+  });
+  const [isCustomizeMode, setIsCustomizeMode] = useState(false);
+  const [draggedWidgetId, setDraggedWidgetId] = useState<string | null>(null);
+  const [dragOverWidgetId, setDragOverWidgetId] = useState<string | null>(null);
 
   // Custom report date range filter state (Defaults to Today)
   const [dateRange, setDateRange] = useState<DateRange>(() => {
@@ -70,7 +90,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
   });
 
   // Filter orders matching the selected date range window [startDate 00:00:00 - endDate 23:59:59]
-  const filteredOrders = React.useMemo(() => {
+  const filteredOrders = useMemo(() => {
     const startMs = new Date(dateRange.startDate).setHours(0, 0, 0, 0);
     const endMs = new Date(dateRange.endDate).setHours(23, 59, 59, 999);
     return orders.filter((order) => {
@@ -110,14 +130,73 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
     loadDashboardData();
   }, [session]);
 
+  // Save widget order when changed
+  useEffect(() => {
+    if (session?.currentStore?.id) {
+      localStorage.setItem(`prodx_dashboard_widget_order_${session.currentStore.id}`, JSON.stringify(widgetOrder));
+    }
+  }, [widgetOrder, session]);
+
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedWidgetId(id);
+    e.dataTransfer.setData('text/plain', id);
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    setDragOverWidgetId(id);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    if (!draggedWidgetId || draggedWidgetId === targetId) {
+      setDraggedWidgetId(null);
+      setDragOverWidgetId(null);
+      return;
+    }
+
+    const newOrder = [...widgetOrder];
+    const draggedIdx = newOrder.indexOf(draggedWidgetId);
+    const targetIdx = newOrder.indexOf(targetId);
+
+    if (draggedIdx !== -1 && targetIdx !== -1) {
+      newOrder.splice(draggedIdx, 1);
+      newOrder.splice(targetIdx, 0, draggedWidgetId);
+      setWidgetOrder(newOrder);
+    }
+    setDraggedWidgetId(null);
+    setDragOverWidgetId(null);
+  };
+
+  const moveWidgetDirection = (id: string, direction: 'up' | 'down') => {
+    const index = widgetOrder.indexOf(id);
+    if (index === -1) return;
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === widgetOrder.length - 1) return;
+
+    const newOrder = [...widgetOrder];
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    const temp = newOrder[index];
+    newOrder[index] = newOrder[targetIndex];
+    newOrder[targetIndex] = temp;
+
+    setWidgetOrder(newOrder);
+  };
+
+  const resetWidgetOrder = () => {
+    setWidgetOrder(DEFAULT_WIDGET_ORDER);
+  };
+
   // Aggregate metrics using decimal-safe Money arithmetic for the selected date range
-  const metrics = React.useMemo(() => {
+  const metrics: DashboardMetrics = useMemo(() => {
     let netSalesCents = 0;
     let grossSalesCents = 0;
     let ordersCount = 0;
     let totalItemsSold = 0;
     let cashSalesCents = 0;
     let digitalSalesCents = 0;
+    let cashOrdersCount = 0;
+    let digitalOrdersCount = 0;
     const currency = session?.currentStore.currency || 'THB';
 
     for (const order of filteredOrders) {
@@ -127,6 +206,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
         grossSalesCents += order.totals.grossSubtotal.amountInCents;
         ordersCount += 1;
 
+        let hasCash = false;
+        let hasDigital = false;
+
         for (const item of order.items) {
           totalItemsSold += item.quantity;
         }
@@ -134,10 +216,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
         for (const payment of order.payments) {
           if (payment.method === 'cash') {
             cashSalesCents += payment.amount.amountInCents;
+            hasCash = true;
           } else {
             digitalSalesCents += payment.amount.amountInCents;
+            hasDigital = true;
           }
         }
+
+        if (hasCash) cashOrdersCount += 1;
+        if (hasDigital) digitalOrdersCount += 1;
       }
     }
 
@@ -147,6 +234,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       ordersCount > 0
         ? createMoney(Math.round(netSalesCents / ordersCount), currency)
         : createMoney(0, currency);
+
+    const avgItemsPerOrder = ordersCount > 0 ? (totalItemsSold / ordersCount).toFixed(1) : '0';
 
     const lowStockCount = products.filter((p) => p.currentStock <= lowStockThreshold && p.currentStock > 0).length;
     const outOfStockCount = products.filter((p) => p.currentStock <= 0).length;
@@ -158,63 +247,86 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       ordersCount,
       avgOrderValue,
       totalItemsSold,
+      avgItemsPerOrder,
       cashSales: createMoney(cashSalesCents, currency),
       digitalSales: createMoney(digitalSalesCents, currency),
+      cashOrdersCount,
+      digitalOrdersCount,
       lowStockCount,
       outOfStockCount,
       totalInventoryCount,
     };
   }, [filteredOrders, products, session, lowStockThreshold]);
 
-  const lowStockProducts = React.useMemo(() => {
+  const lowStockProducts = useMemo(() => {
     return products.filter((p) => p.currentStock <= lowStockThreshold && p.currentStock > 0);
   }, [products, lowStockThreshold]);
 
-  // Hourly simulated trend data for visual velocity graph
-  const hourlyData = [
-    { hour: '8 AM', amount: 45, orders: 4 },
-    { hour: '9 AM', amount: 120, orders: 12 },
-    { hour: '10 AM', amount: 185, orders: 18 },
-    { hour: '11 AM', amount: 240, orders: 22 },
-    { hour: '12 PM', amount: 310, orders: 28 },
-    { hour: '1 PM', amount: 220, orders: 19 },
-    { hour: '2 PM', amount: 140, orders: 14 },
-    { hour: '3 PM', amount: 195, orders: 16 },
-    { hour: '4 PM', amount: 160, orders: 15 },
-    { hour: '5 PM', amount: 280, orders: 24 },
+  // Hourly simulated trend data for visual velocity graph (with amount $, orders count, and units sold)
+  const hourlyData: readonly HourlyDataPoint[] = [
+    { hour: '8 AM', amount: 45, orders: 4, units: 6 },
+    { hour: '9 AM', amount: 120, orders: 12, units: 18 },
+    { hour: '10 AM', amount: 185, orders: 18, units: 27 },
+    { hour: '11 AM', amount: 240, orders: 22, units: 34 },
+    { hour: '12 PM', amount: 310, orders: 28, units: 42 },
+    { hour: '1 PM', amount: 220, orders: 19, units: 29 },
+    { hour: '2 PM', amount: 140, orders: 14, units: 20 },
+    { hour: '3 PM', amount: 195, orders: 16, units: 24 },
+    { hour: '4 PM', amount: 160, orders: 15, units: 21 },
+    { hour: '5 PM', amount: 280, orders: 24, units: 36 },
   ];
 
-  const maxAmount = Math.max(...hourlyData.map((d) => d.amount));
-  const maxOrders = Math.max(...hourlyData.map((d) => d.orders));
+  const handleResetToday = () => {
+    const now = new Date();
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+    setDateRange({ startDate: start, endDate: end });
+  };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 bg-background text-text no-scrollbar">
+    <div id="dashboard-screen-root" className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 bg-background text-text no-scrollbar">
       {/* 1. Header & Store Context Banner */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between pb-4 sm:pb-6 border-b border-border/50">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-primary/10 text-primary border border-primary/20">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-label-xs bg-primary/10 text-primary border border-primary/20">
               <Store className="h-3 w-3" />
-              <span>{session?.currentStore.code} · {session?.registerId}</span>
+              <span>
+                {session?.currentStore.code} · {session?.registerId}
+              </span>
             </span>
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+            <span className="inline-flex items-center gap-1 text-label-xs text-emerald-600 dark:text-emerald-400">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span>{language === 'th' ? 'ระบบพร้อมบันทึกการขาย' : 'Live Point-of-Sale'}</span>
             </span>
           </div>
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-tight text-text mt-1">
+          <h1 className="text-heading-1 text-text mt-1">
             {t.dashboard.title}
           </h1>
-          <p className="text-xs text-text/70 mt-0.5">
+          <p className="text-caption text-text/70 mt-0.5">
             {t.dashboard.subtitle} ·{' '}
-            <span className="font-semibold text-text">
-              {session?.currentStore.name}
-            </span>
+            <span className="font-semibold text-text">{session?.currentStore.name}</span>
           </p>
         </div>
 
         <div className="flex items-center gap-2 sm:gap-2.5 overflow-x-auto no-scrollbar py-1 shrink-0">
           <Button
+            id="dashboard-header-customize-layout-btn"
+            variant={isCustomizeMode ? 'primary' : 'outline'}
+            size="md"
+            onClick={() => setIsCustomizeMode(!isCustomizeMode)}
+            leftIcon={<SlidersHorizontal className="h-4 w-4" />}
+            className="flex-1 sm:flex-initial min-h-[44px]"
+          >
+            {isCustomizeMode
+              ? language === 'th' ? 'เสร็จสิ้นการปรับแต่ง' : 'Done Customizing'
+              : language === 'th' ? 'ปรับแต่งมุมมองวิดเจ็ท' : 'Customize Widgets'}
+          </Button>
+
+          <Button
+            id="dashboard-header-cash-drawer-btn"
             variant="secondary"
             size="md"
             onClick={() => onNavigate('shift')}
@@ -225,6 +337,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
           </Button>
 
           <Button
+            id="dashboard-header-launch-pos-btn"
             variant="primary"
             size="md"
             onClick={() => onNavigate('pos')}
@@ -236,7 +349,48 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
         </div>
       </div>
 
-      {/* 2. SaaS Report Control Bar with Custom Date Range Picker */}
+      {/* 2. Role Perspective Status & Demo Switcher Banner */}
+      <RolePerspectiveBanner isManager={isFinancialAuthorized} userRole={userRole} />
+
+      {/* Customize Mode Active Banner */}
+      {isCustomizeMode && (
+        <div className="p-4 rounded-xl bg-primary/15 border border-primary/30 flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-primary text-white shrink-0">
+              <SlidersHorizontal className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-text">
+                {language === 'th' ? 'โหมดปรับแต่งลำดับวิดเจ็ท (Drag & Drop Widget Layout)' : 'Dashboard Widget Layout Customizer'}
+              </h3>
+              <p className="text-xs text-text/70 mt-0.5">
+                {language === 'th'
+                  ? 'ลากและวางการ์ดวิดเจ็ทขึ้น-ลง หรือใช้ปุ่มลูกศร เพื่อจัดลำดับมุมมองตามความต้องการของธุรกิจคุณ'
+                  : 'Drag and drop widgets to reorder your priority view, or use the move up/down controls.'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0">
+            <button
+              type="button"
+              onClick={resetWidgetOrder}
+              className="px-3.5 py-2 rounded-lg border border-border bg-card text-xs font-semibold hover:bg-background transition-colors cursor-pointer"
+            >
+              {language === 'th' ? 'รีเซ็ตค่าเริ่มต้น' : 'Reset Default'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsCustomizeMode(false)}
+              className="px-4 py-2 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary/95 transition-colors cursor-pointer flex items-center gap-1.5"
+            >
+              <Check className="h-4 w-4" />
+              <span>{language === 'th' ? 'เสร็จสิ้น (Done)' : 'Done'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 3. SaaS Report Control Bar with Custom Date Range Picker */}
       <div className="p-3 sm:p-4 rounded-lg border-border border-crisp bg-card shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex items-center gap-2">
@@ -248,7 +402,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
                 {language === 'th' ? 'ช่วงเวลาสรุปรายงาน' : 'Report Period'}
               </span>
               <span className="text-[11px] text-text/70">
-                {language === 'th' ? 'กรองข้อมูลยอดขายและวิเคราะห์คำสั่งซื้อ' : 'Filter financial totals & order analytics'}
+                {isFinancialAuthorized
+                  ? language === 'th'
+                    ? 'กรองข้อมูลยอดขายและวิเคราะห์คำสั่งซื้อ'
+                    : 'Filter financial totals & order analytics'
+                  : language === 'th'
+                  ? 'กรองข้อมูลรอบการขายและปริมาณคำสั่งซื้อ'
+                  : 'Filter operational order volume & unit velocity'}
               </span>
             </div>
           </div>
@@ -264,30 +424,29 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
 
         {/* Real-time Reporting Telemetry & Quick Action */}
         <div className="flex items-center justify-between md:justify-end gap-2.5 pt-2 md:pt-0 border-t md:border-t-0 border-border">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background border-border border-crisp text-xs font-mono">
+          <div
+            id="dashboard-telemetry-badge"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background border-border border-crisp text-xs font-mono"
+          >
             <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            <span className="font-bold text-text">
-              {filteredOrders.length}
-            </span>
+            <span className="font-bold text-text">{filteredOrders.length}</span>
             <span className="text-text/70">
               {language === 'th' ? 'บิลที่ตรงเกณฑ์' : 'bills in range'}
             </span>
             <span className="text-text/30">·</span>
-            <span className="font-bold text-primary">
-              {formatMoney(metrics.netSales)}
-            </span>
+            {isFinancialAuthorized ? (
+              <span className="font-bold text-primary">{formatMoney(metrics.netSales)}</span>
+            ) : (
+              <span className="font-bold text-primary">
+                {metrics.totalItemsSold} {language === 'th' ? 'ชิ้นที่ขาย' : 'items sold'}
+              </span>
+            )}
           </div>
 
           <button
             type="button"
-            onClick={() => {
-              const now = new Date();
-              const start = new Date(now);
-              start.setHours(0, 0, 0, 0);
-              const end = new Date(now);
-              end.setHours(23, 59, 59, 999);
-              setDateRange({ startDate: start, endDate: end });
-            }}
+            id="dashboard-reset-today-btn"
+            onClick={handleResetToday}
             className="min-h-[44px] px-3.5 py-1.5 rounded-lg border-border border-crisp bg-card hover:bg-background text-text/80 text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
             title="Reset to today"
           >
@@ -297,770 +456,167 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
         </div>
       </div>
 
-      {/* Warning Notification for Low Stock */}
-      {!isLoading && lowStockProducts.length > 0 && (
-        <div className="p-4 sm:p-5 rounded-lg bg-amber-500/10 border-border border-crisp shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-200">
-          <div className="flex items-start gap-3.5 min-w-0">
-            <div className="p-2.5 rounded-lg bg-amber-500 text-white shrink-0 shadow-xs flex items-center justify-center">
-              <AlertTriangle className="h-5 w-5 animate-bounce" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="text-sm font-black text-amber-900 dark:text-amber-200 flex items-center gap-2">
-                <span>{language === 'th' ? 'แจ้งเตือนระบบ: ระดับสินค้าคงคลังต่ำกว่าเกณฑ์' : 'System Alert: Critical Low Stock Detected'}</span>
-                <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300">
-                  {lowStockProducts.length} {language === 'th' ? 'รายการ' : 'SKUs'}
-                </span>
-              </h3>
-              <p className="text-[11.5px] text-amber-800 dark:text-amber-300/90 mt-1 leading-relaxed">
-                {language === 'th'
-                  ? `ตรวจพบสินค้าคงเหลือต่ำกว่าเกณฑ์ควบคุมที่คุณตั้งค่าไว้ (${lowStockThreshold} ชิ้น) กรุณาดำเนินการสั่งซื้อหรือเติมสต็อกเพื่อหลีกเลี่ยงสินค้าขาดตอน`
-                  : `There are ${lowStockProducts.length} products that have dropped below your user-defined threshold of ${lowStockThreshold} units. Please replenish inventory immediately to prevent order disruption.`}
-              </p>
-              
-              {/* Quick list of top low-stock products */}
-              <div className="flex flex-wrap gap-1.5 mt-2.5">
-                {lowStockProducts.slice(0, 4).map((p) => (
-                  <span key={p.id} className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-card border-border border-crisp text-[10.5px] font-medium text-amber-900 dark:text-amber-300 font-sans">
-                    <span className="font-bold truncate max-w-[120px]">{p.name}</span>
-                    <span className="w-1 h-1 rounded-full bg-amber-400 shrink-0" />
-                    <span className="font-mono font-bold text-rose-600 dark:text-rose-400">{p.currentStock} {p.unitOfMeasure}</span>
-                  </span>
-                ))}
-                {lowStockProducts.length > 4 && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-amber-500/10 text-[10.5px] font-bold text-amber-700 dark:text-amber-300">
-                    +{lowStockProducts.length - 4} more
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-          <Button
-            size="md"
-            variant="secondary"
-            onClick={() => onNavigate('inventory')}
-            leftIcon={<ArrowUpRight className="h-4 w-4" />}
-            className="w-full md:w-auto text-xs font-bold shrink-0 self-stretch md:self-center bg-card hover:bg-background text-text border-border border-crisp transition-colors cursor-pointer min-h-[44px]"
-          >
-            {language === 'th' ? 'จัดการคลังสินค้า' : 'Replenish Inventory'}
-          </Button>
-        </div>
-      )}
+      {/* 4. Draggable Dashboard Widgets Container */}
+      <div className="space-y-6">
+        {widgetOrder.map((widgetId, index) => {
+          if (widgetId === 'low_stock' && lowStockProducts.length === 0 && !isCustomizeMode) {
+            return null;
+          }
 
-      {/* 3. Responsive Primary KPI Metrics Grid (1-col on mobile, 2-col on sm/md, 4-col on lg/xl/2xl) */}
-      <div className={`grid grid-cols-1 sm:grid-cols-2 ${isFinancialAuthorized ? 'lg:grid-cols-4' : 'lg:grid-cols-2'} gap-3 sm:gap-4 lg:gap-5`}>
-        {/* Card 1: Selected Period Net Revenue */}
-        {isFinancialAuthorized && (
-        <Card className="hover:border-primary/40 transition-all shadow-2xs">
-          <CardBody className="p-4 sm:p-5 lg:p-6 flex flex-col justify-between h-full">
-            <div>
-              <div className="flex items-center justify-between text-xs font-semibold text-text/70 uppercase tracking-wider">
-                <span>{language === 'th' ? 'รายได้สุทธิ (ช่วงที่เลือก)' : 'Period Net Revenue'}</span>
-                <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-                  <DollarSign className="h-4 w-4" />
+          let widgetContent = null;
+
+          if (widgetId === 'low_stock') {
+            if (lowStockProducts.length === 0 && isCustomizeMode) {
+              widgetContent = (
+                <div className="p-4 rounded-xl bg-card border border-border border-crisp text-center text-xs text-text/60">
+                  🟢 {language === 'th' ? 'สถานะสินค้าคงคลังปกติ (ไม่มีสินค้าต่ำกว่าเกณฑ์)' : 'Inventory Healthy (No Low-Stock SKUs currently)'}
                 </div>
-              </div>
-              {isLoading ? (
-                <Skeleton className="h-9 w-32 mt-2" />
-              ) : (
-                <div className="mt-2 text-2xl sm:text-3xl font-black font-mono tracking-tight text-text">
-                  {formatMoney(metrics.netSales)}
-                </div>
-              )}
-            </div>
-            <div className="mt-3 pt-3 border-t border-border text-[11px] text-text/70 font-medium flex items-center justify-between">
-              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
-                <TrendingUp className="h-3.5 w-3.5" />
-                <span>+14.2%</span>
-              </span>
-              <span className="truncate">{language === 'th' ? 'คำนวณตามรอบที่เลือก' : 'based on range'}</span>
-            </div>
-          </CardBody>
-        </Card>
-        )}
+              );
+            } else if (lowStockProducts.length > 0) {
+              widgetContent = (
+                <div className="p-4 sm:p-5 rounded-lg bg-amber-500/10 border-border border-crisp shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in duration-200">
+                  <div className="flex items-start gap-3.5 min-w-0">
+                    <div className="p-2.5 rounded-lg bg-amber-500 text-white shrink-0 shadow-xs flex items-center justify-center">
+                      <AlertTriangle className="h-5 w-5 animate-bounce" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-black text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                        <span>
+                          {language === 'th'
+                            ? 'แจ้งเตือนระบบ: ระดับสินค้าคงคลังต่ำกว่าเกณฑ์'
+                            : 'System Alert: Critical Low Stock Detected'}
+                        </span>
+                        <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                          {lowStockProducts.length} {language === 'th' ? 'รายการ' : 'SKUs'}
+                        </span>
+                      </h3>
+                      <p className="text-[11.5px] text-amber-800 dark:text-amber-300/90 mt-1 leading-relaxed">
+                        {language === 'th'
+                          ? `ตรวจพบสินค้าคงเหลือต่ำกว่าเกณฑ์ควบคุมที่คุณตั้งค่าไว้ (${lowStockThreshold} ชิ้น) กรุณาดำเนินการสั่งซื้อหรือเติมสต็อกเพื่อหลีกเลี่ยงสินค้าขาดตอน`
+                          : `There are ${lowStockProducts.length} products that have dropped below your user-defined threshold of ${lowStockThreshold} units. Please replenish inventory immediately to prevent order disruption.`}
+                      </p>
 
-        {/* Card 2: Completed Transactions & AOV */}
-        {isFinancialAuthorized && (
-        <Card className="hover:border-border transition-all shadow-2xs">
-          <CardBody className="p-4 sm:p-5 lg:p-6 flex flex-col justify-between h-full">
-            <div>
-              <div className="flex items-center justify-between text-xs font-semibold text-text/70 uppercase tracking-wider">
-                <span>{language === 'th' ? 'บิลที่สำเร็จ' : 'Transactions'}</span>
-                <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
-                  <Receipt className="h-4 w-4" />
-                </div>
-              </div>
-              {isLoading ? (
-                <Skeleton className="h-9 w-24 mt-2" />
-              ) : (
-                <div className="mt-2 text-2xl sm:text-3xl font-black font-mono tracking-tight text-text">
-                  {metrics.ordersCount} <span className="text-xs font-sans font-medium text-text/50">{language === 'th' ? 'บิล' : 'bills'}</span>
-                </div>
-              )}
-            </div>
-            <div className="mt-3 pt-3 border-t border-border text-[11px] text-text/70 font-medium flex items-center justify-between">
-              <span>{t.dashboard.avgBasket}:</span>
-              <span className="font-mono font-bold text-text">
-                {formatMoney(metrics.avgOrderValue)}
-              </span>
-            </div>
-          </CardBody>
-        </Card>
-        )}
-
-        {/* Card 3: Shift Drawer Cash & Register */}
-        <Card className="hover:border-emerald-500/40 transition-all shadow-2xs">
-          <CardBody className="p-4 sm:p-5 lg:p-6 flex flex-col justify-between h-full">
-            <div>
-              <div className="flex items-center justify-between text-xs font-semibold text-text/70 uppercase tracking-wider">
-                <span>{language === 'th' ? 'เงินสดในลิ้นชัก' : 'Shift Drawer Cash'}</span>
-                <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                  <Banknote className="h-4 w-4" />
-                </div>
-              </div>
-              {isLoading ? (
-                <Skeleton className="h-9 w-32 mt-2" />
-              ) : currentShift ? (
-                <div className="mt-2 text-2xl sm:text-3xl font-black font-mono tracking-tight text-text">
-                  {formatMoney(currentShift.expectedCashInDrawer)}
-                </div>
-              ) : (
-                <div className="mt-2 text-sm font-bold text-amber-600 dark:text-amber-400">
-                  {t.shift.noActiveShift}
-                </div>
-              )}
-            </div>
-            <div className="mt-3 pt-3 border-t border-border text-[11px] text-text/70 font-medium flex items-center justify-between">
-              <span>{language === 'th' ? 'สถานะกะ:' : 'Shift status:'}</span>
-              <Badge variant={currentShift ? 'success' : 'warning'} size="sm" dot>
-                {currentShift ? `${language === 'th' ? 'เปิดอยู่' : 'Open'} (${currentShift.registerId})` : (language === 'th' ? 'ยังไม่เปิด' : 'No Shift')}
-              </Badge>
-            </div>
-          </CardBody>
-        </Card>
-
-        {/* Card 4: Inventory & Outbox Alerts */}
-        <Card className="hover:border-amber-500/40 transition-all shadow-2xs">
-          <CardBody className="p-4 sm:p-5 lg:p-6 flex flex-col justify-between h-full">
-            <div>
-              <div className="flex items-center justify-between text-xs font-semibold text-text/70 uppercase tracking-wider">
-                <span>{language === 'th' ? 'การแจ้งเตือนระบบ' : 'Operational Alerts'}</span>
-                <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500">
-                  <AlertTriangle className="h-4 w-4" />
-                </div>
-              </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-2xl sm:text-3xl font-black font-mono text-text">
-                  {metrics.lowStockCount + metrics.outOfStockCount}
-                </span>
-                <span className="text-xs text-text/70">
-                  {language === 'th' ? 'รายการต้องเติมสต็อก' : 'items need restock'}
-                </span>
-              </div>
-            </div>
-            <div className="mt-3 pt-3 border-t border-border text-[11px] text-text/70 flex items-center justify-between">
-              <span>{language === 'th' ? 'รอซิงก์ออฟไลน์:' : 'Offline Outbox:'}</span>
-              <Badge variant={pendingCount > 0 ? 'warning' : 'neutral'} size="sm">
-                {pendingCount} {t.common.pending}
-              </Badge>
-            </div>
-          </CardBody>
-        </Card>
-      </div>
-
-      {/* 4. Secondary Performance Metric Strip */}
-      <div className={`grid grid-cols-2 ${isFinancialAuthorized ? 'md:grid-cols-4' : ''} gap-2.5 sm:gap-3.5 lg:gap-4`}>
-        {/* Metric A: Total Items Sold */}
-        <div className="p-3.5 sm:p-4 rounded-lg border-border border-crisp bg-card shadow-2xs">
-          <div className="flex items-center gap-2 text-text/70 text-xs font-medium">
-            <Boxes className="h-3.5 w-3.5 text-primary" />
-            <span>{language === 'th' ? 'จำนวนชิ้นที่ขาย' : 'Items Sold'}</span>
-          </div>
-          <div className="mt-1 text-lg sm:text-xl font-mono font-black text-text">
-            {metrics.totalItemsSold} <span className="text-[11px] font-sans font-normal text-text/50">{language === 'th' ? 'ชิ้น' : 'units'}</span>
-          </div>
-        </div>
-
-        {/* Metric B: Cash Payments */}
-        {isFinancialAuthorized && (
-        <div className="p-3.5 sm:p-4 rounded-lg border-border border-crisp bg-card shadow-2xs">
-          <div className="flex items-center gap-2 text-text/70 text-xs font-medium">
-            <Banknote className="h-3.5 w-3.5 text-emerald-500" />
-            <span>{language === 'th' ? 'ยอดขายเงินสด' : 'Cash Sales'}</span>
-          </div>
-          <div className="mt-1 text-lg sm:text-xl font-mono font-black text-text">
-            {formatMoney(metrics.cashSales)}
-          </div>
-        </div>
-        )}
-
-        {/* Metric C: Digital Payments (Card / QR) */}
-        {isFinancialAuthorized && (
-        <div className="p-3.5 sm:p-4 rounded-lg border-border border-crisp bg-card shadow-2xs">
-          <div className="flex items-center gap-2 text-text/70 text-xs font-medium">
-            <QrCode className="h-3.5 w-3.5 text-indigo-500" />
-            <span>{language === 'th' ? 'ยอดขายพร้อมเพย์ / บัตร' : 'Digital / QR'}</span>
-          </div>
-          <div className="mt-1 text-lg sm:text-xl font-mono font-black text-text">
-            {formatMoney(metrics.digitalSales)}
-          </div>
-        </div>
-        )}
-
-        {/* Metric D: Active Catalog SKU Count */}
-        <div className="p-3.5 sm:p-4 rounded-lg border-border border-crisp bg-card shadow-2xs">
-          <div className="flex items-center gap-2 text-text/70 text-xs font-medium">
-            <Layers className="h-3.5 w-3.5 text-text/50" />
-            <span>{language === 'th' ? 'สินค้าในแคตตาล็อก' : 'Catalog Items'}</span>
-          </div>
-          <div className="mt-1 text-lg sm:text-xl font-mono font-black text-text">
-            {metrics.totalInventoryCount} <span className="text-[11px] font-sans font-normal text-text/50">SKUs</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 4. Visual Hourly Sales Velocity & Action Bento Grid (Responsive 12-Column Layout) */}
-      <div className="flex flex-col lg:flex-row gap-6 items-start">
-        {/* Hourly Sales Trend Visualizer (Spans 8 columns on large screens) */}
-        {isFinancialAuthorized && (
-        <Card className="w-full lg:w-[50%]">
-          <CardHeader>
-            <div className="flex items-center justify-between w-full">
-              <div>
-                <h3 className="text-sm sm:text-base font-bold text-text flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-primary" />
-                  <span>{t.dashboard.hourlyVolume}</span>
-                </h3>
-                <p className="text-xs text-text/70 mt-0.5">
-                  {language === 'th' ? 'แนวโน้มยอดขายและปริมาณคำสั่งซื้อประจำชั่วโมง' : 'Peak operational volume and hourly velocity'}
-                </p>
-              </div>
-              
-              {/* Metric Toggle Buttons */}
-              <div className="flex items-center gap-1 p-1 bg-background rounded-lg border-border border-crisp">
-                <button
-                  type="button"
-                  onClick={() => setActiveChartMetric('sales')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    activeChartMetric === 'sales'
-                      ? 'bg-card text-primary shadow-2xs'
-                      : 'text-text/70 hover:text-text'
-                  }`}
-                >
-                  {language === 'th' ? 'ยอดขาย ($)' : 'Sales ($)'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveChartMetric('orders')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    activeChartMetric === 'orders'
-                      ? 'bg-card text-primary shadow-2xs'
-                      : 'text-text/70 hover:text-text'
-                  }`}
-                >
-                  {language === 'th' ? 'จำนวนบิล' : 'Orders'}
-                </button>
-              </div>
-            </div>
-          </CardHeader>
-
-          <CardBody className="p-4 sm:p-6">
-            {/* Custom High-Fidelity SVG Curve Chart */}
-            <div className="relative w-full select-none">
-              <svg
-                viewBox="0 0 500 220"
-                className="w-full h-auto overflow-visible"
-              >
-                <defs>
-                  {/* Premium Royal Blue Gradient Area Fill */}
-                  <linearGradient id="chartGlowGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--primary-color)" stopOpacity="0.25" />
-                    <stop offset="100%" stopColor="var(--primary-color)" stopOpacity="0.00" />
-                  </linearGradient>
-                </defs>
-
-                {/* Horizontal Dotted Gridlines for Depth */}
-                <line x1="35" y1="30" x2="480" y2="30" stroke="var(--border-color)" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
-                <line x1="35" y1="75" x2="480" y2="75" stroke="var(--border-color)" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
-                <line x1="35" y1="120" x2="480" y2="120" stroke="var(--border-color)" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
-                <line x1="35" y1="165" x2="480" y2="165" stroke="var(--border-color)" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
-
-                {/* Render the fading gradient Area path under the curve */}
-                {(() => {
-                  const svgWidth = 500;
-                  const svgHeight = 220;
-                  const paddingLeft = 35;
-                  const paddingRight = 20;
-                  const paddingTop = 30;
-                  const paddingBottom = 40;
-                  const chartWidth = svgWidth - paddingLeft - paddingRight;
-                  const chartHeight = svgHeight - paddingTop - paddingBottom;
-                  const maxVal = activeChartMetric === 'sales' ? maxAmount : maxOrders;
-
-                  const points = hourlyData.map((d, index) => {
-                    const x = paddingLeft + (index / (hourlyData.length - 1)) * chartWidth;
-                    const currentVal = activeChartMetric === 'sales' ? d.amount : d.orders;
-                    const y = svgHeight - paddingBottom - (currentVal / maxVal) * chartHeight;
-                    return { x, y };
-                  });
-
-                  // Cubic bezier interpolation for smooth curve
-                  const buildBezierPath = (pts: { x: number, y: number }[]) => {
-                    if (pts.length === 0) return '';
-                    let d = `M ${pts[0].x} ${pts[0].y}`;
-                    for (let i = 0; i < pts.length - 1; i++) {
-                      const p0 = pts[i];
-                      const p1 = pts[i + 1];
-                      const cpX1 = p0.x + (p1.x - p0.x) / 3;
-                      const cpY1 = p0.y;
-                      const cpX2 = p0.x + 2 * (p1.x - p0.x) / 3;
-                      const cpY2 = p1.y;
-                      d += ` C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${p1.x} ${p1.y}`;
-                    }
-                    return d;
-                  };
-
-                  const linePath = buildBezierPath(points);
-                  const areaPath = points.length > 0
-                    ? `${linePath} L ${points[points.length - 1].x} ${svgHeight - paddingBottom} L ${points[0].x} ${svgHeight - paddingBottom} Z`
-                    : '';
-
-                  return (
-                    <>
-                      {/* Fading area */}
-                      {areaPath && (
-                        <path
-                          d={areaPath}
-                          fill="url(#chartGlowGradient)"
-                        />
-                      )}
-
-                      {/* Main elegant curved trendline */}
-                      {linePath && (
-                        <path
-                          d={linePath}
-                          fill="none"
-                          stroke="var(--primary-color)"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          className="transition-all duration-300"
-                        />
-                      )}
-
-                      {/* Vertical tracking cursor line on hover */}
-                      {hoveredIndex !== null && points[hoveredIndex] && (
-                        <line
-                          x1={points[hoveredIndex].x}
-                          y1={paddingTop}
-                          x2={points[hoveredIndex].x}
-                          y2={svgHeight - paddingBottom}
-                          stroke="var(--primary-color)"
-                          strokeWidth="1"
-                          strokeDasharray="2 2"
-                          opacity="0.8"
-                        />
-                      )}
-
-                      {/* Invisible wider hover bars for precise mouse detection */}
-                      {points.map((pt, i) => {
-                        const stepHalf = chartWidth / (hourlyData.length - 1) / 2;
-                        return (
-                          <rect
-                            key={`hover-${i}`}
-                            x={pt.x - stepHalf}
-                            y={paddingTop}
-                            width={stepHalf * 2}
-                            height={chartHeight}
-                            fill="transparent"
-                            className="cursor-pointer"
-                            onMouseEnter={() => setHoveredIndex(i)}
-                            onMouseLeave={() => setHoveredIndex(null)}
-                          />
-                        );
-                      })}
-
-                      {/* Data Dots */}
-                      {points.map((pt, i) => {
-                        const isSelected = hoveredIndex === i;
-                        const isPeak = activeChartMetric === 'sales'
-                          ? hourlyData[i].amount === maxAmount
-                          : hourlyData[i].orders === maxOrders;
-
-                        return (
-                          <g key={i}>
-                            {/* Outer glowing pulsing ring */}
-                            {(isSelected || isPeak) && (
-                              <circle
-                                cx={pt.x}
-                                cy={pt.y}
-                                r={isSelected ? "9" : "6"}
-                                fill="var(--primary-color)"
-                                opacity="0.25"
-                                className="pointer-events-none transition-all duration-150"
-                              />
-                            )}
-                            {/* Inner white circle with dark primary border */}
-                            <circle
-                              cx={pt.x}
-                              cy={pt.y}
-                              r={isSelected ? "4.5" : "3.5"}
-                              fill="var(--card-color)"
-                              stroke="var(--primary-color)"
-                              strokeWidth={isSelected ? "2.5" : "2"}
-                              className="pointer-events-none transition-all duration-150"
-                            />
-                          </g>
-                        );
-                      })}
-
-                      {/* Horizontal bottom label text ticks (Hours) */}
-                      {points.map((pt, i) => {
-                        const isSelected = hoveredIndex === i;
-                        return (
-                          <text
-                            key={i}
-                            x={pt.x}
-                            y={svgHeight - 15}
-                            textAnchor="middle"
-                            className={`text-[9px] font-bold transition-all duration-150 pointer-events-none ${
-                              isSelected ? 'fill-primary' : 'fill-text/50'
-                            }`}
+                      <div className="flex flex-wrap gap-1.5 mt-2.5">
+                        {lowStockProducts.slice(0, 4).map((p) => (
+                          <span
+                            key={p.id}
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-card border-border border-crisp text-[10.5px] font-medium text-amber-900 dark:text-amber-300 font-sans"
                           >
-                            {hourlyData[i].hour}
-                          </text>
-                        );
-                      })}
-                    </>
-                  );
-                })()}
-              </svg>
-
-              {/* Float-over Rich Tooltip (Interactive HTML layout overlaid perfectly) */}
-              <div className="absolute top-2 right-2 min-h-[36px] bg-card/90 backdrop-blur-md px-3 py-1.5 rounded-lg border border-border border-crisp shadow-md flex flex-col pointer-events-none transition-all duration-200">
-                {hoveredIndex !== null ? (
-                  <>
-                    <span className="text-[10px] uppercase font-bold text-text/50 tracking-wider font-mono">
-                      {hourlyData[hoveredIndex].hour}
-                    </span>
-                    <span className="text-xs font-black font-mono text-primary leading-tight">
-                      {activeChartMetric === 'sales'
-                        ? `$${hourlyData[hoveredIndex].amount} USD`
-                        : `${hourlyData[hoveredIndex].orders} ${language === 'th' ? 'บิลสำเร็จ' : 'bills'}`}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-[10px] uppercase font-bold text-text/50 tracking-wider font-mono">
-                      {language === 'th' ? 'ช่วงเวลาสูงสุด' : 'PEAK'} (12 PM)
-                    </span>
-                    <span className="text-xs font-black font-mono text-emerald-600 dark:text-emerald-400 leading-tight">
-                      {activeChartMetric === 'sales' ? `$310 USD` : `28 bills`}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-xs text-text/70">
-              <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-primary" />
-                <span>{language === 'th' ? 'ช่วงเวลาขายดีที่สุด: 12:00 PM (ช่วงมื้อเที่ยง)' : 'Peak Trading Velocity: 12:00 PM (Lunch Rush)'}</span>
-              </div>
-              <Badge variant="neutral" size="sm">
-                {language === 'th' ? 'รวม 10 ชั่วโมง' : '10 Hours Logged'}
-              </Badge>
-            </div>
-          </CardBody>
-        </Card>
-        )}
-
-        {/* Operational Quick Launchpad Hub (Spans 4 columns on large screens) */}
-        <Card className={`w-full ${isFinancialAuthorized ? 'lg:w-[50%]' : ''} flex flex-col justify-between`}>
-          <CardHeader>
-            <div className="flex items-center justify-between w-full">
-              <h3 className="text-sm sm:text-base font-bold text-text flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                <span>{language === 'th' ? 'เมนูลัดการทำงาน' : 'Quick Actions'}</span>
-              </h3>
-              <Badge variant="primary" size="sm">
-                Shortcuts
-              </Badge>
-            </div>
-          </CardHeader>
-
-          <CardBody className="p-3 sm:p-4 space-y-2 sm:space-y-2.5 flex-1 flex flex-col justify-between">
-            <div className="space-y-2">
-              {/* Action 1: POS Screen */}
-              <button
-                type="button"
-                onClick={() => onNavigate('pos')}
-                className="w-full p-3 rounded-lg border-border border-crisp hover:border-primary/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <ShoppingCart className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-text group-hover:text-primary truncate">
-                      {language === 'th' ? 'เปิดหน้าขาย POS Terminal' : 'Open POS Terminal'}
-                    </div>
-                    <div className="text-[11px] text-text/70 truncate">
-                      {language === 'th' ? 'สแกนบาร์โค้ด & รับชำระเงิน' : 'Ring up sales & barcode scan'}
-                    </div>
-                  </div>
-                </div>
-                <ArrowUpRight className="h-4 w-4 text-text/40 group-hover:text-primary shrink-0" />
-              </button>
-
-              {/* Action 2: Shift Drawer */}
-              <button
-                type="button"
-                onClick={() => onNavigate('shift')}
-                className="w-full p-3 rounded-lg border-border border-crisp hover:border-emerald-500/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <Banknote className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-text group-hover:text-emerald-600 dark:group-hover:text-emerald-400 truncate">
-                      {language === 'th' ? 'กะการทำงาน & เงินสดยกมา' : 'Cash Drawer & Shifts'}
-                    </div>
-                    <div className="text-[11px] text-text/70 truncate">
-                      {language === 'th' ? 'นำเงินเข้า / จ่ายออก / ปิดกะ' : 'Float, pay in/out & reconcile'}
-                    </div>
-                  </div>
-                </div>
-                <ArrowUpRight className="h-4 w-4 text-text/40 group-hover:text-emerald-600 shrink-0" />
-              </button>
-
-              {/* Action 3: Inventory Stock */}
-              <button
-                type="button"
-                onClick={() => onNavigate('inventory')}
-                className="w-full p-3 rounded-lg border-border border-crisp hover:border-purple-500/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <Boxes className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-text group-hover:text-purple-500 truncate">
-                      {t.inventory.title}
-                    </div>
-                    <div className="text-[11px] text-text/70 truncate">
-                      {language === 'th' ? 'ปรับสต็อก & บัญชีแยกประเภท' : 'Stock ledger & adjust counts'}
-                    </div>
-                  </div>
-                </div>
-                <ArrowUpRight className="h-4 w-4 text-text/40 group-hover:text-purple-500 shrink-0" />
-              </button>
-
-              {/* Action 4: Customers CRM */}
-              <button
-                type="button"
-                onClick={() => onNavigate('customers')}
-                className="w-full p-3 rounded-lg border-border border-crisp hover:border-blue-500/40 bg-background hover:bg-card flex items-center justify-between text-left transition-all cursor-pointer group shadow-2xs"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="h-10 w-10 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                    <Users className="h-5 w-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-text group-hover:text-blue-500 truncate">
-                      {language === 'th' ? 'ระบบสมาชิกลูกค้า' : 'Customer Loyalty CRM'}
-                    </div>
-                    <div className="text-[11px] text-text/70 truncate">
-                      {language === 'th' ? 'สะสมแต้ม & ประวัติการซื้อ' : 'Points, tiers & member cards'}
-                    </div>
-                  </div>
-                </div>
-                <ArrowUpRight className="h-4 w-4 text-text/40 group-hover:text-blue-500 shrink-0" />
-              </button>
-            </div>
-
-            {/* Hardware & Offline Sync Diagnostic Bar */}
-            <div className="mt-3 p-2.5 rounded-lg bg-background border-border border-crisp flex items-center justify-between text-[11px]">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="font-semibold text-text">
-                  {language === 'th' ? 'อุปกรณ์ POS ออนไลน์' : 'POS Hardware Online'}
-                </span>
-              </div>
-              <span className="text-text/50 font-mono text-[10px]">
-                {session?.registerId}
-              </span>
-            </div>
-          </CardBody>
-        </Card>
-      </div>
-
-      {/* 5. Recent Transactions & Orders (Responsive Grid Cards on Mobile/Tablet, Data Table on Desktop) */}
-      <Card className="shadow-2xs">
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-2">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm sm:text-base font-bold text-text flex items-center gap-2">
-                  <Receipt className="h-4 w-4 text-primary" />
-                  <span>{t.dashboard.recentOrders}</span>
-                </h3>
-                <span className="px-2 py-0.5 text-[11px] font-mono font-bold rounded-lg bg-primary/10 text-primary border border-primary/20">
-                  {filteredOrders.length} {language === 'th' ? 'รายการในช่วงที่เลือก' : 'in range'}
-                </span>
-              </div>
-              <p className="text-xs text-text/70 mt-0.5">
-                {language === 'th' ? 'รายการขายที่บันทึกตามช่วงเวลาที่กำหนด' : 'Authoritative transaction sequence for selected date period'}
-              </p>
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => onNavigate('orders')} rightIcon={<ChevronRight className="h-4 w-4" />} className="min-h-[36px] self-start sm:self-auto">
-              {t.dashboard.viewAllOrders}
-            </Button>
-          </div>
-        </CardHeader>
-        
-        {filteredOrders.length === 0 ? (
-          <div className="p-8 text-center space-y-3">
-            <div className="h-12 w-12 rounded-lg bg-primary/10 text-primary mx-auto flex items-center justify-center border border-primary/20">
-              <Calendar className="h-6 w-6" />
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-sm font-bold text-text">
-                {language === 'th' ? 'ไม่พบรายการขายในช่วงเวลาที่เลือก' : 'No transactions recorded in this date range'}
-              </h4>
-              <p className="text-xs text-text/70 max-w-sm mx-auto">
-                {language === 'th'
-                  ? 'ลองปรับเปลี่ยนวันที่เริ่มต้นและสิ้นสุดในตัวเลือกด้านบน หรือคลิกเพื่อรีเซ็ตกลับเป็นข้อมูลวันนี้'
-                  : 'Try adjusting your start and end dates in the date range picker above, or reset to Today.'}
-              </p>
-            </div>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                const now = new Date();
-                const start = new Date(now);
-                start.setHours(0, 0, 0, 0);
-                const end = new Date(now);
-                end.setHours(23, 59, 59, 999);
-                setDateRange({ startDate: start, endDate: end });
-              }}
-              leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
-              className="mt-2 min-h-[44px]"
-            >
-              {language === 'th' ? 'รีเซ็ตเป็นวันนี้' : 'Reset to Today'}
-            </Button>
-          </div>
-        ) : (
-          <>
-            {/* Mobile & Small Tablet: Responsive 1-col or 2-col Card Grid */}
-            <div className="lg:hidden p-3.5 sm:p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-              {filteredOrders.slice(0, 8).map((order) => (
-                <div
-                  key={order.id}
-                  className="p-3.5 rounded-lg border-border border-crisp bg-background shadow-2xs space-y-2.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-xs text-text">
-                      {order.orderNumber}
-                    </span>
-                    <span className="font-mono font-bold text-sm text-text">
-                      {formatMoney(order.totals.grandTotal)}
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center justify-between text-[11px] text-text/70 pt-1 border-t border-border">
-                    <span>{order.customer ? order.customer.name : t.pos.walkIn}</span>
-                    <span className="font-mono">
-                      {new Date(order.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}{' '}
-                      {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1 border-t border-border text-[10.5px]">
-                    <span className="font-semibold text-text/80">
-                      {order.payments[0]?.method === 'cash' ? t.checkout.cash : order.payments[0]?.method === 'card' ? t.checkout.card : t.checkout.promptpay}
-                    </span>
-                    {order.status === 'server_confirmed' ? (
-                      <Badge variant="success" size="sm" dot>
-                        {t.orders.completed}
-                      </Badge>
-                    ) : order.status === 'pending_sync_offline' ? (
-                      <Badge variant="offline" size="sm" dot>
-                        {language === 'th' ? 'รอซิงก์' : 'Pending'}
-                      </Badge>
-                    ) : (
-                      <Badge variant="neutral" size="sm">
-                        {order.status}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Large Tablet & Desktop: Full Authoritative Data Table */}
-            <div className="hidden lg:block overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-border text-text/70 bg-card font-medium">
-                    <th className="py-3.5 px-5">{t.orders.orderNumber}</th>
-                    <th className="py-3.5 px-4">{t.orders.dateTime}</th>
-                    <th className="py-3.5 px-4">{t.orders.cashier}</th>
-                    <th className="py-3.5 px-4">{t.orders.customer}</th>
-                    <th className="py-3.5 px-4">{t.orders.payment}</th>
-                    <th className="py-3.5 px-4">{t.orders.status}</th>
-                    <th className="py-3.5 px-5 text-right">{t.orders.total}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {filteredOrders.slice(0, 8).map((order) => (
-                    <tr key={order.id} className="hover:bg-background/80 transition-colors">
-                      <td className="py-3.5 px-5 font-mono font-bold text-text">
-                        {order.orderNumber}
-                      </td>
-                      <td className="py-3.5 px-4 text-text/70 font-mono">
-                        {new Date(order.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}{' '}
-                        {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </td>
-                      <td className="py-3.5 px-4 text-text">
-                        {order.cashierName}
-                      </td>
-                      <td className="py-3.5 px-4 text-text/70">
-                        {order.customer ? order.customer.name : t.pos.walkIn}
-                      </td>
-                      <td className="py-3.5 px-4 uppercase text-[10px] font-semibold text-text/70">
-                        {order.payments[0]?.method === 'cash'
-                          ? t.checkout.cash
-                          : order.payments[0]?.method === 'card'
-                          ? t.checkout.card
-                          : t.checkout.promptpay}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        {order.status === 'server_confirmed' ? (
-                          <Badge variant="success" size="sm" dot>
-                            {t.orders.completed}
-                          </Badge>
-                        ) : order.status === 'pending_sync_offline' ? (
-                          <Badge variant="offline" size="sm" dot>
-                            {language === 'th' ? 'รอซิงก์ (ออฟไลน์)' : 'Pending Sync (Offline)'}
-                          </Badge>
-                        ) : (
-                          <Badge variant="neutral" size="sm">
-                            {order.status}
-                          </Badge>
+                            <span className="font-bold truncate max-w-[120px]">{p.name}</span>
+                            <span className="w-1 h-1 rounded-full bg-amber-400 shrink-0" />
+                            <span className="font-mono font-bold text-rose-600 dark:text-rose-400">
+                              {p.currentStock} {p.unitOfMeasure}
+                            </span>
+                          </span>
+                        ))}
+                        {lowStockProducts.length > 4 && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-amber-500/10 text-[10.5px] font-bold text-amber-700 dark:text-amber-300">
+                            +{lowStockProducts.length - 4} more
+                          </span>
                         )}
-                      </td>
-                      <td className="py-3.5 px-5 text-right font-mono font-bold text-text">
-                        {formatMoney(order.totals.grandTotal)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    id="dashboard-replenish-inventory-btn"
+                    size="md"
+                    variant="secondary"
+                    onClick={() => onNavigate('inventory')}
+                    leftIcon={<ArrowUpRight className="h-4 w-4" />}
+                    className="w-full md:w-auto text-xs font-bold shrink-0 self-stretch md:self-center bg-card hover:bg-background text-text border-border border-crisp transition-colors cursor-pointer min-h-[44px]"
+                  >
+                    {language === 'th' ? 'จัดการคลังสินค้า' : 'Replenish Inventory'}
+                  </Button>
+                </div>
+              );
+            }
+          } else if (widgetId === 'kpis') {
+            widgetContent = isFinancialAuthorized ? (
+              <ManagerFinancialKPIs
+                metrics={metrics}
+                currentShift={currentShift}
+                pendingCount={pendingCount}
+                isLoading={isLoading}
+              />
+            ) : (
+              <StaffOperationalKPIs
+                metrics={metrics}
+                currentShift={currentShift}
+                pendingCount={pendingCount}
+                isLoading={isLoading}
+              />
+            );
+          } else if (widgetId === 'hourly_chart') {
+            widgetContent = <HourlyVelocityChart isManager={isFinancialAuthorized} hourlyData={hourlyData} />;
+          } else if (widgetId === 'quick_actions') {
+            widgetContent = <DashboardQuickActions onNavigate={onNavigate} />;
+          } else if (widgetId === 'recent_orders') {
+            widgetContent = (
+              <RecentTransactionsSection
+                isManager={isFinancialAuthorized}
+                orders={filteredOrders}
+                onNavigate={onNavigate}
+                onResetToday={handleResetToday}
+              />
+            );
+          }
+
+          if (!widgetContent) return null;
+
+          const titleObj = WIDGET_TITLES[widgetId] || { th: widgetId, en: widgetId };
+          const widgetTitleText = language === 'th' ? titleObj.th : titleObj.en;
+
+          return (
+            <div
+              key={widgetId}
+              draggable={isCustomizeMode}
+              onDragStart={(e) => handleDragStart(e, widgetId)}
+              onDragOver={(e) => handleDragOver(e, widgetId)}
+              onDrop={(e) => handleDrop(e, widgetId)}
+              className={`transition-all duration-200 ${
+                isCustomizeMode
+                  ? 'p-3.5 rounded-2xl border-2 border-dashed border-primary/40 bg-card/70 shadow-sm relative group cursor-grab active:cursor-grabbing'
+                  : ''
+              } ${dragOverWidgetId === widgetId ? 'bg-primary/5 border-primary scale-[1.005]' : ''}`}
+            >
+              {isCustomizeMode && (
+                <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-border/60">
+                  <div className="flex items-center gap-2 text-xs font-bold text-text">
+                    <GripVertical className="h-4 w-4 text-text/40 group-hover:text-primary transition-colors cursor-grab" />
+                    <span className="px-2 py-0.5 rounded bg-primary/10 text-primary font-mono text-[11px]">
+                      #{index + 1}
+                    </span>
+                    <span>{widgetTitleText}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => moveWidgetDirection(widgetId, 'up')}
+                      disabled={index === 0}
+                      className="p-1.5 rounded-lg border border-border bg-card hover:bg-background disabled:opacity-30 transition-colors text-text text-xs cursor-pointer"
+                      title="Move Up"
+                    >
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveWidgetDirection(widgetId, 'down')}
+                      disabled={index === widgetOrder.length - 1}
+                      className="p-1.5 rounded-lg border border-border bg-card hover:bg-background disabled:opacity-30 transition-colors text-text text-xs cursor-pointer"
+                      title="Move Down"
+                    >
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {widgetContent}
             </div>
-          </>
-        )}
-      </Card>
+          );
+        })}
+      </div>
     </div>
   );
 };
+

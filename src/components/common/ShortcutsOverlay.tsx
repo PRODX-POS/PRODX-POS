@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Keyboard,
   Search,
@@ -14,6 +15,8 @@ import {
 import { useLanguage } from '../../context/LanguageContext';
 import { playScannerSound } from '../../services/soundService';
 import { NavRoute } from '../layout/Sidebar';
+import { useRbac } from '../auth/RbacGuard';
+import { getZIndexClass } from '../../utils/ZIndexManager';
 
 export interface ShortcutsOverlayProps {
   isOpen: boolean;
@@ -38,6 +41,7 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
   onNavigate,
 }) => {
   const { language } = useLanguage();
+  const { canAccessModule } = useRbac();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<'all' | 'nav' | 'pos' | 'global'>('all');
   const [activeKeyHighlight, setActiveKeyHighlight] = useState<string | null>(null);
@@ -257,6 +261,11 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
 
   const filteredShortcuts = useMemo(() => {
     return shortcutsList.filter((item) => {
+      // Role-Based Access Control: Conditionally hide sensitive financial module shortcuts
+      if (item.route && !canAccessModule(item.route)) {
+        return false;
+      }
+
       // Category filter
       if (selectedCategory !== 'all' && item.category !== selectedCategory) {
         return false;
@@ -278,11 +287,12 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
   }, [shortcutsList, selectedCategory, searchQuery]);
 
   if (!isOpen) return null;
+  if (typeof document === 'undefined') return null;
 
-  return (
+  return createPortal(
     <div
       id="shortcuts-overlay-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 dark:bg-black/80 backdrop-blur-md animate-in fade-in duration-150"
+      className={`fixed inset-0 ${getZIndexClass('modal')} flex items-center justify-center p-3 sm:p-4 bg-black/60 dark:bg-black/80 backdrop-blur-md animate-in fade-in duration-150`}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           onClose();
@@ -519,6 +529,7 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

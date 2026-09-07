@@ -14,7 +14,7 @@ export interface PinChangeModalProps {
 export const PinChangeModal: React.FC<PinChangeModalProps> = ({ isOpen, onClose }) => {
   const { language } = useLanguage();
   const { addToast } = useToast();
-  const { session } = useAuth();
+  const { session, setStaffPin } = useAuth();
 
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
@@ -49,6 +49,7 @@ export const PinChangeModal: React.FC<PinChangeModalProps> = ({ isOpen, onClose 
     setTimeout(() => {
       try {
         if (session) {
+          setStaffPin(session.currentUser.id, newPin);
           localStorage.setItem(`prodx_pos_pin_${session.currentUser.id}`, newPin);
           localStorage.setItem('prodx_pos_current_pin', newPin);
         }

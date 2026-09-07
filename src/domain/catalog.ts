@@ -53,3 +53,35 @@ export interface InventoryLedgerEntry {
   readonly notes?: string;
   readonly timestamp: string; // ISO 8601 UTC
 }
+
+export type BulkImportMode = 'upsert' | 'update_only' | 'stock_override' | 'stock_replenish';
+
+export interface BulkImportItem {
+  readonly sku: string;
+  readonly barcode?: string;
+  readonly name?: string;
+  readonly description?: string;
+  readonly categoryId?: string;
+  readonly categoryName?: string;
+  readonly priceAmountInCents?: number;
+  readonly costPriceAmountInCents?: number;
+  readonly currentStock?: number;
+  readonly quantityDelta?: number;
+  readonly reorderPoint?: number;
+  readonly unitOfMeasure?: string;
+  readonly taxRateBps?: number;
+  readonly isAgeRestricted?: boolean;
+  readonly imageUrl?: string;
+}
+
+export interface BulkImportResult {
+  readonly batchReference: string;
+  readonly totalProcessed: number;
+  readonly createdCount: number;
+  readonly updatedCount: number;
+  readonly skippedCount: number;
+  readonly createdProducts: readonly Product[];
+  readonly updatedProducts: readonly Product[];
+  readonly ledgerEntries: readonly InventoryLedgerEntry[];
+  readonly errors: ReadonlyArray<{ sku: string; rowNumber?: number; reason: string }>;
+}

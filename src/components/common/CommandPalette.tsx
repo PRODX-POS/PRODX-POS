@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Search,
   X,
   ShoppingCart,
   LayoutGrid,
   ReceiptText,
+  Receipt,
   Boxes,
   Banknote,
   Users,
+  User,
   ShieldCheck,
   Settings,
   Clock,
@@ -20,16 +23,18 @@ import {
   Globe,
   Shield,
   UserCheck,
-  User,
   LogOut,
   Package,
   Layers,
-  Sparkles,
   ArrowRight,
   CornerDownLeft,
   Check,
-  Tag,
-  AlertTriangle,
+  Star,
+  Phone,
+  Mail,
+  Calendar,
+  AlertCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { NavRoute } from '../layout/Sidebar';
 import { useAuth } from '../../context/AuthContext';
@@ -39,9 +44,13 @@ import { useOffline } from '../../context/OfflineContext';
 import { useCart } from '../../context/CartContext';
 import { useShift } from '../../context/ShiftContext';
 import { useToast } from '../../context/ToastContext';
+import { getZIndexClass } from '../../utils/ZIndexManager';
 import { Product, Category } from '../../domain/catalog';
+import { Customer, Order } from '../../domain/order';
 import { formatMoney } from '../../domain/money';
-import { catalogApi } from '../../adapters/mockAdapter';
+import { catalogApi, orderApi } from '../../adapters/mockAdapter';
+import { customersService } from '../../services/customersService';
+import { useRbac } from '../auth/RbacGuard';
 
 export interface CommandPaletteProps {
   isOpen: boolean;
@@ -51,11 +60,17 @@ export interface CommandPaletteProps {
   onOpenHoldModal?: () => void;
 }
 
-type PaletteCategory = 'all' | 'products' | 'navigation' | 'actions';
+export type PaletteCategory =
+  | 'all'
+  | 'products'
+  | 'customers'
+  | 'orders'
+  | 'navigation'
+  | 'actions';
 
 interface BaseCommandItem {
   id: string;
-  category: 'products' | 'navigation' | 'actions';
+  category: PaletteCategory;
   keywords: string;
 }
 
@@ -64,6 +79,16 @@ interface ProductCommandItem extends BaseCommandItem {
   product: Product;
   categoryName?: string;
   categoryColor?: string;
+}
+
+interface CustomerCommandItem extends BaseCommandItem {
+  category: 'customers';
+  customer: Customer;
+}
+
+interface OrderCommandItem extends BaseCommandItem {
+  category: 'orders';
+  order: Order;
 }
 
 interface NavCommandItem extends BaseCommandItem {
@@ -88,7 +113,12 @@ interface ActionCommandItem extends BaseCommandItem {
   onExecute: () => void;
 }
 
-type CommandItem = ProductCommandItem | NavCommandItem | ActionCommandItem;
+type CommandItem =
+  | ProductCommandItem
+  | CustomerCommandItem
+  | OrderCommandItem
+  | NavCommandItem
+  | ActionCommandItem;
 
 export const CommandPalette: React.FC<CommandPaletteProps> = ({
   isOpen,
@@ -98,6 +128,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onOpenHoldModal,
 }) => {
   const { session, logout, switchDemoRole, can } = useAuth();
+  const { canAccessModule } = useRbac();
   const { theme, toggleTheme } = useTheme();
   const { language, setLanguage, t } = useLanguage();
   const {
@@ -108,36 +139,81 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     isSyncing,
     triggerSync,
   } = useOffline();
-  const { items: cartItems, addItem, holdCurrentCart, clearCart, heldCarts } = useCart();
+  const {
+    items: cartItems,
+    addItem,
+    setCustomer,
+    holdCurrentCart,
+    clearCart,
+    heldCarts,
+  } = useCart();
   const { currentShift } = useShift();
   const { addToast } = useToast();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<PaletteCategory>('all');
   const [selectedIndex, setSelectedIndex] = useState(0);
+
+  // Domain data collections
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  // Load products and categories on mount or store change
+  // Load catalog, customers, and recent orders
   useEffect(() => {
-    if (!session) return;
-    const loadCatalog = async () => {
+    if (!isOpen || !session) return;
+    let isMounted = true;
+
+    const loadData = async () => {
       try {
-        const [prods, cats] = await Promise.all([
+        const [prods, cats, ords] = await Promise.all([
           catalogApi.getProducts(session.currentStore.id),
           catalogApi.getCategories(session.currentStore.id),
+          orderApi.getOrders(session.currentStore.id),
         ]);
+        if (!isMounted) return;
         setProducts(prods as Product[]);
         setCategories(cats as Category[]);
+        setOrders(ords as Order[]);
+        setCustomers(customersService.getCustomers());
       } catch (err) {
-        console.error('Failed to load catalog for CommandPalette:', err);
+        console.error('Failed to load CommandPalette dataset:', err);
       }
     };
-    loadCatalog();
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, session?.currentStore.id]);
+
+  // Subscribe to customers updates
+  useEffect(() => {
+    const unsubscribe = customersService.subscribe(() => {
+      setCustomers(customersService.getCustomers());
+    });
+    return unsubscribe;
+  }, []);
+
+  // Listen to order completion events to keep recent orders fresh
+  useEffect(() => {
+    const handleOrderCompleted = () => {
+      if (session?.currentStore.id) {
+        orderApi.getOrders(session.currentStore.id).then((ords) => {
+          setOrders(ords as Order[]);
+        });
+      }
+    };
+    window.addEventListener('prodx:order-completed', handleOrderCompleted);
+    return () => {
+      window.removeEventListener('prodx:order-completed', handleOrderCompleted);
+    };
   }, [session?.currentStore.id]);
 
   // Focus input when opened & reset search
@@ -160,11 +236,64 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     return map;
   }, [categories]);
 
+  // Format order date helper
+  const formatOrderDate = (isoString: string) => {
+    try {
+      const d = new Date(isoString);
+      return d.toLocaleDateString(language === 'th' ? 'th-TH' : 'en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return isoString;
+    }
+  };
+
   // Build All Commands List
   const allCommands = useMemo<CommandItem[]>(() => {
     const list: CommandItem[] = [];
 
-    // 1. Navigation items
+    // 1. Products
+    products.forEach((p) => {
+      const cat = categoryMap.get(p.categoryId);
+      list.push({
+        id: `prod-${p.id}`,
+        category: 'products',
+        product: p,
+        categoryName: cat?.name || p.categoryId,
+        categoryColor: cat?.color,
+        keywords: `${p.name} ${p.sku} ${p.barcode} ${cat?.name || ''} ${p.description || ''} product สินค้า`.toLowerCase(),
+      });
+    });
+
+    // 2. Customers
+    customers.forEach((c) => {
+      list.push({
+        id: `cust-${c.id}`,
+        category: 'customers',
+        customer: c,
+        keywords: `${c.name} ${c.phone} ${c.email} ${c.loyaltyTier} ${c.loyaltyPoints} customer loyalty member สมาชิก ลูกค้า`.toLowerCase(),
+      });
+    });
+
+    // 3. Recent Orders (Sorted by creation date descending)
+    const sortedOrders = [...orders].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    sortedOrders.forEach((o) => {
+      const itemNames = o.items.map((i) => i.product.name).join(' ');
+      const customerText = o.customer ? `${o.customer.name} ${o.customer.phone}` : 'walk-in';
+      list.push({
+        id: `ord-${o.id}`,
+        category: 'orders',
+        order: o,
+        keywords: `${o.orderNumber} ${customerText} ${o.cashierName} ${o.status} ${itemNames} ${o.idempotencyKey} order receipt บิล ใบเสร็จ คำสั่งซื้อ`.toLowerCase(),
+      });
+    });
+
+    // 4. Navigation items
     const navItems: {
       route: NavRoute;
       title: string;
@@ -260,6 +389,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     ];
 
     navItems.forEach((item) => {
+      if (!canAccessModule(item.route)) return;
       if (item.permission && !can(item.permission)) return;
       list.push({
         id: `nav-${item.route}`,
@@ -270,11 +400,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         icon: item.icon,
         shortcut: item.shortcut,
         isCurrent: currentRoute === item.route,
-        keywords: `${item.title} ${item.description} ${item.route} ${item.shortcut || ''}`.toLowerCase(),
+        keywords: `${item.title} ${item.description} ${item.route} ${item.shortcut || ''} screen nav menu`.toLowerCase(),
       });
     });
 
-    // 2. Quick POS Action Items
+    // 5. Quick POS Action Items
     const actions: ActionCommandItem[] = [
       {
         id: 'act-hold-cart',
@@ -418,10 +548,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         title: t.commandPalette.actions.switchLangTitle,
         description: t.commandPalette.actions.switchLangDesc,
         icon: <Globe className="h-4 w-4 text-orange-500" />,
-        badge: language === 'th' ? 'ไทย' : 'EN',
-        keywords: 'language thai english locale translate ภาษา สลับภาษา ไทย อังกฤษ',
+        badge: `${language.toUpperCase()}`,
+        keywords: 'language thai english chinese japanese locale translate ภาษา สลับภาษา ไทย อังกฤษ 中文 日本語',
         onExecute: () => {
-          const nextLang = language === 'th' ? 'en' : 'th';
+          const sequence: ('th' | 'en' | 'zh' | 'ja')[] = ['th', 'en', 'zh', 'ja'];
+          const nextLang = sequence[(sequence.indexOf(language as any) + 1) % sequence.length];
           setLanguage(nextLang);
         },
       },
@@ -488,43 +619,37 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
     list.push(...actions);
 
-    // 3. Products
-    products.forEach((p) => {
-      const cat = categoryMap.get(p.categoryId);
-      list.push({
-        id: `prod-${p.id}`,
-        category: 'products',
-        product: p,
-        categoryName: cat?.name || p.categoryId,
-        categoryColor: cat?.color,
-        keywords: `${p.name} ${p.sku} ${p.barcode} ${cat?.name || ''} ${p.description || ''}`.toLowerCase(),
-      });
-    });
-
     return list;
   }, [
-    can,
-    cartItems,
-    categoryMap,
-    currentRoute,
-    currentShift,
-    heldCarts.length,
-    isOnline,
-    isSimulatedOffline,
-    isSyncing,
-    language,
-    logout,
-    onNavigate,
-    onOpenHoldModal,
-    pendingCount,
     products,
+    customers,
+    orders,
+    categoryMap,
+    language,
+    currentRoute,
+    can,
+    canAccessModule,
+    t,
+    cartItems.length,
+    heldCarts.length,
+    currentShift,
+    theme,
+    isSimulatedOffline,
+    pendingCount,
+    isOnline,
+    isSyncing,
     session?.currentUser.role,
+    holdCurrentCart,
+    addToast,
+    onOpenHoldModal,
+    onNavigate,
+    clearCart,
+    toggleTheme,
+    toggleSimulatedOffline,
+    triggerSync,
     setLanguage,
     switchDemoRole,
-    t,
-    theme,
-    toggleOfflineTitle => toggleSimulatedOffline(),
-    toggleTheme,
+    logout,
   ]);
 
   // Filter commands by active category tab & search query
@@ -566,7 +691,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   }, [selectedIndex]);
 
   // Execute selected command
-  const executeItem = (item: CommandItem) => {
+  const executeItem = (item: CommandItem, secondaryAction = false) => {
     if (item.category === 'products') {
       const prodItem = item as ProductCommandItem;
       addItem(prodItem.product, 1);
@@ -579,6 +704,43 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       if (currentRoute !== 'pos') {
         onNavigate('pos');
       }
+      onClose();
+    } else if (item.category === 'customers') {
+      const custItem = item as CustomerCommandItem;
+      if (secondaryAction) {
+        // Navigate to Customers CRM screen and prefill search
+        sessionStorage.setItem('prodx_customer_search', custItem.customer.name);
+        window.dispatchEvent(
+          new CustomEvent('prodx:search-customer', {
+            detail: { search: custItem.customer.name },
+          })
+        );
+        onNavigate('customers');
+        onClose();
+      } else {
+        // Attach customer to active cart in POS
+        setCustomer(custItem.customer);
+        addToast({
+          type: 'success',
+          title: t.commandPalette.toast.customerAttached
+            .replace('{name}', custItem.customer.name)
+            .replace('{tier}', custItem.customer.loyaltyTier),
+        });
+        if (currentRoute !== 'pos') {
+          onNavigate('pos');
+        }
+        onClose();
+      }
+    } else if (item.category === 'orders') {
+      const ordItem = item as OrderCommandItem;
+      // Navigate to Orders and select this order in the master-detail inspector
+      sessionStorage.setItem('prodx_selected_order_id', ordItem.order.id);
+      window.dispatchEvent(
+        new CustomEvent('prodx:select-order', {
+          detail: { orderId: ordItem.order.id },
+        })
+      );
+      onNavigate('orders');
       onClose();
     } else if (item.category === 'navigation') {
       const navItem = item as NavCommandItem;
@@ -608,6 +770,22 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       if (filteredCommands[selectedIndex]) {
         executeItem(filteredCommands[selectedIndex]);
       }
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      const tabs: PaletteCategory[] = [
+        'all',
+        'products',
+        'customers',
+        'orders',
+        'navigation',
+        'actions',
+      ];
+      const currentIndex = tabs.indexOf(activeTab);
+      const nextIndex = e.shiftKey
+        ? (currentIndex - 1 + tabs.length) % tabs.length
+        : (currentIndex + 1) % tabs.length;
+      setActiveTab(tabs[nextIndex]);
+      setSelectedIndex(0);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       onClose();
@@ -616,36 +794,32 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
   if (!isOpen) return null;
 
-  // Group items by category for clear visual section headers when in 'all' view or searching
+  // Group items by category for clear visual sections
   const groupedSections: {
     title: string;
     category: PaletteCategory;
     items: { item: CommandItem; originalIndex: number }[];
   }[] = [];
 
-  const navSectionItems: { item: CommandItem; originalIndex: number }[] = [];
   const prodSectionItems: { item: CommandItem; originalIndex: number }[] = [];
+  const custSectionItems: { item: CommandItem; originalIndex: number }[] = [];
+  const ordSectionItems: { item: CommandItem; originalIndex: number }[] = [];
+  const navSectionItems: { item: CommandItem; originalIndex: number }[] = [];
   const actSectionItems: { item: CommandItem; originalIndex: number }[] = [];
 
   filteredCommands.forEach((item, idx) => {
-    if (item.category === 'navigation') {
-      navSectionItems.push({ item, originalIndex: idx });
-    } else if (item.category === 'products') {
+    if (item.category === 'products') {
       prodSectionItems.push({ item, originalIndex: idx });
+    } else if (item.category === 'customers') {
+      custSectionItems.push({ item, originalIndex: idx });
+    } else if (item.category === 'orders') {
+      ordSectionItems.push({ item, originalIndex: idx });
+    } else if (item.category === 'navigation') {
+      navSectionItems.push({ item, originalIndex: idx });
     } else if (item.category === 'actions') {
       actSectionItems.push({ item, originalIndex: idx });
     }
   });
-
-  if (activeTab === 'all' || activeTab === 'navigation') {
-    if (navSectionItems.length > 0) {
-      groupedSections.push({
-        title: t.commandPalette.sectionNavigation,
-        category: 'navigation',
-        items: navSectionItems,
-      });
-    }
-  }
 
   if (activeTab === 'all' || activeTab === 'products') {
     if (prodSectionItems.length > 0) {
@@ -653,6 +827,36 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         title: t.commandPalette.sectionProducts,
         category: 'products',
         items: prodSectionItems,
+      });
+    }
+  }
+
+  if (activeTab === 'all' || activeTab === 'customers') {
+    if (custSectionItems.length > 0) {
+      groupedSections.push({
+        title: t.commandPalette.sectionCustomers,
+        category: 'customers',
+        items: custSectionItems,
+      });
+    }
+  }
+
+  if (activeTab === 'all' || activeTab === 'orders') {
+    if (ordSectionItems.length > 0) {
+      groupedSections.push({
+        title: t.commandPalette.sectionOrders,
+        category: 'orders',
+        items: ordSectionItems,
+      });
+    }
+  }
+
+  if (activeTab === 'all' || activeTab === 'navigation') {
+    if (navSectionItems.length > 0) {
+      groupedSections.push({
+        title: t.commandPalette.sectionNavigation,
+        category: 'navigation',
+        items: navSectionItems,
       });
     }
   }
@@ -670,13 +874,66 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   const categoryCounts = {
     all: allCommands.length,
     products: allCommands.filter((c) => c.category === 'products').length,
+    customers: allCommands.filter((c) => c.category === 'customers').length,
+    orders: allCommands.filter((c) => c.category === 'orders').length,
     navigation: allCommands.filter((c) => c.category === 'navigation').length,
     actions: allCommands.filter((c) => c.category === 'actions').length,
   };
 
-  return (
+  const getTierBadgeClass = (tier: Customer['loyaltyTier']) => {
+    switch (tier) {
+      case 'VIP':
+        return 'bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30';
+      case 'Gold':
+        return 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30';
+      case 'Silver':
+        return 'bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600';
+      case 'Bronze':
+      default:
+        return 'bg-orange-100 text-orange-800 dark:bg-orange-500/20 dark:text-orange-300 border border-orange-200 dark:border-orange-500/30';
+    }
+  };
+
+  const getOrderStatusBadge = (status: Order['status']) => {
+    switch (status) {
+      case 'server_confirmed':
+        return (
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30">
+            {language === 'th' ? 'สำเร็จ' : 'Confirmed'}
+          </span>
+        );
+      case 'pending_sync_offline':
+        return (
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30">
+            {language === 'th' ? 'รอซิงก์ออฟไลน์' : 'Offline'}
+          </span>
+        );
+      case 'refunded':
+        return (
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-500/20 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30">
+            {language === 'th' ? 'คืนเงินแล้ว' : 'Refunded'}
+          </span>
+        );
+      case 'voided':
+        return (
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300 border border-rose-200 dark:border-rose-500/30">
+            {language === 'th' ? 'ยกเลิกแล้ว' : 'Voided'}
+          </span>
+        );
+      default:
+        return (
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-text/70 border border-border">
+            {status}
+          </span>
+        );
+    }
+  };
+
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-12 sm:pt-20 px-3 sm:px-4 bg-zinc-950/70 backdrop-blur-sm animate-in fade-in duration-150"
+      className={`fixed inset-0 ${getZIndexClass('modal')} flex items-start justify-center pt-8 sm:pt-16 lg:pt-20 px-3 sm:px-4 bg-zinc-950/70 backdrop-blur-sm animate-in fade-in duration-150`}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -685,12 +942,12 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       aria-label="Command Palette"
     >
       <div
-        className="w-full max-w-2xl bg-card border border-border border-crisp rounded-lg shadow-xl overflow-hidden flex flex-col max-h-[82vh] animate-in zoom-in-95 duration-150"
+        className="w-full max-w-3xl bg-card border border-border border-crisp rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-150"
         onKeyDown={handleKeyDown}
       >
         {/* Search Header */}
-        <div className="p-3 sm:p-4 border-b border-border border-crisp bg-slate-50/80 dark:bg-slate-900/60 flex items-center gap-3 shrink-0">
-          <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/50 shrink-0">
+        <div className="p-3.5 sm:p-4 border-b border-border border-crisp bg-slate-50/80 dark:bg-slate-900/60 flex items-center gap-3 shrink-0">
+          <div className="p-2 rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20 shrink-0">
             <Search className="h-5 w-5" />
           </div>
 
@@ -715,7 +972,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                 setSearchQuery('');
                 inputRef.current?.focus();
               }}
-              className="p-1 rounded-md text-text/50 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-background transition-colors cursor-pointer"
+              className="p-1 rounded-md text-text/50 hover:text-text hover:bg-background transition-colors cursor-pointer"
               title="Clear search"
             >
               <X className="h-4 w-4" />
@@ -724,7 +981,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
           <kbd
             onClick={onClose}
-            className="hidden sm:inline-flex items-center justify-center px-2 py-1 text-[11px] font-mono rounded-md bg-background/80 dark:bg-slate-800 text-text/70 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+            className="hidden sm:inline-flex items-center justify-center px-2 py-1 text-[11px] font-mono rounded-md bg-background/80 dark:bg-slate-800 text-text/70 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors cursor-pointer border border-border/60"
             title="Close (Esc)"
           >
             ESC
@@ -737,6 +994,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             [
               { id: 'all', label: t.commandPalette.filterAll, count: categoryCounts.all },
               { id: 'products', label: t.commandPalette.filterProducts, count: categoryCounts.products },
+              { id: 'customers', label: t.commandPalette.filterCustomers, count: categoryCounts.customers },
+              { id: 'orders', label: t.commandPalette.filterOrders, count: categoryCounts.orders },
               { id: 'navigation', label: t.commandPalette.filterNavigation, count: categoryCounts.navigation },
               { id: 'actions', label: t.commandPalette.filterActions, count: categoryCounts.actions },
             ] as const
@@ -751,10 +1010,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   setSelectedIndex(0);
                   inputRef.current?.focus();
                 }}
-                className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all duration-150 active:scale-95 cursor-pointer flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all duration-150 active:scale-95 cursor-pointer flex items-center gap-1.5 ${
                   isActive
                     ? 'bg-orange-600 text-white shadow-2xs'
-                    : 'bg-background dark:bg-white/5 text-text/70 dark:text-white/60 hover:bg-zinc-200 dark:hover:bg-white/10 hover:text-text'
+                    : 'bg-background dark:bg-white/5 text-text/70 hover:bg-zinc-200 dark:hover:bg-white/10 hover:text-text'
                 }`}
               >
                 <span>{tab.label}</span>
@@ -762,7 +1021,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
                     isActive
                       ? 'bg-white/20 text-white'
-                      : 'bg-background dark:bg-white/10 text-text/60 dark:text-white/40'
+                      : 'bg-background dark:bg-white/10 text-text/60'
                   }`}
                 >
                   {tab.count}
@@ -778,21 +1037,21 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-4 divide-y divide-transparent"
         >
           {filteredCommands.length === 0 ? (
-            <div className="py-12 px-4 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-orange-500/10 dark:bg-orange-500/20 text-orange-500 mx-auto flex items-center justify-center mb-3">
+            <div className="py-14 px-4 text-center">
+              <div className="w-12 h-12 rounded-2xl bg-orange-500/10 text-orange-500 mx-auto flex items-center justify-center mb-3">
                 <Search className="h-6 w-6" />
               </div>
-              <h3 className="text-sm font-bold text-text dark:text-white/90">
+              <h3 className="text-sm font-bold text-text">
                 {t.commandPalette.noResultsTitle}
               </h3>
-              <p className="text-xs text-text/60 dark:text-white/40 mt-1 max-w-sm mx-auto">
+              <p className="text-xs text-text/60 mt-1 max-w-sm mx-auto">
                 {t.commandPalette.noResultsDesc}
               </p>
             </div>
           ) : (
             groupedSections.map((section) => (
               <div key={section.title} className="space-y-1">
-                <div className="px-3 py-1 text-[11px] font-bold text-text/50 dark:text-white/30 uppercase tracking-wider flex items-center justify-between">
+                <div className="px-3 py-1 text-[11px] font-bold text-text/50 uppercase tracking-wider flex items-center justify-between">
                   <span>{section.title}</span>
                   <span className="font-mono text-[10px] lowercase opacity-70">
                     {section.items.length} {section.category}
@@ -803,12 +1062,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                   {section.items.map(({ item, originalIndex }) => {
                     const isSelected = selectedIndex === originalIndex;
 
+                    // 1. Product Item
                     if (item.category === 'products') {
                       const prod = (item as ProductCommandItem).product;
                       const catName = (item as ProductCommandItem).categoryName;
-                      const catColor = (item as ProductCommandItem).categoryColor || '#B45309';
+                      const catColor =
+                        (item as ProductCommandItem).categoryColor || '#B45309';
                       const isLowStock =
-                        prod.currentStock > 0 && prod.currentStock <= prod.reorderPoint;
+                        prod.currentStock > 0 &&
+                        prod.currentStock <= prod.reorderPoint;
                       const isOutOfStock = prod.currentStock <= 0;
 
                       return (
@@ -828,7 +1090,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                           <div className="flex items-center gap-3 min-w-0">
                             <div
                               className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border border-white/10"
-                              style={{ backgroundColor: `${catColor}20`, color: catColor }}
+                              style={{
+                                backgroundColor: `${catColor}20`,
+                                color: catColor,
+                              }}
                             >
                               <Package className="h-4 w-4" />
                             </div>
@@ -839,17 +1104,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                                   className={`text-xs sm:text-sm font-bold truncate ${
                                     isSelected
                                       ? 'text-orange-700 dark:text-orange-300'
-                                      : 'text-text dark:text-white/90'
+                                      : 'text-text'
                                   }`}
                                 >
                                   {prod.name}
                                 </span>
-                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-background dark:bg-white/10 text-text/60 dark:text-white/50 shrink-0">
+                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-background dark:bg-white/10 text-text/60 shrink-0">
                                   {prod.sku}
                                 </span>
                               </div>
 
-                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-text/60 dark:text-white/40">
+                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-text/60">
                                 <span className="truncate">{catName}</span>
                                 <span>·</span>
                                 <span
@@ -875,10 +1140,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                             </span>
 
                             <div
-                              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${
                                 isSelected
                                   ? 'bg-orange-600 text-white shadow-2xs'
-                                  : 'bg-background dark:bg-white/10 text-text/70 dark:text-white/70 group-hover:bg-orange-100 dark:group-hover:bg-orange-500/20 group-hover:text-orange-700 dark:group-hover:text-orange-300'
+                                  : 'bg-background dark:bg-white/10 text-text/70 group-hover:bg-orange-100 dark:group-hover:bg-orange-500/20 group-hover:text-orange-700 dark:group-hover:text-orange-300'
                               }`}
                             >
                               <span>+ {t.commandPalette.addToCart}</span>
@@ -889,6 +1154,173 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                       );
                     }
 
+                    // 2. Customer Item
+                    if (item.category === 'customers') {
+                      const cust = (item as CustomerCommandItem).customer;
+                      return (
+                        <div
+                          key={item.id}
+                          ref={(el) => {
+                            itemRefs.current[originalIndex] = el;
+                          }}
+                          onClick={() => executeItem(item)}
+                          onMouseEnter={() => setSelectedIndex(originalIndex)}
+                          className={`group p-2.5 sm:p-3 rounded-xl transition-all duration-150 active:scale-[0.99] cursor-pointer flex items-center justify-between border ${
+                            isSelected
+                              ? 'bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/30 shadow-2xs'
+                              : 'bg-transparent border-transparent hover:bg-background/70 dark:hover:bg-white/5'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                              <Users className="h-4 w-4" />
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`text-xs sm:text-sm font-bold truncate ${
+                                    isSelected
+                                      ? 'text-orange-700 dark:text-orange-300'
+                                      : 'text-text'
+                                  }`}
+                                >
+                                  {cust.name}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${getTierBadgeClass(
+                                    cust.loyaltyTier
+                                  )}`}
+                                >
+                                  <Star className="h-2.5 w-2.5 fill-current" />
+                                  {cust.loyaltyTier}
+                                </span>
+                              </div>
+
+                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-text/60">
+                                <span className="flex items-center gap-1 font-mono">
+                                  <Phone className="h-3 w-3 text-text/40" />
+                                  {cust.phone}
+                                </span>
+                                <span>·</span>
+                                <span className="font-semibold text-amber-600 dark:text-amber-400">
+                                  {cust.loyaltyPoints} pts
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0 ml-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                executeItem(item, true);
+                              }}
+                              className="hidden sm:inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-medium text-text/60 hover:text-text hover:bg-background border border-border/50"
+                              title={t.commandPalette.viewCustomerProfile}
+                            >
+                              <span>{t.commandPalette.viewCustomerProfile}</span>
+                              <ExternalLink className="h-3 w-3" />
+                            </button>
+
+                            <div
+                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${
+                                isSelected
+                                  ? 'bg-orange-600 text-white shadow-2xs'
+                                  : 'bg-background dark:bg-white/10 text-text/70 group-hover:bg-orange-100 dark:group-hover:bg-orange-500/20 group-hover:text-orange-700 dark:group-hover:text-orange-300'
+                              }`}
+                            >
+                              <span>{t.commandPalette.attachCustomer}</span>
+                              <CornerDownLeft className="h-3 w-3" />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // 3. Recent Order Item
+                    if (item.category === 'orders') {
+                      const ord = (item as OrderCommandItem).order;
+                      const customerName = ord.customer?.name || t.commandPalette.walkInCustomer;
+                      const itemsCount = ord.items.reduce(
+                        (sum, item) => sum + item.quantity,
+                        0
+                      );
+                      const itemsPreview = ord.items
+                        .slice(0, 2)
+                        .map((i) => `${i.product.name} ×${i.quantity}`)
+                        .join(', ');
+
+                      return (
+                        <div
+                          key={item.id}
+                          ref={(el) => {
+                            itemRefs.current[originalIndex] = el;
+                          }}
+                          onClick={() => executeItem(item)}
+                          onMouseEnter={() => setSelectedIndex(originalIndex)}
+                          className={`group p-2.5 sm:p-3 rounded-xl transition-all duration-150 active:scale-[0.99] cursor-pointer flex items-center justify-between border ${
+                            isSelected
+                              ? 'bg-orange-50 dark:bg-orange-500/10 border-orange-200 dark:border-orange-500/30 shadow-2xs'
+                              : 'bg-transparent border-transparent hover:bg-background/70 dark:hover:bg-white/5'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                              <Receipt className="h-4 w-4" />
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`text-xs sm:text-sm font-mono font-bold truncate ${
+                                    isSelected
+                                      ? 'text-orange-700 dark:text-orange-300'
+                                      : 'text-text'
+                                  }`}
+                                >
+                                  {ord.orderNumber}
+                                </span>
+                                {getOrderStatusBadge(ord.status)}
+                              </div>
+
+                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-text/60">
+                                <span className="truncate font-medium">{customerName}</span>
+                                <span>·</span>
+                                <span className="truncate max-w-[140px] sm:max-w-xs text-text/50">
+                                  {itemsPreview}
+                                  {ord.items.length > 2 ? ' ...' : ''} ({itemsCount})
+                                </span>
+                                <span>·</span>
+                                <span className="font-mono text-text/40 shrink-0">
+                                  {formatOrderDate(ord.createdAt)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-3 shrink-0 ml-2">
+                            <span className="text-xs sm:text-sm font-mono font-bold text-text">
+                              {formatMoney(ord.totals.grandTotal)}
+                            </span>
+
+                            <div
+                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${
+                                isSelected
+                                  ? 'bg-orange-600 text-white shadow-2xs'
+                                  : 'bg-background dark:bg-white/10 text-text/70 group-hover:bg-orange-100 dark:group-hover:bg-orange-500/20 group-hover:text-orange-700 dark:group-hover:text-orange-300'
+                              }`}
+                            >
+                              <span>{t.commandPalette.inspectOrder}</span>
+                              <CornerDownLeft className="h-3 w-3" />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // 4. Navigation Item
                     if (item.category === 'navigation') {
                       const nav = item as NavCommandItem;
                       return (
@@ -910,7 +1342,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                               className={`p-2 rounded-lg shrink-0 transition-colors ${
                                 isSelected
                                   ? 'bg-orange-600 text-white'
-                                  : 'bg-background dark:bg-white/10 text-text/70 dark:text-white/70'
+                                  : 'bg-background dark:bg-white/10 text-text/70'
                               }`}
                             >
                               {nav.icon}
@@ -922,7 +1354,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                                   className={`text-xs sm:text-sm font-bold ${
                                     isSelected
                                       ? 'text-orange-700 dark:text-orange-300'
-                                      : 'text-text dark:text-white/90'
+                                      : 'text-text'
                                   }`}
                                 >
                                   {nav.title}
@@ -933,7 +1365,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[11px] text-text/60 dark:text-white/40 truncate mt-0.5">
+                              <p className="text-[11px] text-text/60 truncate mt-0.5">
                                 {nav.description}
                               </p>
                             </div>
@@ -941,7 +1373,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
                           <div className="flex items-center gap-2 shrink-0 ml-2">
                             {nav.shortcut && (
-                              <kbd className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-background dark:bg-white/10 text-text/60 dark:text-white/40 border border-border border-crisp">
+                              <kbd className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-background dark:bg-white/10 text-text/60 border border-border border-crisp">
                                 {nav.shortcut}
                               </kbd>
                             )}
@@ -950,7 +1382,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                               className={`p-1.5 rounded-lg transition-all ${
                                 isSelected
                                   ? 'text-orange-600 dark:text-orange-400'
-                                  : 'text-text/50 dark:text-white/30 group-hover:text-zinc-700 dark:group-hover:text-white/70'
+                                  : 'text-text/50 group-hover:text-text'
                               }`}
                             >
                               <ArrowRight className="h-4 w-4" />
@@ -960,6 +1392,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                       );
                     }
 
+                    // 5. Quick Action Item
                     if (item.category === 'actions') {
                       const act = item as ActionCommandItem;
                       return (
@@ -982,8 +1415,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                             <div
                               className={`p-2 rounded-lg shrink-0 transition-colors ${
                                 isSelected
-                                  ? 'bg-background text-white dark:bg-white dark:text-text/70'
-                                  : 'bg-background dark:bg-white/10'
+                                  ? 'bg-orange-600 text-white'
+                                  : 'bg-background dark:bg-white/10 text-text/80'
                               }`}
                             >
                               {act.icon}
@@ -995,7 +1428,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                                   className={`text-xs sm:text-sm font-bold ${
                                     isSelected
                                       ? 'text-orange-700 dark:text-orange-300'
-                                      : 'text-text dark:text-white/90'
+                                      : 'text-text'
                                   }`}
                                 >
                                   {act.title}
@@ -1009,14 +1442,14 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                                         ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-800 dark:text-emerald-300'
                                         : act.badgeVariant === 'danger'
                                         ? 'bg-rose-100 dark:bg-rose-500/20 text-rose-800 dark:text-rose-300'
-                                        : 'bg-background dark:bg-white/10 text-text/70 dark:text-white/60'
+                                        : 'bg-background dark:bg-white/10 text-text/70'
                                     }`}
                                   >
                                     {act.badge}
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[11px] text-text/60 dark:text-white/40 truncate mt-0.5">
+                              <p className="text-[11px] text-text/60 truncate mt-0.5">
                                 {act.description}
                               </p>
                             </div>
@@ -1024,10 +1457,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
                           <div className="flex items-center gap-2 shrink-0 ml-2">
                             <div
-                              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-all ${
                                 isSelected
-                                  ? 'bg-background text-white dark:bg-white dark:text-text/70 shadow-2xs'
-                                  : 'text-text/50 dark:text-white/30 group-hover:text-zinc-700 dark:group-hover:text-white/70'
+                                  ? 'bg-orange-600 text-white shadow-2xs'
+                                  : 'text-text/50 group-hover:text-text'
                               }`}
                             >
                               <span>{t.commandPalette.execute}</span>
@@ -1050,34 +1483,44 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         <div className="px-4 py-2.5 border-t border-border border-crisp bg-slate-50/80 dark:bg-slate-900/60 flex items-center justify-between text-[11px] text-text/60 shrink-0">
           <div className="flex items-center gap-3 sm:gap-4 overflow-x-auto">
             <div className="flex items-center gap-1.5">
-              <kbd className="px-1.5 py-0.5 rounded bg-background dark:bg-slate-800 font-mono text-[10px] text-text/80">
+              <kbd className="px-1.5 py-0.5 rounded bg-background dark:bg-slate-800 font-mono text-[10px] text-text/80 border border-border/50">
                 ↑↓
               </kbd>
               <span>{t.commandPalette.keyboardHints.navigate}</span>
             </div>
 
             <div className="flex items-center gap-1.5">
-              <kbd className="px-1.5 py-0.5 rounded bg-background dark:bg-slate-800 font-mono text-[10px] text-text/80">
+              <kbd className="px-1.5 py-0.5 rounded bg-background dark:bg-slate-800 font-mono text-[10px] text-text/80 border border-border/50">
                 ↵
               </kbd>
               <span>{t.commandPalette.keyboardHints.select}</span>
             </div>
 
+            <div className="hidden sm:flex items-center gap-1.5">
+              <kbd className="px-1.5 py-0.5 rounded bg-background dark:bg-slate-800 font-mono text-[10px] text-text/80 border border-border/50">
+                Tab
+              </kbd>
+              <span>Switch Category</span>
+            </div>
+
             <div className="flex items-center gap-1.5">
-              <kbd className="px-1.5 py-0.5 rounded bg-background dark:bg-slate-800 font-mono text-[10px] text-text/80">
+              <kbd className="px-1.5 py-0.5 rounded bg-background dark:bg-slate-800 font-mono text-[10px] text-text/80 border border-border/50">
                 ESC
               </kbd>
               <span>{t.commandPalette.keyboardHints.close}</span>
             </div>
           </div>
 
-          <div className="hidden sm:flex items-center gap-1.5 font-mono text-[10px] text-text/40">
-            <span>PRODX Quick Command</span>
+          <div className="hidden sm:flex items-center gap-2 font-mono text-[10px] text-text/50">
+            <span className="px-1.5 py-0.5 rounded bg-card border border-border/50 font-bold">
+              Ctrl+K
+            </span>
             <span>·</span>
             <span>{filteredCommands.length} matches</span>
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

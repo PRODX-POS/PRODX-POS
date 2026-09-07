@@ -32,7 +32,7 @@ import {
 export interface FullTaxInvoiceModalProps {
   isOpen: boolean;
   onClose: () => void;
-  order: Order;
+  order?: Order | null;
 }
 
 const PRESET_BUYERS: { label: string; buyer: TaxInvoiceBuyer }[] = [
@@ -83,13 +83,13 @@ export const FullTaxInvoiceModal: React.FC<FullTaxInvoiceModalProps> = ({
   const { addToast } = useToast();
 
   const [activeView, setActiveView] = useState<'a4' | 'thermal'>('a4');
-  const [buyerName, setBuyerName] = useState(order.customer?.name || '');
+  const [buyerName, setBuyerName] = useState(order?.customer?.name || '');
   const [taxId, setTaxId] = useState('');
   const [branchType, setBranchType] = useState<'head_office' | 'branch'>('head_office');
   const [branchNumber, setBranchNumber] = useState('00001');
   const [address, setAddress] = useState('');
-  const [phone, setPhone] = useState(order.customer?.phone || '');
-  const [email, setEmail] = useState(order.customer?.email || '');
+  const [phone, setPhone] = useState(order?.customer?.phone || '');
+  const [email, setEmail] = useState(order?.customer?.email || '');
 
   // Checksum status
   const isTaxIdValid = useMemo(() => {
@@ -109,7 +109,8 @@ export const FullTaxInvoiceModal: React.FC<FullTaxInvoiceModalProps> = ({
     [buyerName, taxId, branchType, branchNumber, address, phone, email, language]
   );
 
-  const taxInvoiceDoc: FullTaxInvoice = useMemo(() => {
+  const taxInvoiceDoc: FullTaxInvoice | null = useMemo(() => {
+    if (!order) return null;
     const store: Store = session?.currentStore || {
       id: 'store-01',
       organizationId: 'org-01',
@@ -123,6 +124,8 @@ export const FullTaxInvoiceModal: React.FC<FullTaxInvoiceModalProps> = ({
     };
     return generateFullTaxInvoice(order, store, buyerData);
   }, [order, session, buyerData]);
+
+  if (!isOpen || !order || !taxInvoiceDoc) return null;
 
   const handleApplyPreset = (preset: typeof PRESET_BUYERS[0]) => {
     setBuyerName(preset.buyer.name);

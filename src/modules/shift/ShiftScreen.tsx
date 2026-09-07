@@ -4,13 +4,15 @@ import { useShift } from '../../context/ShiftContext';
 import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { CashMovementType, Shift, TimeclockRecord } from '../../domain/shift';
+import { Order } from '../../domain/order';
 import { formatMoney, createMoney, subtractMoney } from '../../domain/money';
 import { Card, CardHeader, CardBody } from '../../components/common/Card';
 import { Badge } from '../../components/common/Badge';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import { ClockInOutModal } from './ClockInOutModal';
-import { shiftApi } from '../../adapters/mockAdapter';
+import { ShiftPaymentBreakdownModal } from './ShiftPaymentBreakdownModal';
+import { shiftApi, orderApi } from '../../adapters/mockAdapter';
 import { jsPDF } from 'jspdf';
 import {
   Banknote,
@@ -26,6 +28,7 @@ import {
   FileDown,
   Clock,
   UserCheck,
+  PieChart,
 } from 'lucide-react';
 
 export const ShiftScreen: React.FC = () => {
@@ -39,6 +42,7 @@ export const ShiftScreen: React.FC = () => {
   const [isCloseShiftModal, setIsCloseShiftModal] = useState(false);
   const [isMovementModal, setIsMovementModal] = useState(false);
   const [isClockModalOpen, setIsClockModalOpen] = useState(false);
+  const [isBreakdownModalOpen, setIsBreakdownModalOpen] = useState(false);
 
   // Form states
   const [openingFloatDollars, setOpeningFloatDollars] = useState('200.00');
@@ -49,11 +53,16 @@ export const ShiftScreen: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [timeclockRecords, setTimeclockRecords] = useState<TimeclockRecord[]>([]);
+  const [orders, setOrders] = useState<readonly Order[]>([]);
 
   useEffect(() => {
     if (session) {
       shiftApi.getTimeclockRecords(session.currentStore.id)
         .then(records => setTimeclockRecords(records))
+        .catch(console.error);
+
+      orderApi.getOrders(session.currentStore.id)
+        .then(list => setOrders(list))
         .catch(console.error);
     }
   }, [session]);
@@ -62,6 +71,8 @@ export const ShiftScreen: React.FC = () => {
     if (session) {
       const records = await shiftApi.getTimeclockRecords(session.currentStore.id);
       setTimeclockRecords(records);
+      const list = await orderApi.getOrders(session.currentStore.id);
+      setOrders(list);
     }
   };
 
@@ -388,10 +399,10 @@ export const ShiftScreen: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between pb-4 sm:pb-6 border-b border-border/50">
         <div className="min-w-0 flex-1">
-          <h1 className="text-xl sm:text-2xl font-black text-text tracking-tight whitespace-normal break-words">
+          <h1 className="text-heading-1 text-text">
             {language === 'th' ? 'กะการทำงาน & ลิ้นชักเงินสด' : 'Shift & Cash Drawer'}
           </h1>
-          <p className="text-xs text-text/60 mt-1">
+          <p className="text-caption text-text/70 mt-1">
             {language === 'th' ? 'ควบคุมการเปิด-ปิดกะ บันทึกเงินสดยกมา และกระทบยอดเงินสดอย่างรัดกุม' : 'Manage register shifts, cash float, and drawer reconciliation.'}
           </p>
         </div>
@@ -409,6 +420,15 @@ export const ShiftScreen: React.FC = () => {
           </Button>
           {currentShift ? (
             <>
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => setIsBreakdownModalOpen(true)}
+                leftIcon={<PieChart className="h-4 w-4 text-purple-600 dark:text-purple-400" />}
+                className="whitespace-nowrap min-h-[44px]"
+              >
+                {language === 'th' ? 'กราฟสรุปยอดชำระ' : 'Payment Breakdown'}
+              </Button>
               <Button
                 variant="secondary"
                 size="md"
@@ -838,6 +858,16 @@ export const ShiftScreen: React.FC = () => {
         onClose={() => setIsClockModalOpen(false)}
         onSuccess={refreshTimeclock}
       />
+
+      {currentShift && (
+        <ShiftPaymentBreakdownModal
+          isOpen={isBreakdownModalOpen}
+          onClose={() => setIsBreakdownModalOpen(false)}
+          shift={currentShift}
+          orders={orders}
+          currency={session.currentStore.currency}
+        />
+      )}
     </div>
   );
 };

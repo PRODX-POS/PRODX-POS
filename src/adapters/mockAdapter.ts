@@ -19,7 +19,15 @@ import {
   CheckoutResponse,
 } from './types';
 import { User, SessionContext, Store, Organization, ROLE_PERMISSIONS } from '../domain/auth';
-import { Product, Category, InventoryLedgerEntry, StockMovementReason } from '../domain/catalog';
+import {
+  Product,
+  Category,
+  InventoryLedgerEntry,
+  StockMovementReason,
+  BulkImportItem,
+  BulkImportMode,
+  BulkImportResult,
+} from '../domain/catalog';
 import { Order, CartLineItem, CartTotals, TenderPayment } from '../domain/order';
 import { Shift, CashMovement, CashMovementType, computeExpectedDrawerCash, TimeclockRecord } from '../domain/shift';
 import { AuditLogEntry, AuditAction, AuditSeverity } from '../domain/audit';
@@ -860,6 +868,246 @@ export class MockCatalogApi implements ICatalogApi {
     saveProducts(mockState.products);
 
     return updatedProducts;
+  }
+
+  async bulkImportProducts(
+    storeId: string,
+    items: readonly BulkImportItem[],
+    mode: BulkImportMode,
+    userId: string,
+    notes?: string
+  ): Promise<BulkImportResult> {
+    await delay(180);
+    const batchReference = `IMP-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    const timestamp = new Date().toISOString();
+    const createdProducts: Product[] = [];
+    const updatedProducts: Product[] = [];
+    const newLedgerEntries: InventoryLedgerEntry[] = [];
+    const errors: Array<{ sku: string; rowNumber?: number; reason: string }> = [];
+
+    const store = SEED_STORES.find((s) => s.id === storeId) || SEED_STORES[0];
+    const currency = store.currency || 'THB';
+
+    let rowIdx = 1;
+    for (const item of items) {
+      rowIdx++;
+      if (!item.sku || !item.sku.trim()) {
+        errors.push({
+          sku: item.sku || `Row #${rowIdx}`,
+          rowNumber: rowIdx,
+          reason: 'Missing mandatory SKU identifier.',
+        });
+        continue;
+      }
+
+      const cleanSku = item.sku.trim();
+      const existingIdx = mockState.products.findIndex(
+        (p) =>
+          (p.storeId === storeId || !p.storeId) &&
+          (p.sku.toLowerCase() === cleanSku.toLowerCase() || (item.barcode && p.barcode === item.barcode.trim()))
+      );
+
+      if (existingIdx !== -1) {
+        // --- Existing Product Update ---
+        const existing = mockState.products[existingIdx];
+        let newStock = existing.currentStock;
+        let delta = 0;
+        let ledgerReason: StockMovementReason = 'audit_count_adjustment';
+
+        if (mode === 'stock_override') {
+          if (item.currentStock !== undefined && !isNaN(item.currentStock)) {
+            newStock = Math.max(0, item.currentStock);
+            delta = newStock - existing.currentStock;
+            ledgerReason = 'audit_count_adjustment';
+          }
+        } else if (mode === 'stock_replenish') {
+          const addQty = item.quantityDelta !== undefined ? item.quantityDelta : (item.currentStock !== undefined ? item.currentStock : 0);
+          if (!isNaN(addQty) && addQty !== 0) {
+            delta = addQty;
+            newStock = Math.max(0, existing.currentStock + delta);
+            ledgerReason = delta > 0 ? 'purchase_received' : 'audit_count_adjustment';
+          }
+        } else {
+          // Upsert or Update Only
+          if (item.quantityDelta !== undefined && !isNaN(item.quantityDelta)) {
+            delta = item.quantityDelta;
+            newStock = Math.max(0, existing.currentStock + delta);
+            ledgerReason = delta > 0 ? 'purchase_received' : 'audit_count_adjustment';
+          } else if (item.currentStock !== undefined && !isNaN(item.currentStock)) {
+            delta = item.currentStock - existing.currentStock;
+            newStock = Math.max(0, item.currentStock);
+            ledgerReason = 'audit_count_adjustment';
+          }
+        }
+
+        // Match category
+        let finalCategoryId = existing.categoryId;
+        if (item.categoryId) {
+          finalCategoryId = item.categoryId;
+        } else if (item.categoryName) {
+          const matchedCat = mockState.categories.find(
+            (c) => c.name.toLowerCase() === item.categoryName!.trim().toLowerCase() || c.id === item.categoryName
+          );
+          if (matchedCat) {
+            finalCategoryId = matchedCat.id;
+          }
+        }
+
+        const updated: Product = {
+          ...existing,
+          name: item.name && item.name.trim() ? item.name.trim() : existing.name,
+          barcode: item.barcode && item.barcode.trim() ? item.barcode.trim() : existing.barcode,
+          description: item.description !== undefined ? item.description : existing.description,
+          categoryId: finalCategoryId,
+          price:
+            item.priceAmountInCents !== undefined && !isNaN(item.priceAmountInCents)
+              ? createMoney(Math.max(0, item.priceAmountInCents), currency)
+              : existing.price,
+          costPrice:
+            item.costPriceAmountInCents !== undefined && !isNaN(item.costPriceAmountInCents)
+              ? createMoney(Math.max(0, item.costPriceAmountInCents), currency)
+              : existing.costPrice,
+          taxRateBps: item.taxRateBps !== undefined && !isNaN(item.taxRateBps) ? item.taxRateBps : existing.taxRateBps,
+          reorderPoint: item.reorderPoint !== undefined && !isNaN(item.reorderPoint) ? item.reorderPoint : existing.reorderPoint,
+          unitOfMeasure: item.unitOfMeasure?.trim() || existing.unitOfMeasure,
+          currentStock: newStock,
+          isAgeRestricted: item.isAgeRestricted !== undefined ? item.isAgeRestricted : existing.isAgeRestricted,
+          imageUrl: item.imageUrl || existing.imageUrl,
+        };
+
+        mockState.products[existingIdx] = updated;
+        updatedProducts.push(updated);
+
+        // Record stock ledger entry if quantity changed
+        if (delta !== 0) {
+          const entry: InventoryLedgerEntry = {
+            id: `ledg-imp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            storeId,
+            productId: updated.id,
+            quantityDelta: delta,
+            resultingStock: newStock,
+            reason: ledgerReason,
+            referenceId: batchReference,
+            performedByUserId: userId,
+            notes: notes ? `${notes} (Bulk Import: ${mode})` : `Bulk Inventory Import (${mode})`,
+            timestamp,
+          };
+          mockState.inventoryLedger.unshift(entry);
+          newLedgerEntries.push(entry);
+        }
+      } else {
+        // --- Product Does NOT Exist ---
+        if (mode === 'update_only') {
+          errors.push({
+            sku: cleanSku,
+            rowNumber: rowIdx,
+            reason: `Product with SKU "${cleanSku}" not found in catalog (Update Only mode).`,
+          });
+          continue;
+        }
+
+        // Match or determine category
+        let finalCategoryId = mockState.categories[0]?.id || 'cat-retail';
+        if (item.categoryId && mockState.categories.some((c) => c.id === item.categoryId)) {
+          finalCategoryId = item.categoryId;
+        } else if (item.categoryName) {
+          const matchedCat = mockState.categories.find(
+            (c) => c.name.toLowerCase() === item.categoryName!.trim().toLowerCase() || c.id === item.categoryName
+          );
+          if (matchedCat) {
+            finalCategoryId = matchedCat.id;
+          } else {
+            // Auto-create category if new
+            const newCatId = `cat-${item.categoryName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
+            const newCat: Category = {
+              id: newCatId,
+              name: item.categoryName.trim(),
+              slug: item.categoryName.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+            };
+            mockState.categories.push(newCat);
+            saveCategories(mockState.categories);
+            finalCategoryId = newCatId;
+          }
+        }
+
+        const initialStock = Math.max(0, item.currentStock ?? item.quantityDelta ?? 0);
+        const priceCents = item.priceAmountInCents ?? 1000;
+        const costPriceCents = item.costPriceAmountInCents ?? Math.round(priceCents * 0.4);
+
+        const newProd: Product = {
+          id: `prod-${cleanSku.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now().toString().slice(-4)}`,
+          storeId,
+          sku: cleanSku,
+          barcode: item.barcode?.trim() || `890${Math.floor(100000000 + Math.random() * 900000000)}`,
+          name: item.name?.trim() || `Item ${cleanSku}`,
+          description: item.description?.trim() || '',
+          categoryId: finalCategoryId,
+          price: createMoney(priceCents, currency),
+          costPrice: createMoney(costPriceCents, currency),
+          taxRateBps: item.taxRateBps ?? 700,
+          currentStock: initialStock,
+          reorderPoint: item.reorderPoint ?? 10,
+          unitOfMeasure: item.unitOfMeasure?.trim() || 'piece',
+          isAgeRestricted: Boolean(item.isAgeRestricted),
+          imageUrl: item.imageUrl,
+        };
+
+        mockState.products.push(newProd);
+        createdProducts.push(newProd);
+
+        if (initialStock > 0) {
+          const entry: InventoryLedgerEntry = {
+            id: `ledg-imp-new-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            storeId,
+            productId: newProd.id,
+            quantityDelta: initialStock,
+            resultingStock: initialStock,
+            reason: 'purchase_received',
+            referenceId: batchReference,
+            performedByUserId: userId,
+            notes: notes ? `${notes} (Initial Stock from Bulk Import)` : `Initial Stock Setup from Bulk Import (${mode})`,
+            timestamp,
+          };
+          mockState.inventoryLedger.unshift(entry);
+          newLedgerEntries.push(entry);
+        }
+      }
+    }
+
+    // Persist changes
+    saveProducts(mockState.products);
+
+    // Record Audit Log Entry
+    mockState.auditLogs.unshift({
+      id: `aud-import-${Date.now()}`,
+      storeId,
+      registerId: 'REG-01',
+      userId,
+      userName: SEED_USERS.find((u) => u.id === userId)?.name || 'Admin',
+      action: 'stock_adjusted',
+      severity: 'info',
+      details: {
+        batchReference,
+        mode,
+        totalItems: items.length,
+        createdCount: createdProducts.length,
+        updatedCount: updatedProducts.length,
+        skippedErrorsCount: errors.length,
+      },
+      timestamp,
+    });
+
+    return {
+      batchReference,
+      totalProcessed: items.length,
+      createdCount: createdProducts.length,
+      updatedCount: updatedProducts.length,
+      skippedCount: errors.length,
+      createdProducts,
+      updatedProducts,
+      ledgerEntries: newLedgerEntries,
+      errors,
+    };
   }
 }
 

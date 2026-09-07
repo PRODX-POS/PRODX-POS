@@ -165,7 +165,7 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
           playClick();
           setIsExpanded(!isExpanded);
         }}
-        className="w-full flex items-center justify-between px-3.5 py-2.5 bg-card border-b border-border border-crisp text-xs font-bold text-text cursor-pointer focus:outline-none"
+        className="w-full flex items-center justify-between px-3.5 py-2.5 bg-card border-b border-border border-crisp text-xs font-bold text-text cursor-pointer focus:outline-none active-scale"
       >
         <span className="flex items-center gap-1.5">
           <Banknote className="h-4 w-4 text-primary" />
@@ -194,7 +194,7 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
                 <button
                   type="button"
                   onClick={handleClearAccumulated}
-                  className="text-rose-500 hover:text-rose-600 transition-colors flex items-center gap-1 normal-case cursor-pointer font-bold text-[10px]"
+                  className="text-rose-500 hover:text-rose-600 transition-colors flex items-center gap-1 normal-case cursor-pointer font-bold text-[10px] active-scale"
                 >
                   <Trash2 className="h-3 w-3" />
                   <span>{language === 'th' ? 'ล้างถาด' : 'Reset tray'}</span>
@@ -211,7 +211,7 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
                     key={denom.value}
                     type="button"
                     onClick={() => handleAddDenomination(denom)}
-                    className={`relative min-h-[48px] p-2 rounded-lg border-crisp border flex flex-col items-center justify-center transition-all cursor-pointer select-none active:scale-95 shadow-2xs ${denom.colorClass} ${denom.darkColorClass} ${
+                    className={`relative min-h-[48px] p-2 theme-btn-radius active-scale border-crisp border flex flex-col items-center justify-center transition-all cursor-pointer select-none shadow-2xs ${denom.colorClass} ${denom.darkColorClass} ${
                       count > 0 ? 'ring-2 ring-primary border-primary font-bold' : 'hover:scale-[0.98]'
                     }`}
                   >
@@ -239,7 +239,7 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
               <button
                 type="button"
                 onClick={handleSetExact}
-                className="min-h-[36px] px-3 py-1.5 text-xs rounded-lg border-crisp border border-border text-text hover:bg-background transition font-bold cursor-pointer bg-card shadow-2xs"
+                className="min-h-[36px] px-3 py-1.5 text-xs theme-btn-radius active-scale border-crisp border border-border text-text hover:bg-background transition font-bold cursor-pointer bg-card shadow-2xs"
               >
                 {language === 'th' ? 'พอดีเป๊ะ' : 'Exact'} (<span className="font-mono">{formatMoney(createMoney(totalDueCents, currency))}</span>)
               </button>
@@ -254,7 +254,7 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
                       setAccumulatedBills({});
                       onTenderedChange(cents);
                     }}
-                    className={`min-h-[36px] px-3 py-1.5 text-xs rounded-lg border-crisp border font-mono font-bold transition cursor-pointer shadow-2xs ${
+                    className={`min-h-[36px] px-3 py-1.5 text-xs theme-btn-radius active-scale border-crisp border font-mono font-bold transition cursor-pointer shadow-2xs ${
                       tenderedCents === cents
                         ? 'bg-primary border-primary text-white'
                         : 'border-border bg-card text-text hover:bg-background'

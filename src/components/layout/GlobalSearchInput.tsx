@@ -40,6 +40,7 @@ import { formatMoney } from '../../domain/money';
 import { catalogApi } from '../../adapters/mockAdapter';
 import { customersService } from '../../services/customersService';
 import { SettingsTabId } from '../../modules/settings/types';
+import { useRbac } from '../auth/RbacGuard';
 
 export interface GlobalSearchInputProps {
   currentRoute?: NavRoute;
@@ -83,6 +84,7 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
   onOpenCommandPalette,
 }) => {
   const { session } = useAuth();
+  const { canAccessModule } = useRbac();
   const { language } = useLanguage();
   const { addItem, setCustomer } = useCart();
   const { addToast } = useToast();
@@ -140,22 +142,16 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
 
   const shortcutKeyLabel = isMac ? '⌘K' : 'Ctrl+K';
 
-  // Global Keyboard listener for `/` and `Cmd+K` / `Ctrl+K`
+  // Global Keyboard listener for `/`
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      // 1. Cmd+K or Ctrl+K shortcut (Universal across all focus states)
+      // Allow Ctrl+K / Cmd+K to pass through to Command Palette and close inline dropdown
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (inputRef.current) {
-          inputRef.current.focus();
-          inputRef.current.select();
-        }
-        setIsOpen(true);
+        setIsOpen(false);
         return;
       }
 
-      // 2. Pressing `/` when not focused on an interactive input
+      // Pressing `/` when not focused on an interactive input opens quick search
       const activeEl = document.activeElement;
       const isInputActive =
         activeEl?.tagName === 'INPUT' ||
@@ -180,11 +176,11 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
       setIsOpen(true);
     };
 
-    window.addEventListener('keydown', handleGlobalKeyDown, true);
+    window.addEventListener('keydown', handleGlobalKeyDown);
     window.addEventListener('prodx:open-global-search', handleCustomOpen);
 
     return () => {
-      window.removeEventListener('keydown', handleGlobalKeyDown, true);
+      window.removeEventListener('keydown', handleGlobalKeyDown);
       window.removeEventListener('prodx:open-global-search', handleCustomOpen);
     };
   }, []);
@@ -336,21 +332,23 @@ export const GlobalSearchInput: React.FC<GlobalSearchInputProps> = ({
       });
     });
 
-    // 3. Settings
-    settingsRegistry.forEach((s) => {
-      list.push({
-        type: 'setting',
-        id: s.id,
-        tabId: s.tabId,
-        title: s.title,
-        description: s.description,
-        icon: s.icon,
-        keywords: `${s.title.th} ${s.title.en} ${s.description.th} ${s.description.en} ${s.keywords}`.toLowerCase(),
+    // 3. Settings (only included if active session has permission for settings)
+    if (canAccessModule('settings')) {
+      settingsRegistry.forEach((s) => {
+        list.push({
+          type: 'setting',
+          id: s.id,
+          tabId: s.tabId,
+          title: s.title,
+          description: s.description,
+          icon: s.icon,
+          keywords: `${s.title.th} ${s.title.en} ${s.description.th} ${s.description.en} ${s.keywords}`.toLowerCase(),
+        });
       });
-    });
+    }
 
     return list;
-  }, [products, customers, settingsRegistry, categoryMap]);
+  }, [products, customers, settingsRegistry, categoryMap, canAccessModule]);
 
   // Filter items by active tab and search query
   const filteredResults = useMemo(() => {

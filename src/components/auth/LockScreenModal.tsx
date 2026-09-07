@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { Lock, ShieldAlert, Delete, LogOut, ArrowRight, UserCheck } from 'lucide-react';
 import { ProdxLogo } from '../common/ProdxLogo';
+import { getZIndexClass } from '../../utils/ZIndexManager';
 
 export const LockScreenModal: React.FC = () => {
   const { session, unlockSystem, logout, isLocked } = useAuth();
@@ -18,6 +20,7 @@ export const LockScreenModal: React.FC = () => {
   }, []);
 
   if (!isLocked || !session) return null;
+  if (typeof document === 'undefined') return null;
 
   const handleDigit = (digit: string) => {
     if (pinInput.length < 8) {
@@ -61,8 +64,8 @@ export const LockScreenModal: React.FC = () => {
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 select-none animate-in fade-in duration-200 bg-slate-950/70 backdrop-blur-sm">
+  return createPortal(
+    <div className={`fixed inset-0 ${getZIndexClass('modal')} flex items-center justify-center p-4 select-none animate-in fade-in duration-200 bg-slate-950/70 backdrop-blur-sm`}>
       <div className="relative z-10 w-full max-w-md rounded-lg bg-card border border-border border-crisp shadow-xl p-6 sm:p-7 flex flex-col items-center text-center">
         {/* Top Lock Badge */}
         <div className="w-12 h-12 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200/60 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-xs mb-3.5">
@@ -156,6 +159,7 @@ export const LockScreenModal: React.FC = () => {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

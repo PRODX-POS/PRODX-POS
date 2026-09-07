@@ -30,44 +30,44 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart, 
           if (!isOutOfStock) onAddToCart(product);
         }
       }}
-      className={`group relative min-h-[128px] rounded-lg border-crisp border p-3.5 sm:p-4 text-left transition-all select-none flex flex-col justify-between shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 dark:focus-visible:ring-offset-card ${
+      className={`group relative min-h-[128px] theme-btn-radius border-crisp border p-3.5 sm:p-4 text-left transition-all select-none flex flex-col justify-between shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 dark:focus-visible:ring-offset-card ${
         isOutOfStock
           ? 'opacity-50 border-border bg-card/60 cursor-not-allowed'
           : isFocused
-            ? 'ring-2 ring-primary border-primary bg-primary/10 cursor-pointer active:scale-[0.98]'
-            : 'border-border bg-card hover:border-primary/50 hover:shadow-xs cursor-pointer active:scale-[0.98]'
+            ? 'ring-2 ring-primary border-primary bg-primary/10 cursor-pointer active-scale'
+            : 'border-border bg-card hover:border-primary/50 hover:shadow-xs cursor-pointer active-scale'
       }`}
     >
       {/* Top Details */}
       <div>
         <div className="flex items-start justify-between gap-1.5 mb-1.5 sm:mb-2">
-          <span className="text-[10px] sm:text-[11px] font-mono text-text/50 font-bold uppercase tracking-wider truncate">
+          <span className="text-mono-xs text-text/50 font-bold uppercase truncate">
             {product.sku}
           </span>
 
           {/* Stock indicator badge */}
           {isOutOfStock ? (
-            <span className="text-[9px] sm:text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 shrink-0">
+            <span className="text-label-xs px-2 py-0.5 rounded-lg bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 shrink-0">
               {t.pos.outOfStock}
             </span>
           ) : isLowStock ? (
-            <span className="text-[9px] sm:text-[10px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1 shrink-0">
+            <span className="text-label-xs px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1 shrink-0">
               <AlertCircle className="h-3 w-3" />
               <span className="font-mono">{product.currentStock}</span>
             </span>
           ) : (
-            <span className="text-[9px] sm:text-[10px] font-medium text-text/50 shrink-0">
+            <span className="text-label-xs font-medium text-text/50 shrink-0">
               <span className="font-mono">{product.currentStock}</span> {t.pos.inStock}
             </span>
           )}
         </div>
 
-        <h3 className="text-xs sm:text-sm font-bold text-text line-clamp-2 leading-snug group-hover:text-primary transition-colors">
+        <h3 className="text-heading-4 text-text line-clamp-2 leading-snug group-hover:text-primary transition-colors">
           {product.name}
         </h3>
 
         {product.description && (
-          <p className="mt-1 text-[10px] sm:text-[11px] text-text/70 line-clamp-1 sm:line-clamp-2 leading-normal">
+          <p className="mt-1 text-caption-sm text-text/70 line-clamp-1 sm:line-clamp-2">
             {product.description}
           </p>
         )}
@@ -75,11 +75,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart, 
 
       {/* Bottom Price & Add Action */}
       <div className="mt-2.5 sm:mt-3 pt-2 sm:pt-2.5 border-t border-border border-crisp flex items-center justify-between gap-1">
-        <div className="font-mono text-xs sm:text-base font-bold text-primary truncate">
+        <div className="text-mono-md font-bold text-primary truncate">
           {formatMoney(product.price)}
         </div>
 
-        <div className="min-h-[38px] min-w-[38px] h-9 w-9 rounded-lg bg-background border-crisp border border-border text-text/70 flex items-center justify-center group-hover:bg-primary group-hover:text-white group-hover:border-primary transition-all shrink-0 shadow-2xs">
+        <div className="min-h-[38px] min-w-[38px] h-9 w-9 theme-btn-radius bg-background border-crisp border border-border text-text/70 flex items-center justify-center group-hover:bg-primary group-hover:text-white group-hover:border-primary transition-all shrink-0 shadow-2xs">
           <Plus className="h-4 w-4" />
         </div>
       </div>

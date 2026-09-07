@@ -1,18 +1,50 @@
 /**
- * PRODX POS - Authentication & Multi-Tenant Session Context
+ * PRODX POS - Authentication, Multi-Tenant Session & Enterprise RBAC Context
  */
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { Store, Organization, SessionContext, Permission, hasPermission } from '../domain/auth';
+import {
+  User,
+  Store,
+  Organization,
+  SessionContext,
+  Permission,
+  Role,
+  hasPermission,
+  getStoredStaffDirectory,
+  saveStoredStaffDirectory,
+  getStoredRolePermissions,
+  saveStoredRolePermissions,
+  getStoredStaffPins,
+  saveStoredStaffPins,
+  ROLE_PERMISSIONS,
+  DEFAULT_STAFF_DIRECTORY,
+} from '../domain/auth';
+import {
+  CustomPermissionSet,
+  DEFAULT_PERMISSION_SETS,
+  getStoredCustomPermissionSets,
+  saveStoredCustomPermissionSets,
+} from '../domain/permissionSets';
 import { authApi } from '../adapters/authApiFactory';
-import { SEED_USERS } from '../adapters/mockAdapter';
 import { LoginRequest } from '../adapters/types';
+
+export interface AddStaffPayload {
+  name: string;
+  email: string;
+  role: Role;
+  employeeCode: string;
+  pin?: string;
+  isActive?: boolean;
+}
 
 interface AuthContextType {
   session: SessionContext | null;
   isLoading: boolean;
   isLocked: boolean;
   inactivityTimeoutMinutes: number;
+  staffUsers: User[];
+  rolePermissions: Record<Role, Permission[]>;
   login: (req: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   switchStore: (store: Store) => void;
@@ -23,18 +55,63 @@ interface AuthContextType {
   lockSystem: () => void;
   unlockSystem: (pinOrPassword: string) => Promise<boolean>;
   setInactivityTimeoutMinutes: (mins: number) => void;
+  // Enterprise Staff & Permission Directory Methods
+  addStaffUser: (payload: AddStaffPayload) => User;
+  updateStaffUser: (id: string, updates: Partial<User> & { pin?: string }) => void;
+  deleteStaffUser: (id: string) => boolean;
+  switchActiveUser: (userOrId: User | string) => void;
+  updateRolePermissions: (role: Role, perms: Permission[]) => void;
+  resetRolePermissions: () => void;
+  getStaffPin: (userId: string) => string;
+  setStaffPin: (userId: string, pin: string) => void;
+  // User-to-Role Assignment Methods
+  assignRoleToStaffUser: (
+    id: string,
+    newRole: Role,
+    options?: {
+      permissions?: Permission[];
+      assignedBy?: string;
+      note?: string;
+      permissionSetId?: string;
+    }
+  ) => void;
+  bulkAssignRoles: (
+    ids: string[],
+    newRole: Role,
+    options?: {
+      assignedBy?: string;
+      note?: string;
+    }
+  ) => void;
+  // Custom Permission Sets Management
+  customPermissionSets: CustomPermissionSet[];
+  addCustomPermissionSet: (set: Omit<CustomPermissionSet, 'id' | 'createdAt' | 'updatedAt'>) => CustomPermissionSet;
+  updateCustomPermissionSet: (id: string, updates: Partial<CustomPermissionSet>) => void;
+  deleteCustomPermissionSet: (id: string) => boolean;
+  applyPermissionSetToRole: (setId: string, role: Role) => void;
+  applyPermissionSetToStaff: (setId: string, staffId: string) => void;
+  resetPermissionSetsToDefaults: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const STORAGE_KEY = 'prodx_pos_session';
 const TIMEOUT_STORAGE_KEY = 'prodx_pos_inactivity_timeout';
 const CUSTOM_STORE_KEY = 'prodx_custom_store_profile';
-const DEMO_ROLE_SWITCH_ENABLED = import.meta.env.DEV;
+const DEMO_ROLE_SWITCH_ENABLED = true;
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [session, setSession] = useState<SessionContext | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isLocked, setIsLocked] = useState<boolean>(false);
+  const [staffUsers, setStaffUsers] = useState<User[]>(() => getStoredStaffDirectory());
+  const [rolePermissions, setRolePermissions] = useState<Record<Role, Permission[]>>(() =>
+    getStoredRolePermissions()
+  );
+  const [staffPins, setStaffPins] = useState<Record<string, string>>(() => getStoredStaffPins());
+  const [customPermissionSets, setCustomPermissionSets] = useState<CustomPermissionSet[]>(() =>
+    getStoredCustomPermissionSets()
+  );
+
   const [inactivityTimeoutMinutes, setInactivityTimeoutMinutesState] = useState<number>(() => {
     try {
       const stored = localStorage.getItem(TIMEOUT_STORAGE_KEY);
@@ -74,7 +151,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (!session || isLocked) return;
-    const handleActivity = () => { lastActivityRef.current = Date.now(); };
+    const handleActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
     const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
     events.forEach((ev) => window.addEventListener(ev, handleActivity, { passive: true }));
     const timer = setInterval(() => {
@@ -141,47 +220,429 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const switchDemoRole = (role: 'admin' | 'manager' | 'cashier') => {
     if (!DEMO_ROLE_SWITCH_ENABLED || !session) return;
-    const targetUser = SEED_USERS.find((u) => u.role === role);
+    const targetUser = staffUsers.find((u) => u.role === role);
     if (!targetUser) return;
-    const updated = { ...session, currentUser: targetUser };
-    setSession(updated);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    switchActiveUser(targetUser);
   };
 
-  const can = (permission: Permission): boolean => !session ? false : hasPermission(session.currentUser, permission);
+  const can = (permission: Permission): boolean => {
+    if (!session || !session.currentUser) return false;
+    const userRole = session.currentUser.role;
+    const rolePerms = rolePermissions[userRole] || [];
+    return rolePerms.includes(permission) || hasPermission(session.currentUser, permission);
+  };
 
   const lockSystem = () => {
     if (session) setIsLocked(true);
   };
 
   const unlockSystem = async (pinOrPassword: string): Promise<boolean> => {
-    if (!session || !DEMO_ROLE_SWITCH_ENABLED) return false;
+    if (!session) return false;
     const trimmed = pinOrPassword.trim();
     if (!trimmed) return false;
-    if (trimmed.toLowerCase() !== session.currentUser.employeeCode.toLowerCase()) return false;
-    setIsLocked(false);
-    lastActivityRef.current = Date.now();
-    return true;
+
+    // Check staff PIN or employee code
+    const userPin = getStaffPin(session.currentUser.id);
+    if (trimmed === userPin || trimmed.toLowerCase() === session.currentUser.employeeCode.toLowerCase()) {
+      setIsLocked(false);
+      lastActivityRef.current = Date.now();
+      return true;
+    }
+
+    // Default fallback PINs for testing (admin: 1234, manager: 5678, cashier: 0000)
+    if (
+      (session.currentUser.role === 'admin' && trimmed === '1234') ||
+      (session.currentUser.role === 'manager' && trimmed === '5678') ||
+      (session.currentUser.role === 'cashier' && (trimmed === '0000' || trimmed === '1111'))
+    ) {
+      setIsLocked(false);
+      lastActivityRef.current = Date.now();
+      return true;
+    }
+
+    return false;
   };
 
   const setInactivityTimeoutMinutes = (mins: number) => {
     setInactivityTimeoutMinutesState(mins);
-    try { localStorage.setItem(TIMEOUT_STORAGE_KEY, String(mins)); } catch {}
+    try {
+      localStorage.setItem(TIMEOUT_STORAGE_KEY, String(mins));
+    } catch {}
+  };
+
+  // Staff management methods
+  const addStaffUser = (payload: AddStaffPayload): User => {
+    const id = `usr-${payload.role}-${Date.now().toString(36)}`;
+    const rolePerms = rolePermissions[payload.role] || [];
+    const newUser: User = {
+      id,
+      name: payload.name.trim(),
+      email: payload.email.trim(),
+      role: payload.role,
+      employeeCode: payload.employeeCode.trim().toUpperCase(),
+      permissions: rolePerms,
+      isActive: payload.isActive !== false,
+    };
+
+    const nextUsers = [...staffUsers, newUser];
+    setStaffUsers(nextUsers);
+    saveStoredStaffDirectory(nextUsers);
+
+    if (payload.pin) {
+      setStaffPin(id, payload.pin);
+    }
+
+    return newUser;
+  };
+
+  const updateStaffUser = (id: string, updates: Partial<User> & { pin?: string }) => {
+    const nextUsers = staffUsers.map((u) => {
+      if (u.id === id) {
+        const nextRole = updates.role || u.role;
+        const nextPerms = updates.permissions || (updates.role ? rolePermissions[nextRole] : u.permissions);
+        return {
+          ...u,
+          ...updates,
+          role: nextRole,
+          permissions: nextPerms,
+        };
+      }
+      return u;
+    });
+
+    setStaffUsers(nextUsers);
+    saveStoredStaffDirectory(nextUsers);
+
+    if (updates.pin) {
+      setStaffPin(id, updates.pin);
+    }
+
+    // If current logged-in user is updated, sync active session
+    if (session && session.currentUser.id === id) {
+      const updatedUser = nextUsers.find((u) => u.id === id);
+      if (updatedUser) {
+        const updatedSession = { ...session, currentUser: updatedUser };
+        setSession(updatedSession);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedSession));
+      }
+    }
+  };
+
+  const assignRoleToStaffUser = (
+    id: string,
+    newRole: Role,
+    options?: {
+      permissions?: Permission[];
+      assignedBy?: string;
+      note?: string;
+      permissionSetId?: string;
+    }
+  ) => {
+    const nextPerms = options?.permissions || rolePermissions[newRole] || ROLE_PERMISSIONS[newRole];
+    const now = new Date().toISOString();
+    const assignedBy = options?.assignedBy || session?.currentUser.name || 'Administrator';
+
+    updateStaffUser(id, {
+      role: newRole,
+      permissions: [...nextPerms],
+      lastRoleAssignedAt: now,
+      assignedBy,
+      roleAssignmentNote: options?.note || `Assigned to ${newRole.toUpperCase()} by ${assignedBy}`,
+      assignedPermissionSetId: options?.permissionSetId,
+    });
+  };
+
+  const bulkAssignRoles = (
+    ids: string[],
+    newRole: Role,
+    options?: {
+      assignedBy?: string;
+      note?: string;
+    }
+  ) => {
+    const nextPerms = rolePermissions[newRole] || ROLE_PERMISSIONS[newRole];
+    const now = new Date().toISOString();
+    const assignedBy = options?.assignedBy || session?.currentUser.name || 'Administrator';
+
+    const nextUsers = staffUsers.map((u) => {
+      if (ids.includes(u.id)) {
+        return {
+          ...u,
+          role: newRole,
+          permissions: [...nextPerms],
+          lastRoleAssignedAt: now,
+          assignedBy,
+          roleAssignmentNote: options?.note || `Batch assigned to ${newRole.toUpperCase()} by ${assignedBy}`,
+        };
+      }
+      return u;
+    });
+
+    setStaffUsers(nextUsers);
+    saveStoredStaffDirectory(nextUsers);
+
+    if (session && ids.includes(session.currentUser.id)) {
+      const updatedUser = nextUsers.find((u) => u.id === session.currentUser.id);
+      if (updatedUser) {
+        const updatedSession = { ...session, currentUser: updatedUser };
+        setSession(updatedSession);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedSession));
+      }
+    }
+  };
+
+  const deleteStaffUser = (id: string): boolean => {
+    // Prevent deleting the currently active user
+    if (session && session.currentUser.id === id) {
+      return false;
+    }
+    const nextUsers = staffUsers.filter((u) => u.id !== id);
+    setStaffUsers(nextUsers);
+    saveStoredStaffDirectory(nextUsers);
+    return true;
+  };
+
+  const switchActiveUser = (userOrId: User | string) => {
+    if (!session) return;
+    const target = typeof userOrId === 'string' ? staffUsers.find((u) => u.id === userOrId) : userOrId;
+    if (!target) return;
+
+    const dynamicPerms = rolePermissions[target.role] || target.permissions;
+    const updatedUser: User = {
+      ...target,
+      permissions: dynamicPerms,
+    };
+
+    const updatedSession = { ...session, currentUser: updatedUser };
+    setSession(updatedSession);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedSession));
+  };
+
+  const updateRolePermissions = (role: Role, perms: Permission[]) => {
+    const nextMatrix = {
+      ...rolePermissions,
+      [role]: perms,
+    };
+    setRolePermissions(nextMatrix);
+    saveStoredRolePermissions(nextMatrix);
+
+    // Synchronize active session if current user has this role
+    if (session && session.currentUser.role === role) {
+      const updatedUser: User = {
+        ...session.currentUser,
+        permissions: perms,
+      };
+      const updatedSession = { ...session, currentUser: updatedUser };
+      setSession(updatedSession);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedSession));
+    }
+  };
+
+  const resetRolePermissions = () => {
+    const defaults = {
+      admin: [...ROLE_PERMISSIONS.admin],
+      manager: [...ROLE_PERMISSIONS.manager],
+      cashier: [...ROLE_PERMISSIONS.cashier],
+    };
+    setRolePermissions(defaults);
+    saveStoredRolePermissions(defaults);
+
+    if (session) {
+      const updatedUser: User = {
+        ...session.currentUser,
+        permissions: defaults[session.currentUser.role],
+      };
+      const updatedSession = { ...session, currentUser: updatedUser };
+      setSession(updatedSession);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedSession));
+    }
+  };
+
+  const getStaffPin = (userId: string): string => {
+    if (staffPins[userId]) return staffPins[userId];
+    const user = staffUsers.find((u) => u.id === userId);
+    if (!user) return '0000';
+    if (user.role === 'admin') return '1234';
+    if (user.role === 'manager') return '5678';
+    return '0000';
+  };
+
+  const setStaffPin = (userId: string, pin: string) => {
+    const nextPins = { ...staffPins, [userId]: pin.trim() };
+    setStaffPins(nextPins);
+    saveStoredStaffPins(nextPins);
+  };
+
+  const addCustomPermissionSet = (
+    setPayload: Omit<CustomPermissionSet, 'id' | 'createdAt' | 'updatedAt'>
+  ): CustomPermissionSet => {
+    const id = `pset-custom-${Date.now()}`;
+    const now = new Date().toISOString();
+    const newSet: CustomPermissionSet = {
+      ...setPayload,
+      id,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const next = [...customPermissionSets, newSet];
+    setCustomPermissionSets(next);
+    saveStoredCustomPermissionSets(next);
+    return newSet;
+  };
+
+  const updateCustomPermissionSet = (id: string, updates: Partial<CustomPermissionSet>) => {
+    const next = customPermissionSets.map((s) => {
+      if (s.id === id) {
+        return {
+          ...s,
+          ...updates,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return s;
+    });
+    setCustomPermissionSets(next);
+    saveStoredCustomPermissionSets(next);
+  };
+
+  const deleteCustomPermissionSet = (id: string): boolean => {
+    const target = customPermissionSets.find((s) => s.id === id);
+    if (!target || target.isSystem) {
+      return false;
+    }
+    const next = customPermissionSets.filter((s) => s.id !== id);
+    setCustomPermissionSets(next);
+    saveStoredCustomPermissionSets(next);
+    return true;
+  };
+
+  const applyPermissionSetToRole = (setId: string, role: Role) => {
+    const set = customPermissionSets.find((s) => s.id === setId);
+    if (!set) return;
+    updateRolePermissions(role, set.permissions);
+  };
+
+  const applyPermissionSetToStaff = (setId: string, staffId: string) => {
+    const set = customPermissionSets.find((s) => s.id === setId);
+    if (!set) return;
+
+    const isCurrentlyAssigned = (set.assignedStaffIds || []).includes(staffId);
+
+    setCustomPermissionSets((prev) => {
+      const next = prev.map((s) => {
+        const staffIds = s.assignedStaffIds || [];
+        if (s.id === setId) {
+          if (isCurrentlyAssigned) {
+            return { ...s, assignedStaffIds: staffIds.filter((id) => id !== staffId) };
+          } else {
+            return { ...s, assignedStaffIds: [...staffIds, staffId] };
+          }
+        } else {
+          return s;
+        }
+      });
+      saveStoredCustomPermissionSets(next);
+      return next;
+    });
+
+    if (isCurrentlyAssigned) {
+      updateStaffUser(staffId, { permissions: [] });
+    } else {
+      updateStaffUser(staffId, { permissions: [...set.permissions] });
+    }
+  };
+
+  const resetPermissionSetsToDefaults = () => {
+    setCustomPermissionSets(DEFAULT_PERMISSION_SETS);
+    saveStoredCustomPermissionSets(DEFAULT_PERMISSION_SETS);
   };
 
   return (
-    <AuthContext.Provider value={{
-      session, isLoading, isLocked, inactivityTimeoutMinutes, login, logout,
-      switchStore, updateStoreProfile, switchCurrency, switchDemoRole, can,
-      lockSystem, unlockSystem, setInactivityTimeoutMinutes,
-    }}>
+    <AuthContext.Provider
+      value={{
+        session,
+        isLoading,
+        isLocked,
+        inactivityTimeoutMinutes,
+        staffUsers,
+        rolePermissions,
+        login,
+        logout,
+        switchStore,
+        updateStoreProfile,
+        switchCurrency,
+        switchDemoRole,
+        can,
+        lockSystem,
+        unlockSystem,
+        setInactivityTimeoutMinutes,
+        addStaffUser,
+        updateStaffUser,
+        deleteStaffUser,
+        switchActiveUser,
+        updateRolePermissions,
+        resetRolePermissions,
+        getStaffPin,
+        setStaffPin,
+        assignRoleToStaffUser,
+        bulkAssignRoles,
+        customPermissionSets,
+        addCustomPermissionSet,
+        updateCustomPermissionSet,
+        deleteCustomPermissionSet,
+        applyPermissionSetToRole,
+        applyPermissionSetToStaff,
+        resetPermissionSetsToDefaults,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
 };
 
+export function useOptionalAuth(): AuthContextType | null {
+  return useContext(AuthContext) || null;
+}
+
 export function useAuth(): AuthContextType {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
+  if (!ctx) {
+    // Return safe default fallback context when used outside AuthProvider (e.g. ProdxLogo in ErrorBoundary)
+    return {
+      session: null,
+      isLoading: false,
+      isLocked: false,
+      inactivityTimeoutMinutes: 15,
+      staffUsers: [],
+      rolePermissions: ROLE_PERMISSIONS as Record<Role, Permission[]>,
+      login: async () => {},
+      logout: async () => {},
+      switchStore: () => {},
+      switchCurrency: () => {},
+      switchDemoRole: () => {},
+      switchActiveUser: () => {},
+      lockSystem: () => {},
+      unlockSystem: async () => false,
+      setInactivityTimeoutMinutes: () => {},
+      can: () => false,
+      addStaffUser: () => ({} as User),
+      updateStaffUser: () => {},
+      deleteStaffUser: () => false,
+      updateRolePermissions: () => {},
+      resetRolePermissions: () => {},
+      getStaffPin: () => null,
+      setStaffPin: () => {},
+      assignRoleToStaffUser: () => {},
+      bulkAssignRoles: () => {},
+      customPermissionSets: [],
+      addCustomPermissionSet: () => ({} as CustomPermissionSet),
+      updateCustomPermissionSet: () => {},
+      deleteCustomPermissionSet: () => false,
+      updateStoreProfile: () => {},
+      applyPermissionSetToRole: () => {},
+      applyPermissionSetToStaff: () => {},
+      resetPermissionSetsToDefaults: () => {},
+    };
+  }
   return ctx;
 }

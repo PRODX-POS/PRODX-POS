@@ -1,878 +1,117 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
+import { useTranslation, I18nextProvider } from 'react-i18next';
+import i18n, {
+  changeLanguage as i18nChangeLanguage,
+  getCurrentLanguage,
+  getLanguageInfo,
+  getSupportedLanguagesList,
+  STORAGE_KEY,
+} from '../i18n';
+import { SupportedLanguage, LanguageInfo, TranslationSchema } from '../i18n/types';
+import th from '../i18n/locales/th';
+import en from '../i18n/locales/en';
+import zh from '../i18n/locales/zh';
+import ja from '../i18n/locales/ja';
 
-export type Language = 'th' | 'en';
+export type Language = SupportedLanguage;
 
-export const translations = {
-  th: {
-    // General / Common
-    common: {
-      search: 'ค้นหา',
-      filter: 'ตัวกรอง',
-      all: 'ทั้งหมด',
-      save: 'บันทึก',
-      cancel: 'ยกเลิก',
-      close: 'ปิด',
-      confirm: 'ยืนยัน',
-      delete: 'ลบ',
-      edit: 'แก้ไข',
-      status: 'สถานะ',
-      date: 'วันที่',
-      time: 'เวลา',
-      amount: 'จำนวนเงิน',
-      qty: 'จำนวน',
-      total: 'ยอดรวม',
-      actions: 'จัดการ',
-      loading: 'กำลังโหลด...',
-      export: 'ส่งออก',
-      refresh: 'รีเฟรช',
-      details: 'รายละเอียด',
-      print: 'พิมพ์',
-      success: 'สำเร็จ',
-      error: 'เกิดข้อผิดพลาด',
-      warning: 'คำเตือน',
-      back: 'ย้อนกลับ',
-      next: 'ถัดไป',
-      active: 'เปิดใช้งาน',
-      inactive: 'ปิดใช้งาน',
-      notes: 'บันทึกเพิ่มเติม',
-      pending: 'รอดำเนินการ',
-    },
-
-    // Navigation
-    nav: {
-      pos: 'เครื่องคิดเงิน (POS)',
-      dashboard: 'แดชบอร์ดภาพรวม',
-      orders: 'ประวัติคำสั่งซื้อ & ใบเสร็จ',
-      inventory: 'บัญชีคลังสินค้า',
-      shift: 'กะการทำงาน & เงินสด',
-      customers: 'สมาชิกลูกค้า',
-      audit: 'บันทึกความปลอดภัย',
-      settings: 'ตั้งค่า & อุปกรณ์',
-      openMobileMenu: 'เปิดเมนู',
-    },
-
-    // Command Palette
-    commandPalette: {
-      searchPlaceholder: 'ค้นหาสินค้า, เมนูหน้าจอ หรือคำสั่งด่วน... (Ctrl+K / ⌘K)',
-      triggerPlaceholder: 'ค้นหาสินค้า, เมนู, คำสั่งด่วน...',
-      filterAll: 'ทั้งหมด',
-      filterProducts: 'สินค้า',
-      filterNavigation: 'เมนูหน้าจอ',
-      filterActions: 'คำสั่งด่วน',
-      sectionProducts: 'สินค้าในแคตตาล็อก',
-      sectionNavigation: 'เมนู & หน้าจอการทำงาน',
-      sectionActions: 'คำสั่งด่วน POS',
-      sectionRecent: 'คำสั่งแนะนำ & สินค้ายอดนิยม',
-      noResultsTitle: 'ไม่พบรายการที่ตรงกับการค้นหา',
-      noResultsDesc: 'ลองค้นหาด้วยชื่อสินค้า, รหัส SKU, บาร์โค้ด หรือชื่อคำสั่ง เช่น "latte", "shift", "hold"',
-      pressEnterToAdd: 'กด Enter เพื่อเพิ่มลงตะกร้า',
-      pressEnterToNavigate: 'กด Enter เพื่อเปิดหน้าจอนี้',
-      pressEnterToRun: 'กด Enter เพื่อดำเนินการ',
-      addToCart: 'เพิ่มลงตะกร้า',
-      navigate: 'เปิดหน้าจอ',
-      execute: 'ดำเนินการ',
-      currentScreen: 'หน้าจอปัจจุบัน',
-      keyboardHints: {
-        navigate: 'เลื่อนรายการ',
-        select: 'เลือก / ดำเนินการ',
-        close: 'ปิด',
-      },
-      actions: {
-        holdCartTitle: 'พักบิลปัจจุบัน (Park / Hold Cart)',
-        holdCartDesc: 'บันทึกบิลที่กำลังขายไว้ชั่วคราวเพื่อรับลูกค้ารายถัดไป',
-        recallCartTitle: 'ดึงบิลที่พักไว้ (Recall Held Carts)',
-        recallCartDesc: 'เปิดรายการบิลที่พักไว้เพื่อคิดเงินต่อ',
-        clearCartTitle: 'ล้างตะกร้าสินค้า (Clear Cart)',
-        clearCartDesc: 'ลบรายการสินค้าทั้งหมดออกจากตะกร้าปัจจุบัน',
-        openShiftTitle: 'เปิดกะ / จัดการเงินสด (Shift & Drawer)',
-        openShiftDesc: 'จัดการเงินทอนเริ่มต้น นำเงินเข้า หรือนำเงินส่งเซฟ',
-        toggleThemeTitle: 'สลับโหมดมืด / สว่าง (Theme)',
-        toggleThemeDesc: 'เปลี่ยนชุดสีหน้าจอระหว่าง Dark และ Light mode',
-        toggleOfflineTitle: 'สลับโหมดจำลองออฟไลน์ (Offline Simulator)',
-        toggleOfflineDesc: 'ทดสอบการทำงานของระบบบันทึกคิว Outbox ขณะเน็ตหลุด',
-        syncOutboxTitle: 'สั่งซิงก์ข้อมูล Outbox ทันที (Manual Sync)',
-        syncOutboxDesc: 'ส่งรายการขายที่ค้างอยู่ในเครื่องขึ้นเซิร์ฟเวอร์',
-        switchLangTitle: 'สลับภาษาของระบบ (Switch Language)',
-        switchLangDesc: 'เปลี่ยนการแสดงผลระหว่าง ภาษาไทย และ English',
-        roleAdminTitle: 'สลับสิทธิ์ผู้ใช้: ผู้ดูแลระบบ (Admin)',
-        roleAdminDesc: 'สิทธิ์สูงสุด เข้าถึงทุกเมนู บันทึกความปลอดภัย และตั้งค่า',
-        roleManagerTitle: 'สลับสิทธิ์ผู้ใช้: ผู้จัดการสาขา (Manager)',
-        roleManagerDesc: 'สิทธิ์จัดการกะ สต็อกสินค้า รายงานยอดขาย และยกเลิกบิล',
-        roleCashierTitle: 'สลับสิทธิ์ผู้ใช้: พนักงานขาย (Cashier)',
-        roleCashierDesc: 'สิทธิ์หน้าจอคิดเงิน POS และการขายหน้าร้าน',
-        signOutTitle: 'ออกจากระบบ / ล็อกหน้าจอ (Sign Out)',
-        signOutDesc: 'จบเซสชันการทำงานของพนักงานเพื่อความปลอดภัย',
-      },
-      toast: {
-        productAdded: 'เพิ่ม {name} ลงในตะกร้าแล้ว ({price})',
-        cartHeld: 'พักบิลเรียบร้อยแล้ว',
-        cartCleared: 'ล้างตะกร้าสินค้าแล้ว',
-        themeToggled: 'เปลี่ยนธีมเป็น {theme} แล้ว',
-        offlineToggled: 'สลับสถานะเน็ตจำลอง: {status}',
-        syncTriggered: 'กำลังดำเนินการซิงก์ข้อมูล Outbox...',
-        roleSwitched: 'สลับสิทธิ์การใช้งานเป็น {role} แล้ว',
-      },
-    },
-
-    // Top Navigation Bar
-    topNav: {
-      selectStore: 'เลือกสาขา',
-      terminal: 'เครื่อง',
-      shiftOpen: 'กะเปิดอยู่',
-      noShift: 'ยังไม่เปิดกะ',
-      heldCarts: 'พักบิล:',
-      online: 'ออนไลน์',
-      offline: 'ออฟไลน์',
-      simOffline: 'ออฟไลน์ (จำลอง)',
-      syncing: 'กำลังซิงก์...',
-      pending: 'รอซิงก์',
-      testRbac: 'ทดสอบสิทธิ์ผู้ใช้ (RBAC)',
-      signOut: 'ออกจากระบบหน้าร้าน',
-      switchTheme: 'สลับธีม',
-      selectLang: 'เลือกภาษา',
-      langThai: 'ไทย (TH)',
-      langEnglish: 'English (EN)',
-    },
-
-    // Login / Auth Screen
-    auth: {
-      smartPos: 'Smart POS',
-      powerfulBiz: 'Powerful Business',
-      heroSub1: 'ระบบจัดการร้านค้าที่ทันสมัย',
-      heroSub2: 'ครบทุกฟังก์ชัน ใช้งานง่าย ปลอดภัย เชื่อถือได้',
-      feat1Title: 'ปลอดภัย มั่นใจ',
-      feat1Desc: 'ปกป้องข้อมูลของคุณด้วยระบบความปลอดภัยระดับสูง',
-      feat2Title: 'ใช้งานง่าย',
-      feat2Desc: 'ออกแบบเพื่อความสะดวกและรวดเร็วในการใช้งาน',
-      feat3Title: 'รายงานครบถ้วน',
-      feat3Desc: 'ข้อมูลเชิงลึก ช่วยตัดสินใจและวางแผนธุรกิจได้ดียิ่งขึ้น',
-      feat4Title: 'รองรับการใช้งานทุกที่',
-      feat4Desc: 'ใช้งานได้ทั้งออนไลน์และออฟไลน์ ซิงก์ข้อมูลแบบเรียลไทม์',
-      welcomeBack: 'Welcome Back',
-      welcomeSub: 'Sign in to continue to your account',
-      usernamePlaceholder: 'Username หรือ Email',
-      passwordPlaceholder: 'Password',
-      rememberMe: 'Remember me',
-      forgotPassword: 'Forgot password?',
-      signIn: 'Sign In',
-      authenticating: 'กำลังตรวจสอบสิทธิ์...',
-      orContinueWith: 'or continue with',
-      fingerprint: 'Fingerprint',
-      pin: 'PIN',
-      securityFooter: 'Your data is protected with enterprise-grade security',
-      activeStore: 'สาขาที่ใช้งาน',
-      activeTerminal: 'เครื่องคิดเงิน',
-      changeStore: 'เปลี่ยนสาขา',
-      langLabel: 'ไทย',
-      loginSuccess: 'เข้าสู่ระบบสำเร็จ',
-      invalidCreds: 'ข้อมูลรับรองไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง',
-      pinSuccess: 'ยืนยัน PIN สำเร็จ',
-      pinError: 'PIN ไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง',
-      biometricSuccess: 'ยืนยันลายนิ้วมือสำเร็จ',
-      biometricScanning: 'แตะเซ็นเซอร์สแกนลายนิ้วมือ',
-      biometricFailed: 'การยืนยันลายนิ้วมือล้มเหลว',
-      biometricDesc: 'วางนิ้วที่ลงทะเบียนไว้บนเครื่องสแกนเพื่อยืนยันตัวตน',
-      pinModalTitle: 'เข้าสู่ระบบด้วย PIN พนักงาน',
-      pinModalSub: 'กรอกรหัส PIN 4 หลักของพนักงานหรือผู้จัดการ',
-      clear: 'ล้าง',
-      storeModalTitle: 'กำหนดสาขาและเครื่องที่ใช้งาน',
-      storeModalSub: 'เลือกสาขาและเครื่องขายเพื่อแยกข้อมูลและบันทึกประวัติการขายอย่างถูกต้อง',
-      applyContext: 'บันทึกและใช้งาน',
-      forgotTitle: 'การกู้คืนรหัสผ่านพนักงาน',
-      forgotDesc: 'ตามนโยบายความปลอดภัยระดับองค์กร การรีเซ็ตรหัสผ่านต้องได้รับการยืนยันจากผู้จัดการสาขาหรือผู้ดูแลระบบ',
-      contactSupervisor: 'กรุณาติดต่อผู้จัดการสาขา (Store Manager) เพื่อขอรับรหัสผ่านชั่วคราว',
-    },
-
-    // POS Screen
-    pos: {
-      searchPlaceholder: 'ค้นหาสินค้า ชื่อ, SKU หรือยิงบาร์โค้ด...',
-      barcodeBtn: 'ยิงบาร์โค้ด',
-      allCategories: 'ทั้งหมด',
-      cartTitle: 'ตะกร้าสินค้า',
-      emptyCart: 'ไม่มีสินค้าในตะกร้า',
-      emptyCartDesc: 'สแกนบาร์โค้ดหรือคลิกเลือกสินค้าจากแคตตาล็อกเพื่อเริ่มการขาย',
-      customer: 'ลูกค้า',
-      walkIn: 'ลูกค้าทั่วไป (Walk-in)',
-      selectCustomer: 'เลือกลูกค้า',
-      clearCart: 'ล้างบิล',
-      holdCart: 'พักบิล',
-      subtotal: 'ยอดรวมก่อนภาษี',
-      discount: 'ส่วนลด',
-      vatIncluded: 'ภาษีมูลค่าเพิ่ม 7% (รวมในราคาแล้ว)',
-      total: 'ยอดชำระสุทธิ',
-      itemUnit: 'ชิ้น',
-      itemCount: 'รายการ',
-      checkoutBtn: 'ชำระเงิน',
-      quickCash: 'เงินด่วน',
-      exact: 'พอดี',
-      inStock: 'คงเหลือ',
-      outOfStock: 'สินค้าหมด',
-      lowStock: 'ใกล้หมด',
-      holdModalTitle: 'รายการบิลที่พักไว้ (Parked Carts)',
-      holdModalSub: 'ดึงบิลกลับมาคิดเงินต่อ หรือยกเลิกบิลที่พักไว้',
-      noHeldCarts: 'ไม่มีบิลที่พักไว้ในขณะนี้',
-      restoreCart: 'ดึงบิลนี้กลับมา',
-      deleteHeldCart: 'ลบบิลนี้',
-      cartParkedMsg: 'พักบิลเรียบร้อยแล้ว',
-      cartRestoredMsg: 'ดึงบิลกลับมาแล้ว',
-      cartClearedMsg: 'ล้างตะกร้าสินค้าแล้ว',
-      itemAddedMsg: 'เพิ่มสินค้าในตะกร้าแล้ว',
-      itemsTotal: 'ยอดรวมทั้งสิ้น',
-      cashFloatWarning: 'ยังไม่ได้เปิดกะการทำงาน กรุณาเปิดกะก่อนทำการขายเงินสด',
-      scannerReady: 'เครื่องสแกนฮาร์ดแวร์พร้อมทำงาน (HID Wedge)',
-      scannerTesting: 'ทดสอบยิงบาร์โค้ด',
-      lastScanned: 'สแกนล่าสุด',
-      scanSuccess: 'สแกนบาร์โค้ดสำเร็จ',
-      scanNotFound: 'ไม่พบบาร์โค้ดสินค้าในระบบ',
-      scanOutOfStock: 'สินค้านี้หมดสต็อก ไม่สามารถเพิ่มในบิลได้',
-    },
-
-    // Checkout Modal
-    checkout: {
-      title: 'ชำระเงิน & ออกใบเสร็จ',
-      totalDue: 'ยอดที่ต้องชำระ',
-      paymentMethod: 'วิธีการชำระเงิน',
-      cash: 'เงินสด',
-      card: 'บัตรเครดิต/เดบิต',
-      promptpay: 'พร้อมเพย์ QR',
-      tenderedAmount: 'จำนวนเงินที่รับมา',
-      changeDue: 'เงินทอน',
-      insufficientCash: 'จำนวนเงินที่รับมายังไม่ครบ',
-      confirmPayment: 'ยืนยันการรับเงิน',
-      processing: 'กำลังบันทึกคำสั่งซื้อ...',
-      orderSuccess: 'ทำรายการขายสำเร็จ!',
-      orderId: 'เลขที่คำสั่งซื้อ',
-      printReceipt: 'พิมพ์ใบเสร็จ (Thermal)',
-      newSale: 'เริ่มการขายใหม่',
-      cardInstruction: 'กรุณาแตะ เสียบ หรือรูดบัตรที่เครื่อง EDC เพื่อดำเนินการ',
-      promptpayInstruction: 'สแกน QR Code ผ่านแอปพลิเคชันธนาคารเพื่อชำระเงิน',
-      authApproved: 'อนุมัติเรียบร้อย (EDC Approved)',
-    },
-
-    // Dashboard Screen
-    dashboard: {
-      title: 'แดชบอร์ดภาพรวมการดำเนินงาน',
-      subtitle: 'ข้อมูลยอดขาย สรุปธุรกรรม และสถิติเชิงลึกแบบเรียลไทม์',
-      todayRevenue: 'ยอดขายสุทธิวันนี้',
-      transactions: 'จำนวนคำสั่งซื้อ',
-      grossMargin: 'อัตรากำไรขั้นต้น',
-      avgBasket: 'ยอดซื้อเฉลี่ยต่อบิล',
-      salesVelocity: 'แนวโน้มยอดขายวันนี้',
-      hourlyVolume: 'ปริมาณยอดขายรายชั่วโมง',
-      topSelling: 'สินค้าขายดี 5 อันดับแรก',
-      recentOrders: 'ธุรกรรมล่าสุด',
-      soldQty: 'ขายได้',
-      revenue: 'ยอดรวม',
-      viewAllOrders: 'ดูประวัติคำสั่งซื้อทั้งหมด',
-    },
-
-    // Orders Screen
-    orders: {
-      title: 'ประวัติคำสั่งซื้อ & ใบเสร็จ',
-      subtitle: 'บันทึกธุรกรรมการขายที่ตรวจสอบได้ พร้อมข้อมูลรายการสินค้าครบถ้วน',
-      searchPlaceholder: 'ค้นหาด้วยเลขที่คำสั่งซื้อ หรือชื่อพนักงาน...',
-      orderNumber: 'เลขที่คำสั่งซื้อ',
-      dateTime: 'วัน-เวลา',
-      cashier: 'พนักงานขาย',
-      customer: 'ลูกค้า',
-      payment: 'วิธีชำระ',
-      status: 'สถานะ',
-      total: 'ยอดเงิน',
-      action: 'จัดการ',
-      completed: 'สำเร็จ',
-      refunded: 'คืนเงินแล้ว',
-      viewReceipt: 'ดูใบเสร็จ',
-      reprintReceipt: 'พิมพ์ซ้ำ',
-      receiptTitle: 'ใบเสร็จรับเงินอย่างย่อ',
-      taxInvoice: 'TAX INVOICE (ABB)',
-      taxId: 'เลขประจำตัวผู้เสียภาษี',
-      thankYou: 'ขอบคุณที่ใช้บริการ',
-    },
-
-    // Inventory Screen
-    inventory: {
-      title: 'บัญชีคลังสินค้า & สต็อก',
-      subtitle: 'ติดตามยอดคงเหลือ ต้นทุน การแจ้งเตือนสต็อก และการเคลื่อนไหวสินค้า',
-      searchPlaceholder: 'ค้นหาชื่อสินค้า, รหัส SKU หรือหมวดหมู่...',
-      productName: 'ชื่อสินค้า',
-      sku: 'SKU',
-      category: 'หมวดหมู่',
-      stockOnHand: 'คงเหลือ',
-      minAlert: 'จุดเตือนสั่งซื้อ',
-      costPrice: 'ราคาทุน',
-      retailPrice: 'ราคาขาย',
-      margin: 'กำไร (%)',
-      stockStatus: 'สถานะสต็อก',
-      adjustStock: 'ปรับสต็อก',
-      inStock: 'พร้อมขาย',
-      lowStock: 'สต็อกต่ำ',
-      lowStockAlert: 'เตือนสต็อกต่ำ',
-      thresholdReached: 'ถึงเกณฑ์สั่งซื้อ',
-      outOfStock: 'สินค้าหมด',
-      exportCatalog: 'ส่งออกข้อมูล (CSV)',
-    },
-
-    // Shift Screen
-    shift: {
-      title: 'กะการทำงาน & ลิ้นชักเงินสด',
-      subtitle: 'ควบคุมการเปิด-ปิดกะ บันทึกเงินสดยกมา และกระทบยอดเงินสดอย่างรัดกุม',
-      activeShift: 'กะการทำงานปัจจุบัน',
-      noActiveShift: 'ไม่มีกะที่เปิดอยู่บนเครื่องนี้',
-      noShiftPrompt: 'กรุณาเปิดกะและระบุเงินทอนเริ่มต้นก่อนเริ่มการขาย',
-      openShiftBtn: 'เปิดกะการทำงาน',
-      closeShiftBtn: 'ปิดกะ & กระทบยอดเงิน',
-      openingCash: 'เงินทอนเริ่มต้นกะ (Opening Float)',
-      cashSales: 'ยอดขายเงินสดในกะ',
-      expectedInDrawer: 'เงินสดที่ควรมีในลิ้นชัก',
-      countedCash: 'เงินสดที่นับได้จริง',
-      variance: 'ผลต่างเงินสด (Variance)',
-      balanced: 'ยอดเงินตรง พอดี',
-      cashDrop: 'นำเงินสดออก (Safe Drop)',
-      paidIn: 'นำเงินเข้า (Pay In)',
-      paidOut: 'จ่ายเงินออก (Pay Out)',
-      shiftHistory: 'ประวัติการปิดกะย้อนหลัง',
-      cashier: 'พนักงานประจำกะ',
-      startTime: 'เวลาเปิดกะ',
-      endTime: 'เวลาปิดกะ',
-      zReport: 'รายงานสรุปประจำวัน (Z-Report)',
-    },
-
-    // Customers Screen
-    customers: {
-      title: 'ระบบสมาชิกลูกค้า & CRM',
-      subtitle: 'จัดการฐานข้อมูลลูกค้า สมาชิก สะสมคะแนน และประวัติการซื้อ',
-      searchPlaceholder: 'ค้นหาชื่อ, เบอร์โทรศัพท์ หรืออีเมลสมาชิก...',
-      addCustomer: 'เพิ่มลูกค้าใหม่',
-      addCustomerBtn: 'เพิ่มสมาชิกใหม่',
-      saveCustomer: 'บันทึกข้อมูลลูกค้า',
-      name: 'ชื่อ-นามสกุล',
-      phone: 'เบอร์โทรศัพท์',
-      email: 'อีเมล',
-      points: 'คะแนนสะสม',
-      tier: 'ระดับสมาชิก',
-      totalSpent: 'ยอดซื้อสะสม',
-      ordersCount: 'จำนวนบิล',
-      registerMember: 'สมัครสมาชิก',
-      pointsEarned: 'คะแนน',
-      tierGold: 'Gold',
-      tierSilver: 'Silver',
-      tierBronze: 'Bronze',
-    },
-
-    // Audit Screen
-    audit: {
-      title: 'บันทึกการตรวจสอบความปลอดภัย',
-      subtitle: 'บันทึกกิจกรรมและเหตุการณ์สำคัญของระบบที่ไม่สามารถแก้ไขได้ เพื่อความโปร่งใสและปลอดภัย',
-      searchPlaceholder: 'ค้นหาเหตุการณ์, รหัสพนักงาน หรือรายละเอียด...',
-      filterPlaceholder: 'ค้นหาด้วยชื่อเหตุการณ์ ผู้ใช้งาน หรือรายละเอียด...',
-      refreshLogs: 'รีเฟรชบันทึก',
-      action: 'เหตุการณ์',
-      user: 'ผู้ดำเนินการ',
-      terminal: 'เครื่อง / IP',
-      details: 'รายละเอียดการตรวจสอบ',
-      eventType: 'ประเภทเหตุการณ์',
-      actor: 'ผู้ดำเนินการ',
-      timestamp: 'วัน-เวลา',
-      severity: 'ระดับความสำคัญ',
-      eventPayload: 'รายละเอียดเหตุการณ์',
-      severityInfo: 'ข้อมูลทั่วไป (Info)',
-      severityWarning: 'เตือน (Warning)',
-      severityCritical: 'สำคัญมาก (Critical)',
-      immutableLedger: 'บันทึกแบบ Immutable Cryptographic Ledger',
-    },
-
-    // Settings Screen
-    settings: {
-      title: 'ตั้งค่าระบบ & อุปกรณ์ฮาร์ดแวร์',
-      subtitle: 'พารามิเตอร์ของสาขา อุปกรณ์ต่อพ่วง กล่องคิวออฟไลน์ และการจำลองระบบ',
-      languageSection: 'ภาษาของระบบ (Language & Localization)',
-      languageDesc: 'เลือกภาษาที่ต้องการให้แสดงผลในทุกหน้าจอและเมนูของระบบ',
-      activeStoreIdentity: 'ข้อมูลสาขาที่ใช้งาน',
-      org: 'องค์กร',
-      storeName: 'ชื่อสาขา',
-      storeCode: 'รหัสสาขา',
-      timezone: 'เขตเวลา',
-      currency: 'สกุลเงิน',
-      hardwarePeripherals: 'สถานะอุปกรณ์ฮาร์ดแวร์ต่อพ่วง',
-      receiptPrinter: 'เครื่องพิมพ์ใบเสร็จความร้อน (80mm Thermal)',
-      barcodeScanner: 'เครื่องสแกนบาร์โค้ด (2D USB/Bluetooth)',
-      cardTerminal: 'เครื่องรับชำระเงินอิเล็กทรอนิกส์ (EDC Smart POS)',
-      cashDrawer: 'ลิ้นชักเก็บเงินไฟฟ้า (RJ11 Kick Drawer)',
-      connected: 'เชื่อมต่อพร้อมใช้งาน',
-      testPrint: 'ทดสอบพิมพ์ใบเสร็จ',
-      testPrintSuccess: 'ส่งคำสั่งพิมพ์ไปยังเครื่องพิมพ์ใบเสร็จเรียบร้อย',
-      offlineDiagnostics: 'การวินิจฉัยระบบออฟไลน์ (Offline Outbox)',
-      pendingQueue: 'รายการรอซิงก์ในคิว Outbox',
-      clearQueue: 'ล้างคิว Outbox',
-      triggerManualSync: 'สั่งซิงก์ข้อมูลทันที',
-      networkLatency: 'จำลองความหน่วงเครือข่าย (Network Latency Simulator)',
-      resetMockData: 'รีเซ็ตข้อมูลทดสอบทั้งหมด',
-      resetConfirm: 'รีเซ็ตข้อมูลสินค้า ออเดอร์ และกะ กลับเป็นค่าเริ่มต้นเรียบร้อย',
-    },
-  },
-
-  en: {
-    // General / Common
-    common: {
-      search: 'Search',
-      filter: 'Filter',
-      all: 'All',
-      save: 'Save',
-      cancel: 'Cancel',
-      close: 'Close',
-      confirm: 'Confirm',
-      delete: 'Delete',
-      edit: 'Edit',
-      status: 'Status',
-      date: 'Date',
-      time: 'Time',
-      amount: 'Amount',
-      qty: 'Qty',
-      total: 'Total',
-      actions: 'Actions',
-      loading: 'Loading...',
-      export: 'Export',
-      refresh: 'Refresh',
-      details: 'Details',
-      print: 'Print',
-      success: 'Success',
-      error: 'Error',
-      warning: 'Warning',
-      back: 'Back',
-      next: 'Next',
-      active: 'Active',
-      inactive: 'Inactive',
-      notes: 'Notes',
-      pending: 'Pending',
-    },
-
-    // Navigation
-    nav: {
-      pos: 'POS Terminal',
-      dashboard: 'Dashboard',
-      orders: 'Orders & Receipts',
-      inventory: 'Inventory Ledger',
-      shift: 'Shift & Cash',
-      customers: 'Customers',
-      audit: 'Audit Trail',
-      settings: 'Settings & Hardware',
-      openMobileMenu: 'Open menu',
-    },
-
-    // Command Palette
-    commandPalette: {
-      searchPlaceholder: 'Search products, navigate modules, or run actions... (Ctrl+K / ⌘K)',
-      triggerPlaceholder: 'Search products, actions...',
-      filterAll: 'All',
-      filterProducts: 'Products',
-      filterNavigation: 'Navigation',
-      filterActions: 'Quick Actions',
-      sectionProducts: 'Catalog Products',
-      sectionNavigation: 'Navigation & Screens',
-      sectionActions: 'Quick POS Actions',
-      sectionRecent: 'Suggested Commands & Top Items',
-      noResultsTitle: 'No matching items or commands found',
-      noResultsDesc: 'Try searching for product names, SKU codes, barcodes, or action keywords like "latte", "shift", "hold"',
-      pressEnterToAdd: 'Press Enter to add to cart',
-      pressEnterToNavigate: 'Press Enter to open screen',
-      pressEnterToRun: 'Press Enter to execute action',
-      addToCart: 'Add to Cart',
-      navigate: 'Go to Screen',
-      execute: 'Run Action',
-      currentScreen: 'Current Screen',
-      keyboardHints: {
-        navigate: 'Navigate',
-        select: 'Select / Execute',
-        close: 'Close',
-      },
-      actions: {
-        holdCartTitle: 'Park / Hold Current Cart',
-        holdCartDesc: 'Save current active order and free up the register for the next customer',
-        recallCartTitle: 'Recall Parked Carts',
-        recallCartDesc: 'Restore a previously held order to resume checkout',
-        clearCartTitle: 'Clear Active Cart',
-        clearCartDesc: 'Remove all line items from the active checkout register',
-        openShiftTitle: 'Shift Management & Cash Drawer',
-        openShiftDesc: 'Manage opening float, perform pay ins, safe drops, or close shift',
-        toggleThemeTitle: 'Toggle Dark / Light Appearance',
-        toggleThemeDesc: 'Switch the workspace theme between dark and light modes',
-        toggleOfflineTitle: 'Toggle Simulated Offline Mode',
-        toggleOfflineDesc: 'Test offline outbox caching and disconnected network resilience',
-        syncOutboxTitle: 'Trigger Manual Outbox Sync',
-        syncOutboxDesc: 'Immediately synchronize pending local transactions to the cloud',
-        switchLangTitle: 'Switch Interface Language',
-        switchLangDesc: 'Toggle system interface language between Thai and English',
-        roleAdminTitle: 'Switch Role: System Admin',
-        roleAdminDesc: 'Full administrative privileges, security audit, and system configuration',
-        roleManagerTitle: 'Switch Role: Store Manager',
-        roleManagerDesc: 'Managerial overrides, shift reconciliations, inventory adjustments',
-        roleCashierTitle: 'Switch Role: Cashier Staff',
-        roleCashierDesc: 'Frontline sales terminal and standard checkout permissions',
-        signOutTitle: 'Lock Terminal / Sign Out',
-        signOutDesc: 'Securely lock and conclude active staff register session',
-      },
-      toast: {
-        productAdded: 'Added {name} to cart ({price})',
-        cartHeld: 'Active cart has been parked successfully',
-        cartCleared: 'Active cart cleared',
-        themeToggled: 'Switched to {theme} theme',
-        offlineToggled: 'Simulated network: {status}',
-        syncTriggered: 'Synchronizing offline outbox transactions...',
-        roleSwitched: 'Switched active role to {role}',
-      },
-    },
-
-    // Top Navigation Bar
-    topNav: {
-      selectStore: 'Select Store Location',
-      terminal: 'Register',
-      shiftOpen: 'Shift Open',
-      noShift: 'No Shift',
-      heldCarts: 'Held Carts:',
-      online: 'Online',
-      offline: 'Offline',
-      simOffline: 'Offline (Sim)',
-      syncing: 'Syncing...',
-      pending: 'Pending',
-      testRbac: 'Test Role (RBAC)',
-      signOut: 'Sign Out of Terminal',
-      switchTheme: 'Switch Theme',
-      selectLang: 'Select Language',
-      langThai: 'ไทย (TH)',
-      langEnglish: 'English (EN)',
-    },
-
-    // Login / Auth Screen
-    auth: {
-      smartPos: 'Smart POS',
-      powerfulBiz: 'Powerful Business',
-      heroSub1: 'Modern Retail Operating System',
-      heroSub2: 'Comprehensive, intuitive, secure & reliable',
-      feat1Title: 'Enterprise Security',
-      feat1Desc: 'Bank-grade multi-tenant data protection & audit logging',
-      feat2Title: 'High Operational Velocity',
-      feat2Desc: 'Optimized for high-throughput cashier ergonomics and speed',
-      feat3Title: 'Real-Time Intelligence',
-      feat3Desc: 'Deep financial analytics, reconciled drawer & ledger',
-      feat4Title: 'Offline-Resilient Cloud',
-      feat4Desc: 'Seamless local outbox queueing & instant cloud synchronization',
-      welcomeBack: 'Welcome Back',
-      welcomeSub: 'Sign in to continue to your account',
-      usernamePlaceholder: 'Username or Email',
-      passwordPlaceholder: 'Password',
-      rememberMe: 'Remember me',
-      forgotPassword: 'Forgot password?',
-      signIn: 'Sign In',
-      authenticating: 'Authenticating...',
-      orContinueWith: 'or continue with',
-      fingerprint: 'Fingerprint',
-      pin: 'PIN',
-      securityFooter: 'Your data is protected with enterprise-grade security',
-      activeStore: 'Store Location',
-      activeTerminal: 'Terminal Register',
-      changeStore: 'Change',
-      langLabel: 'English',
-      loginSuccess: 'Terminal Authenticated',
-      invalidCreds: 'Authentication failed. Please verify credentials.',
-      pinSuccess: 'PIN Verified',
-      pinError: 'Invalid PIN. Please try again.',
-      biometricSuccess: 'Biometric Auth Verified',
-      biometricScanning: 'Touch Biometric Sensor',
-      biometricFailed: 'Authentication Failed',
-      biometricDesc: 'Place your registered finger on the terminal scanner or secure enclave key to verify your identity.',
-      pinModalTitle: 'Staff Fast PIN Sign In',
-      pinModalSub: 'Enter your authorized 4-digit cashier or manager PIN',
-      clear: 'Clear',
-      storeModalTitle: 'Operational Store & Terminal Target',
-      storeModalSub: 'Select the designated store branch and register terminal for multi-tenant isolation and transactional audit trails.',
-      applyContext: 'Apply Terminal Context',
-      forgotTitle: 'Staff Credential Recovery',
-      forgotDesc: 'Under PRODX POS Enterprise Security policies, retail terminal credentials must be verified by a Store Manager or System Administrator to prevent unauthorized drawer access.',
-      contactSupervisor: 'Please contact your on-duty Store Manager to receive an administrative supervisor override code.',
-    },
-
-    // POS Screen
-    pos: {
-      searchPlaceholder: 'Search products by name, SKU, or barcode...',
-      barcodeBtn: 'Scan Barcode',
-      allCategories: 'All Categories',
-      cartTitle: 'Current Cart',
-      emptyCart: 'Cart is empty',
-      emptyCartDesc: 'Scan barcode or select items from catalog to start selling',
-      customer: 'Customer',
-      walkIn: 'Walk-in Customer',
-      selectCustomer: 'Select Customer',
-      clearCart: 'Clear Cart',
-      holdCart: 'Park / Hold Cart',
-      subtotal: 'Subtotal',
-      discount: 'Discount',
-      vatIncluded: 'VAT 7% (Included in price)',
-      total: 'Total Due',
-      itemUnit: 'pcs',
-      itemCount: 'items',
-      checkoutBtn: 'Checkout',
-      quickCash: 'Quick Cash',
-      exact: 'Exact',
-      inStock: 'In Stock',
-      outOfStock: 'Out of Stock',
-      lowStock: 'Low Stock',
-      holdModalTitle: 'Parked & Held Carts',
-      holdModalSub: 'Restore a held cart to checkout or void it',
-      noHeldCarts: 'No held orders at this time',
-      restoreCart: 'Restore Cart',
-      deleteHeldCart: 'Delete Cart',
-      cartParkedMsg: 'Cart parked successfully',
-      cartRestoredMsg: 'Cart restored successfully',
-      cartClearedMsg: 'Cart cleared',
-      itemAddedMsg: 'Item added to cart',
-      itemsTotal: 'Total Items',
-      cashFloatWarning: 'Shift is not opened yet. Please open shift before cash sales.',
-      scannerReady: 'Hardware Scanner Ready (HID Wedge)',
-      scannerTesting: 'Scanner Test / Simulator',
-      lastScanned: 'Last Scanned',
-      scanSuccess: 'Barcode Scanned',
-      scanNotFound: 'Barcode Not Found',
-      scanOutOfStock: 'Product Out of Stock',
-    },
-
-    // Checkout Modal
-    checkout: {
-      title: 'Finalize Payment & Receipt',
-      totalDue: 'Total Due',
-      paymentMethod: 'Payment Method',
-      cash: 'Cash',
-      card: 'Credit / Debit Card',
-      promptpay: 'PromptPay QR',
-      tenderedAmount: 'Cash Tendered',
-      changeDue: 'Change Due',
-      insufficientCash: 'Insufficient tender amount',
-      confirmPayment: 'Complete Payment',
-      processing: 'Processing Payment...',
-      orderSuccess: 'Order Completed Successfully!',
-      orderId: 'Order ID',
-      printReceipt: 'Print Thermal Receipt',
-      newSale: 'Start New Sale',
-      cardInstruction: 'Please tap, insert, or swipe card on EDC terminal',
-      promptpayInstruction: 'Scan QR Code with any mobile banking application',
-      authApproved: 'Payment Authorized & Approved',
-    },
-
-    // Dashboard Screen
-    dashboard: {
-      title: 'Operational Sales Dashboard',
-      subtitle: 'Real-time revenue telemetry, transaction volume, and operational KPIs',
-      todayRevenue: "Today's Net Revenue",
-      transactions: 'Transactions',
-      grossMargin: 'Gross Margin',
-      avgBasket: 'Avg. Basket Size',
-      salesVelocity: 'Sales Velocity Trend',
-      hourlyVolume: 'Hourly Sales Volume',
-      topSelling: 'Top 5 Performing Products',
-      recentOrders: 'Recent Transactions',
-      soldQty: 'Sold',
-      revenue: 'Revenue',
-      viewAllOrders: 'View All Orders',
-    },
-
-    // Orders Screen
-    orders: {
-      title: 'Order Journal & Receipts',
-      subtitle: 'Tamper-evident transaction ledger with line-item auditing and reprint capabilities',
-      searchPlaceholder: 'Search by Order ID or cashier name...',
-      orderNumber: 'Order ID',
-      dateTime: 'Date & Time',
-      cashier: 'Cashier',
-      customer: 'Customer',
-      payment: 'Payment',
-      status: 'Status',
-      total: 'Total',
-      action: 'Action',
-      completed: 'Completed',
-      refunded: 'Refunded',
-      viewReceipt: 'View Receipt',
-      reprintReceipt: 'Reprint',
-      receiptTitle: 'Electronic Receipt',
-      taxInvoice: 'TAX INVOICE (ABB)',
-      taxId: 'Tax ID',
-      thankYou: 'Thank you for your business',
-    },
-
-    // Inventory Screen
-    inventory: {
-      title: 'Inventory & Stock Ledger',
-      subtitle: 'Real-time stock valuation, inventory movements, and reorder triggers',
-      searchPlaceholder: 'Search products by title, SKU, or category...',
-      productName: 'Product Name',
-      sku: 'SKU',
-      category: 'Category',
-      stockOnHand: 'Stock on Hand',
-      minAlert: 'Reorder Point',
-      costPrice: 'Cost Price',
-      retailPrice: 'Retail Price',
-      margin: 'Margin (%)',
-      stockStatus: 'Stock Status',
-      adjustStock: 'Adjust Stock',
-      inStock: 'In Stock',
-      lowStock: 'Low Stock',
-      lowStockAlert: 'Low Stock Alert',
-      thresholdReached: 'Threshold Reached',
-      outOfStock: 'Out of Stock',
-      exportCatalog: 'Export Catalog (CSV)',
-    },
-
-    // Shift Screen
-    shift: {
-      title: 'Shift Management & Cash Drawer',
-      subtitle: 'Closed-loop cash reconciliations, audit journals, and Z-Reports',
-      activeShift: 'Active Terminal Shift',
-      noActiveShift: 'No Open Shift on this Terminal',
-      noShiftPrompt: 'Open a shift with float to start processing cash transactions',
-      openShiftBtn: 'Open Shift',
-      closeShiftBtn: 'Close & Reconcile Shift',
-      openingCash: 'Opening Float',
-      cashSales: 'Cash Sales in Shift',
-      expectedInDrawer: 'Expected in Drawer',
-      countedCash: 'Actual Counted Cash',
-      variance: 'Drawer Variance',
-      balanced: 'Balanced (No Discrepancy)',
-      cashDrop: 'Safe Drop',
-      paidIn: 'Pay In',
-      paidOut: 'Pay Out',
-      shiftHistory: 'Shift Reconciliations History',
-      cashier: 'Cashier on Duty',
-      startTime: 'Shift Started',
-      endTime: 'Shift Closed',
-      zReport: 'End-of-Day Z-Report',
-    },
-
-    // Customers Screen
-    customers: {
-      title: 'Customer Loyalty & CRM',
-      subtitle: 'Member profiles, points ledger, and lifetime purchasing history',
-      searchPlaceholder: 'Search member name, phone, or email...',
-      addCustomer: 'Add Customer',
-      addCustomerBtn: 'Register Member',
-      saveCustomer: 'Save Customer',
-      name: 'Member Name',
-      phone: 'Phone Number',
-      email: 'Email Address',
-      points: 'Loyalty Points',
-      tier: 'Membership Tier',
-      totalSpent: 'Lifetime Spend',
-      ordersCount: 'Total Orders',
-      registerMember: 'Register Member',
-      pointsEarned: 'Points',
-      tierGold: 'Gold',
-      tierSilver: 'Silver',
-      tierBronze: 'Bronze',
-    },
-
-    // Audit Screen
-    audit: {
-      title: 'Security & Event Audit Trail',
-      subtitle: 'Tamper-evident chronological ledger for regulatory compliance and fraud prevention',
-      searchPlaceholder: 'Search event, employee code, or details...',
-      filterPlaceholder: 'Filter logs by action name, user, or details...',
-      refreshLogs: 'Refresh Logs',
-      action: 'Action',
-      user: 'Operator',
-      terminal: 'Terminal / IP',
-      details: 'Audit Details',
-      eventType: 'Event Type',
-      actor: 'Operator / Staff',
-      timestamp: 'Timestamp',
-      severity: 'Severity Level',
-      eventPayload: 'Event Payload & Target',
-      severityInfo: 'Information (Info)',
-      severityWarning: 'Warning',
-      severityCritical: 'Critical',
-      immutableLedger: 'Immutable Cryptographic Ledger Record',
-    },
-
-    // Settings Screen
-    settings: {
-      title: 'Terminal Settings & Diagnostics',
-      subtitle: 'Store parameters, peripheral status, offline outbox diagnostics, and adapter simulators',
-      languageSection: 'System Language & Localization',
-      languageDesc: 'Select your preferred interface language across all screens and reports',
-      activeStoreIdentity: 'Active Store Identity',
-      org: 'Organization',
-      storeName: 'Store Name',
-      storeCode: 'Store Code',
-      timezone: 'Timezone',
-      currency: 'Base Currency',
-      hardwarePeripherals: 'Hardware Peripherals',
-      receiptPrinter: 'Thermal Receipt Printer (80mm)',
-      barcodeScanner: '2D Barcode Scanner (USB/BT)',
-      cardTerminal: 'Smart Payment Terminal (EDC)',
-      cashDrawer: 'Electric Cash Drawer (RJ11)',
-      connected: 'Connected & Operational',
-      testPrint: 'Test Print Receipt',
-      testPrintSuccess: 'Test receipt sent to thermal printer successfully',
-      offlineDiagnostics: 'Offline Outbox Diagnostics',
-      pendingQueue: 'Pending transactions in Outbox queue',
-      clearQueue: 'Clear Outbox',
-      triggerManualSync: 'Trigger Manual Sync',
-      networkLatency: 'Network Latency Simulator',
-      resetMockData: 'Reset All Mock Data',
-      resetConfirm: 'Mock catalog, orders, and shifts reset to clean seed data.',
-    },
-  },
+export const translations: Record<SupportedLanguage, TranslationSchema> = {
+  th,
+  en,
+  zh,
+  ja,
 };
 
-export type Translations = typeof translations.th;
+export type Translations = TranslationSchema;
 
-interface LanguageContextType {
-  language: Language;
-  setLanguage: (lang: Language) => void;
-  toggleLanguage: () => void;
-  t: Translations;
+export interface LanguageContextType {
+  language: SupportedLanguage;
+  setLanguage: (lang: SupportedLanguage) => Promise<void>;
+  toggleLanguage: () => Promise<void>;
+  t: TranslationSchema;
+  availableLanguages: LanguageInfo[];
+  currentLanguageInfo: LanguageInfo;
+  i18n: typeof i18n;
 }
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [language, setLanguageState] = useState<Language>(() => {
-    const saved = localStorage.getItem('prodx_pos_language') as Language;
-    if (saved === 'th' || saved === 'en') {
-      return saved;
-    }
-    return 'th'; // Default to Thai as per user specification & reference
+  const { i18n: i18nInstance } = useTranslation();
+  const [currentLang, setCurrentLang] = useState<SupportedLanguage>(() => {
+    return getCurrentLanguage();
   });
 
   useEffect(() => {
-    localStorage.setItem('prodx_pos_language', language);
-    document.documentElement.lang = language;
-  }, [language]);
+    const handleLanguageChanged = (lng: string) => {
+      const parsed = (lng.split('-')[0] || 'th') as SupportedLanguage;
+      if (parsed in translations) {
+        setCurrentLang(parsed);
+      }
+    };
 
-  const setLanguage = (newLang: Language) => {
-    setLanguageState(newLang);
+    i18nInstance.on('languageChanged', handleLanguageChanged);
+    return () => {
+      i18nInstance.off('languageChanged', handleLanguageChanged);
+    };
+  }, [i18nInstance]);
+
+  const setLanguage = async (newLang: SupportedLanguage) => {
+    await i18nChangeLanguage(newLang);
+    setCurrentLang(newLang);
   };
 
-  const toggleLanguage = () => {
-    setLanguageState((prev) => (prev === 'th' ? 'en' : 'th'));
+  const toggleLanguage = async () => {
+    const sequence: SupportedLanguage[] = ['th', 'en', 'zh', 'ja'];
+    const currentIndex = sequence.indexOf(currentLang);
+    const nextIndex = (currentIndex + 1) % sequence.length;
+    await setLanguage(sequence[nextIndex]);
   };
 
-  const currentTranslations = translations[language];
+  const activeTranslations: TranslationSchema = useMemo(() => {
+    return translations[currentLang] || translations.th;
+  }, [currentLang]);
+
+  const currentLanguageInfo = useMemo(() => {
+    return getLanguageInfo(currentLang);
+  }, [currentLang]);
+
+  const availableLanguages = useMemo(() => {
+    return getSupportedLanguagesList();
+  }, []);
+
+  const value = useMemo(
+    () => ({
+      language: currentLang,
+      setLanguage,
+      toggleLanguage,
+      t: activeTranslations,
+      availableLanguages,
+      currentLanguageInfo,
+      i18n: i18nInstance,
+    }),
+    [currentLang, activeTranslations, currentLanguageInfo, availableLanguages, i18nInstance]
+  );
 
   return (
-    <LanguageContext.Provider
-      value={{
-        language,
-        setLanguage,
-        toggleLanguage,
-        t: currentTranslations,
-      }}
-    >
-      {children}
-    </LanguageContext.Provider>
+    <I18nextProvider i18n={i18n}>
+      <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>
+    </I18nextProvider>
   );
 };
 
 export function useLanguage(): LanguageContextType {
   const context = useContext(LanguageContext);
   if (!context) {
-    throw new Error('useLanguage must be used within a LanguageProvider');
+    return {
+      language: 'th',
+      setLanguage: async () => {},
+      toggleLanguage: async () => {},
+      t: translations.th,
+      availableLanguages: getSupportedLanguagesList(),
+      currentLanguageInfo: getLanguageInfo('th'),
+      i18n,
+    };
   }
   return context;
 }

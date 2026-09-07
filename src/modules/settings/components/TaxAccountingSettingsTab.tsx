@@ -49,23 +49,23 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
     <div className="space-y-6">
       {/* VAT & Tax Calculation Policy Card */}
       <Card className="border border-border/80 shadow-sm rounded-lg overflow-hidden">
-        <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5">
+        <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <div className="p-1.5 rounded-md bg-primary/10 text-primary shrink-0">
               <Percent className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-bold text-text truncate">
+              <h3 className="text-sm font-bold text-text">
                 {language === 'th' ? 'ภาษีมูลค่าเพิ่มและข้อกำหนดทางภาษี (VAT & Taxation)' : 'VAT & Tax Configuration'}
               </h3>
-              <p className="text-[11px] text-text/50 truncate">
+              <p className="text-[11px] text-text/50">
                 {language === 'th'
                   ? 'กำหนดอัตราภาษีฐาน (Basis Points) และประเภทการคำนวณภาษีในใบเสร็จ'
                   : 'VAT basis point precision, tax calculation modes, and fiscal registration data.'}
               </p>
             </div>
           </div>
-          <Badge variant="primary" size="sm" className="font-mono shrink-0">
+          <Badge variant="primary" size="sm" className="font-mono shrink-0 self-start sm:self-auto">
             {(formData.defaultTaxRateBps / 100).toFixed(2)}% VAT
           </Badge>
         </CardHeader>
@@ -207,16 +207,16 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
 
       {/* Payment Methods Acceptance Card */}
       <Card className="border border-border/80 shadow-sm rounded-lg overflow-hidden">
-        <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5">
+        <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <div className="p-1.5 rounded-md bg-primary/10 text-primary shrink-0">
               <CreditCard className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-bold text-text truncate">
+              <h3 className="text-sm font-bold text-text">
                 {language === 'th' ? 'ช่องทางการรับชำระเงิน (Accepted Payment Methods)' : 'Payment Methods Configuration'}
               </h3>
-              <p className="text-[11px] text-text/50 truncate">
+              <p className="text-[11px] text-text/50">
                 {language === 'th'
                   ? 'เปิด/ปิดช่องทางชำระเงินที่ต้องการให้แคชเชียร์เลือกใช้งานในขั้นตอนคิดเงิน'
                   : 'Toggle active payment rails enabled on the cashier checkout dialog.'}
@@ -228,12 +228,12 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
         <CardBody className="p-5 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Cash */}
-            <div className="p-3.5 rounded-lg border border-border/80 bg-card/60 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-md bg-emerald-500/10 text-emerald-500">
+            <div className="p-3.5 rounded-lg border border-border/80 bg-card/60 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="p-2 rounded-md bg-emerald-500/10 text-emerald-500 shrink-0">
                   <Banknote className="h-4 w-4" />
                 </div>
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="text-xs font-bold text-text">
                     {language === 'th' ? 'เงินสด (Cash Payment)' : 'Cash Payment'}
                   </div>
@@ -267,12 +267,12 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
             </div>
 
             {/* Credit / Debit Card */}
-            <div className="p-3.5 rounded-lg border border-border/80 bg-card/60 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-md bg-blue-500/10 text-blue-500">
+            <div className="p-3.5 rounded-lg border border-border/80 bg-card/60 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="p-2 rounded-md bg-blue-500/10 text-blue-500 shrink-0">
                   <CreditCard className="h-4 w-4" />
                 </div>
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="text-xs font-bold text-text">
                     {language === 'th' ? 'บัตรเครดิต/เดบิต (Card / EDC)' : 'Credit / Debit Card'}
                   </div>
@@ -306,12 +306,12 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
             </div>
 
             {/* PromptPay QR */}
-            <div className="p-3.5 rounded-lg border border-border/80 bg-card/60 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-md bg-sky-500/10 text-sky-500">
+            <div className="p-3.5 rounded-lg border border-border/80 bg-card/60 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="p-2 rounded-md bg-sky-500/10 text-sky-500 shrink-0">
                   <QrCode className="h-4 w-4" />
                 </div>
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="text-xs font-bold text-text">
                     {language === 'th' ? 'พร้อมเพย์ QR (PromptPay QR)' : 'PromptPay QR Payment'}
                   </div>
@@ -345,12 +345,12 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
             </div>
 
             {/* Split Payment */}
-            <div className="p-3.5 rounded-lg border border-border/80 bg-card/60 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-md bg-purple-500/10 text-purple-500">
+            <div className="p-3.5 rounded-lg border border-border/80 bg-card/60 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0 flex-1">
+                <div className="p-2 rounded-md bg-purple-500/10 text-purple-500 shrink-0">
                   <Layers className="h-4 w-4" />
                 </div>
-                <div>
+                <div className="min-w-0 flex-1">
                   <div className="text-xs font-bold text-text">
                     {language === 'th' ? 'แบ่งชำระหลายช่องทาง (Split Payment)' : 'Multi-Tender / Split Payment'}
                   </div>
@@ -388,23 +388,23 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
 
       {/* Multi-Currency Exchange Rates Table */}
       <Card className="border border-border/80 shadow-sm rounded-lg overflow-hidden">
-        <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5">
+        <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <div className="p-1.5 rounded-md bg-primary/10 text-primary shrink-0">
               <DollarSign className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-bold text-text truncate">
+              <h3 className="text-sm font-bold text-text">
                 {language === 'th' ? 'อัตราแลกเปลี่ยนหลายสกุลเงิน (Multi-Currency Rates)' : 'Multi-Currency Exchange Rates'}
               </h3>
-              <p className="text-[11px] text-text/50 truncate">
+              <p className="text-[11px] text-text/50">
                 {language === 'th'
                   ? `อัตราแปลงมูลค่าเทียบกับ 1 ${session.currentStore.currency || 'THB'} เพื่อแสดงราคาสุทธิเสริม`
                   : `Conversion rates relative to 1 ${session.currentStore.currency || 'THB'} for secondary currency estimation.`}
               </p>
             </div>
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0 w-full sm:w-auto">
             <Button
               type="button"
               variant="secondary"
@@ -422,7 +422,7 @@ export const TaxAccountingSettingsTab: React.FC<TaxAccountingSettingsTabProps> =
                   type: 'info',
                 });
               }}
-              className="rounded-md font-bold text-xs"
+              className="w-full sm:w-auto rounded-md font-bold text-xs"
               leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
             >
               {language === 'th' ? 'รีเซ็ตค่ามาตรฐาน' : 'Reset Defaults'}

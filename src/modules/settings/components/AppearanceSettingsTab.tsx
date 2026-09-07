@@ -11,13 +11,23 @@ import {
   Upload,
   Trash2,
   Image as ImageIcon,
+  RotateCcw,
+  Layers,
+  Crown,
+  Zap,
   Sliders,
+  Eye,
+  CheckCircle2,
+  ShieldCheck,
+  Tag,
+  ArrowRight,
 } from 'lucide-react';
 import { Card, CardHeader, CardBody } from '../../../components/common/Card';
 import { Badge } from '../../../components/common/Badge';
 import { Button } from '../../../components/common/Button';
+import { GraphicIcon } from '../../../components/common/GraphicIcon';
 import { useLanguage } from '../../../context/LanguageContext';
-import { useTheme, THEME_PRESETS } from '../../../context/ThemeContext';
+import { useTheme, THEME_PRESETS, ThemePreset } from '../../../context/ThemeContext';
 import { useToast } from '../../../context/ToastContext';
 import { CustomerDisplayConfigState } from '../types';
 import { CustomerDisplayLauncherModal } from '../../../components/customerDisplay/CustomerDisplayLauncherModal';
@@ -39,20 +49,34 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
     theme,
     themeMode,
     setThemeMode,
-    toggleTheme,
     activePresetId,
+    currentPreset,
     setPreset,
     customAccentColor,
     setCustomAccentColor,
     customLogo,
     setCustomLogo,
+    resetAllThemeSettings,
   } = useTheme();
   const { addToast } = useToast();
 
-  const isDarkMode = theme === 'dark';
-  const currentPreset = THEME_PRESETS.find((p) => p.id === activePresetId) || THEME_PRESETS[0];
-
   const [isCfdModalOpen, setIsCfdModalOpen] = useState(false);
+  const [previewPresetId, setPreviewPresetId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    const presetToApply = THEME_PRESETS.find((p) => p.id === (previewPresetId || activePresetId)) || currentPreset;
+    const root = document.documentElement;
+    root.style.setProperty('--primary-color', presetToApply.primary);
+    root.style.setProperty('--primary-dark', presetToApply.primaryDark);
+    root.style.setProperty('--primary-light', presetToApply.primaryLight);
+    root.style.setProperty('--primary-glow', presetToApply.primaryGlow);
+    root.style.setProperty('--bg-color', presetToApply.background);
+    root.style.setProperty('--card-color', presetToApply.card);
+    root.style.setProperty('--card-hover', presetToApply.cardHover);
+    root.style.setProperty('--text-color', presetToApply.text);
+    root.style.setProperty('--text-muted', presetToApply.textMuted);
+    root.style.setProperty('--border-color', presetToApply.border);
+  }, [previewPresetId, activePresetId, currentPreset]);
 
   const handleLaunchDualMonitor = () => {
     const url = `${window.location.origin}${window.location.pathname}?view=customer-display`;
@@ -83,29 +107,53 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
     }
   };
 
+  const handlePresetSelect = (preset: ThemePreset) => {
+    setPreset(preset.id);
+    addToast({
+      title: language === 'th' ? 'ปรับใช้ธีมสำเร็จ (1-Click Active)' : 'Theme Preset Activated',
+      message:
+        language === 'th'
+          ? `เปิดใช้งานธีม "${preset.name[language]}" ทั้งระบบเรียบร้อย`
+          : `Switched system aesthetics to "${preset.name[language]}"`,
+      type: 'success',
+    });
+  };
+
   return (
     <div className="space-y-6">
-      {/* Theme Presets & Dark Mode Card */}
-      <Card className="border border-border/80 shadow-sm rounded-lg overflow-hidden">
-        <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5">
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="p-1.5 rounded-md bg-primary/10 text-primary shrink-0">
-              <Palette className="h-4 w-4" />
+      {/* Main Theme Header Card */}
+      <Card className="border border-border/80 shadow-sm rounded-2xl overflow-hidden">
+        <CardHeader className="bg-card/70 border-b border-border/60 py-4 px-5 sm:px-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 w-full">
+            <div className="flex items-center gap-3 min-w-0">
+              <GraphicIcon
+                icon={Palette}
+                color="primary"
+                variant="glow"
+                size="md"
+              />
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-black tracking-tight text-text">
+                    {language === 'th'
+                      ? 'ชุดธีมระบบระดับองค์กร (Global Theme Presets)'
+                      : 'Global Enterprise Theme Presets'}
+                  </h2>
+                  <Badge variant="primary" size="sm" className="font-mono text-[9px] uppercase font-bold">
+                    6 Presets
+                  </Badge>
+                </div>
+                <p className="text-xs text-text/60 mt-0.5">
+                  {language === 'th'
+                    ? 'ปรับแต่งสไตล์ สีหลัก สีพื้น สีปุ่ม และความรู้สึกทั้งระบบเพียง 1 คลิก'
+                    : 'Curated world-class aesthetic systems for seamless 1-click store transformation.'}
+                </p>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-bold text-text truncate">
-                {language === 'th' ? 'ธีมและโหมดสีระบบ (Theme & Visual Styles)' : 'Theme & Visual Styles'}
-              </h3>
-              <p className="text-[11px] text-text/50 truncate">
-                {language === 'th'
-                  ? 'เลือกพรีเซ็ตธีมองค์กร สลับโหมดกลางวัน/กลางคืน และกำหนดโทนสีหลัก'
-                  : 'Enterprise design tokens, light/dark mode switching, and accent personalization.'}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
+
+            {/* Quick Light/Dark/System Mode Segmented Switcher */}
             <div
-              className="p-0.5 rounded-lg border border-border/80 bg-background/90 flex items-center gap-0.5 shadow-2xs"
+              className="p-1 rounded-xl border border-border bg-background/90 flex items-center gap-1 shadow-2xs self-start sm:self-auto"
               role="group"
               aria-label="Theme mode switcher"
             >
@@ -114,20 +162,19 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                 onClick={() => {
                   setThemeMode('light');
                   addToast({
-                    title: language === 'th' ? 'สลับโหมดสว่าง' : 'Light Mode Active',
-                    message: language === 'th' ? 'เปลี่ยนการแสดงผลเป็นโหมดสว่าง (Light)' : 'Theme switched to Light mode.',
+                    title: language === 'th' ? 'โหมดสว่าง (Light)' : 'Light Mode Active',
+                    message: language === 'th' ? 'ปรับเปลี่ยนการแสดงผลเป็นโหมดสว่าง' : 'Switched to Light mode.',
                     type: 'info',
                   });
                 }}
-                title={language === 'th' ? 'โหมดสว่าง (Light)' : 'Light mode'}
-                className={`h-7 px-2.5 rounded-md flex items-center gap-1.5 text-xs font-semibold transition-all cursor-pointer select-none ${
+                className={`h-7 px-3 rounded-lg flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer select-none ${
                   themeMode === 'light'
-                    ? 'bg-card text-text border border-border/70 shadow-xs font-bold'
+                    ? 'bg-card text-text border border-border shadow-xs'
                     : 'text-text/60 hover:text-text hover:bg-card/40'
                 }`}
               >
                 <Sun className={`h-3.5 w-3.5 ${themeMode === 'light' ? 'text-amber-500' : 'text-text/50'}`} />
-                <span className="text-[11px]">{language === 'th' ? 'สว่าง' : 'Light'}</span>
+                <span>{language === 'th' ? 'สว่าง' : 'Light'}</span>
               </button>
 
               <button
@@ -135,20 +182,19 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                 onClick={() => {
                   setThemeMode('dark');
                   addToast({
-                    title: language === 'th' ? 'สลับโหมดมืด' : 'Dark Mode Active',
-                    message: language === 'th' ? 'เปลี่ยนการแสดงผลเป็นโหมดมืด (Dark)' : 'Theme switched to Dark mode.',
+                    title: language === 'th' ? 'โหมดมืด (Dark)' : 'Dark Mode Active',
+                    message: language === 'th' ? 'ปรับเปลี่ยนการแสดงผลเป็นโหมดมืด' : 'Switched to Dark mode.',
                     type: 'info',
                   });
                 }}
-                title={language === 'th' ? 'โหมดมืด (Dark)' : 'Dark mode'}
-                className={`h-7 px-2.5 rounded-md flex items-center gap-1.5 text-xs font-semibold transition-all cursor-pointer select-none ${
+                className={`h-7 px-3 rounded-lg flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer select-none ${
                   themeMode === 'dark'
-                    ? 'bg-card text-text border border-border/70 shadow-xs font-bold'
+                    ? 'bg-card text-text border border-border shadow-xs'
                     : 'text-text/60 hover:text-text hover:bg-card/40'
                 }`}
               >
                 <Moon className={`h-3.5 w-3.5 ${themeMode === 'dark' ? 'text-primary' : 'text-text/50'}`} />
-                <span className="text-[11px]">{language === 'th' ? 'มืด' : 'Dark'}</span>
+                <span>{language === 'th' ? 'มืด' : 'Dark'}</span>
               </button>
 
               <button
@@ -156,85 +202,269 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                 onClick={() => {
                   setThemeMode('system');
                   addToast({
-                    title: language === 'th' ? 'สลับโหมดอัตโนมัติ (System)' : 'System Mode Active',
-                    message: language === 'th'
-                      ? 'ปรับเปลี่ยนโทนสีตามการตั้งค่าของระบบปฏิบัติการอัตโนมัติ'
-                      : 'Theme automatically adapts to OS preferences.',
+                    title: language === 'th' ? 'โหมดตามระบบ (System)' : 'System Mode Active',
+                    message: language === 'th' ? 'ปรับเปลี่ยนตามการตั้งค่าของ OS' : 'Adapts automatically to OS preferences.',
                     type: 'info',
                   });
                 }}
-                title={language === 'th' ? 'ตามระบบอุปกรณ์ (System)' : 'Follow system OS theme'}
-                className={`h-7 px-2.5 rounded-md flex items-center gap-1.5 text-xs font-semibold transition-all cursor-pointer select-none ${
+                className={`h-7 px-3 rounded-lg flex items-center gap-1.5 text-xs font-bold transition-all cursor-pointer select-none ${
                   themeMode === 'system'
-                    ? 'bg-card text-text border border-border/70 shadow-xs font-bold'
+                    ? 'bg-card text-text border border-border shadow-xs'
                     : 'text-text/60 hover:text-text hover:bg-card/40'
                 }`}
               >
                 <Monitor className={`h-3.5 w-3.5 ${themeMode === 'system' ? 'text-primary' : 'text-text/50'}`} />
-                <span className="text-[11px]">{language === 'th' ? 'ระบบ' : 'System'}</span>
+                <span>{language === 'th' ? 'อัตโนมัติ' : 'Auto'}</span>
               </button>
             </div>
           </div>
         </CardHeader>
 
-        <CardBody className="p-5 space-y-6">
-          {/* Preset Swatches Grid */}
+        <CardBody className="p-5 sm:p-6 space-y-6">
+          {/* Active Preset Banner Indicator */}
+          <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-xl border border-white/20 shadow-xs flex items-center justify-center shrink-0"
+                style={{ backgroundColor: currentPreset.primary }}
+              >
+                <Sparkles className="h-5 w-5 text-white" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-primary">
+                    {language === 'th' ? 'ธีมที่ใช้งานอยู่ขณะนี้' : 'Currently Active Preset'}
+                  </span>
+                  <Badge variant="primary" size="sm" className="font-mono text-[9px] uppercase font-bold">
+                    {currentPreset.badge}
+                  </Badge>
+                </div>
+                <h3 className="text-base font-black text-text">
+                  {currentPreset.name[language]}
+                </h3>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <span className="text-xs text-text/60 font-medium">
+                {currentPreset.tagline[language]}
+              </span>
+            </div>
+          </div>
+
+          {/* 6 Global Theme Presets Grid */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
-                {language === 'th' ? 'ชุดรูปแบบสำเร็จรูป (Enterprise Theme Presets)' : 'Theme Presets'}
+              <label className="block text-xs font-bold text-text uppercase tracking-wider">
+                {language === 'th' ? 'เลือกพรีเซ็ตธีม (คลิกเดียวเปลี่ยนทันที)' : 'Select Theme Preset (1-Click Instant Apply)'}
               </label>
-              <span className="text-[11px] text-text/50 font-mono">
-                Active: {currentPreset.name[language]}
+              <span className="text-xs text-text/50 font-mono">
+                6 Pro Themes
               </span>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {THEME_PRESETS.map((preset) => {
-                const isSelected = currentPreset.id === preset.id;
+                const isSelected = activePresetId === preset.id;
+
                 return (
-                  <button
+                  <div
                     key={preset.id}
-                    type="button"
-                    onClick={() => {
-                      setPreset(preset.id);
-                      addToast({
-                        title: language === 'th' ? 'เปลี่ยนธีมแล้ว' : 'Theme Activated',
-                        message: `Switched to ${preset.name[language]}`,
-                        type: 'success',
-                      });
-                    }}
-                    className={`p-3 rounded-lg border text-left transition-all duration-150 flex flex-col justify-between gap-2.5 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                    onClick={() => handlePresetSelect(preset)}
+                    onMouseEnter={() => setPreviewPresetId(preset.id)}
+                    onMouseLeave={() => setPreviewPresetId(null)}
+                    className={`group relative p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer flex flex-col justify-between gap-4 overflow-hidden select-none hover:scale-[1.01] active:scale-[0.99] ${
                       isSelected
-                        ? 'border-primary ring-2 ring-primary/20 shadow-xs bg-card'
-                        : 'border-border bg-card/60 hover:bg-card hover:border-border/80'
+                        ? 'border-primary ring-2 ring-primary/30 bg-card shadow-md'
+                        : 'border-border bg-card/60 hover:bg-card hover:border-border/90 shadow-2xs'
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <div
-                          className="w-3.5 h-3.5 rounded-full shadow-xs border border-white/20"
-                          style={{ backgroundColor: preset.primary }}
-                        />
-                        <div
-                          className="w-3.5 h-3.5 rounded-full shadow-xs border border-white/20"
-                          style={{ backgroundColor: preset.background }}
-                        />
+                    {/* Top Palette Swatches and Badge */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-background border border-border">
+                        {preset.swatches.map((colorHex, sIdx) => (
+                          <div
+                            key={sIdx}
+                            className="w-5 h-5 rounded-lg border border-border/50 shadow-2xs"
+                            style={{ backgroundColor: colorHex }}
+                            title={colorHex}
+                          />
+                        ))}
                       </div>
-                      {isSelected && <Check className="h-3.5 w-3.5 text-primary stroke-[3px]" />}
+
+                      <div className="flex items-center gap-1.5">
+                        <Badge
+                          variant={isSelected ? 'primary' : 'neutral'}
+                          size="sm"
+                          className="font-mono text-[9px] font-bold px-2 py-0.5"
+                        >
+                          {preset.badge}
+                        </Badge>
+                        {isSelected ? (
+                          <div className="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center shadow-xs">
+                            <Check className="h-3.5 w-3.5 stroke-[3px]" />
+                          </div>
+                        ) : (
+                          <div className="w-6 h-6 rounded-full border border-border/80 flex items-center justify-center text-text/30 group-hover:text-primary group-hover:border-primary transition-colors">
+                            <ArrowRight className="h-3 w-3" />
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div>
-                      <div className="text-xs font-bold text-text truncate">
-                        {preset.name[language]}
+                    {/* Preset Info */}
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-text/50">
+                        {preset.category[language]}
                       </div>
-                      <div className="text-[10px] text-text/50 font-mono">
-                        {preset.isDark ? 'Dark Base' : 'Light Base'}
+                      <h4 className="text-sm font-black text-text group-hover:text-primary transition-colors">
+                        {preset.name[language]}
+                      </h4>
+                      <p className="text-xs font-semibold text-text/70 line-clamp-1">
+                        {preset.tagline[language]}
+                      </p>
+                      <p className="text-[11px] text-text/50 line-clamp-2 mt-1 leading-relaxed">
+                        {preset.description[language]}
+                      </p>
+                    </div>
+
+                    {/* Card-Based Visual Preview Thumbnail */}
+                    <div 
+                      className="w-full rounded-xl p-3 flex flex-col justify-between border shadow-2xs transition-all relative overflow-hidden"
+                      style={{
+                        backgroundColor: preset.background,
+                        borderColor: preset.border,
+                        color: preset.text,
+                      }}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: preset.primary }} />
+                          <span className="text-[10px] font-extrabold tracking-tight" style={{ color: preset.text }}>
+                            {preset.name[language].split(' ')[0]} POS UI
+                          </span>
+                        </div>
+                        <span className="text-[8px] font-mono font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: preset.primaryLight, color: preset.primary }}>
+                          Live Preview
+                        </span>
+                      </div>
+                      <div 
+                        className="p-2 rounded-lg border flex items-center justify-between"
+                        style={{
+                          backgroundColor: preset.card,
+                          borderColor: preset.border,
+                        }}
+                      >
+                        <div>
+                          <div className="text-[9px] font-bold" style={{ color: preset.text }}>
+                            {language === 'th' ? 'รวมสุทธิ ฿450' : 'Total ฿450'}
+                          </div>
+                          <div className="text-[8px]" style={{ color: preset.textMuted }}>
+                            VAT 7% Included
+                          </div>
+                        </div>
+                        <div 
+                          className="px-2.5 py-1 text-[9px] font-bold text-white shadow-2xs"
+                          style={{ backgroundColor: preset.primary, borderRadius: preset.buttonRadius }}
+                        >
+                          {language === 'th' ? 'ชำระเงิน' : 'Pay'}
+                        </div>
                       </div>
                     </div>
-                  </button>
+
+                    {/* Bottom Attributes Bar */}
+                    <div className="pt-3 border-t border-border/60 flex items-center justify-between text-[10px] font-mono text-text/50">
+                      <span className="flex items-center gap-1">
+                        <span className={`w-2 h-2 rounded-full ${preset.isDark ? 'bg-indigo-400' : 'bg-amber-400'}`} />
+                        <span>{preset.isDark ? 'Dark Base' : 'Light Base'}</span>
+                      </span>
+                      <span>Radius: {preset.buttonRadius}</span>
+                    </div>
+                  </div>
                 );
               })}
+            </div>
+          </div>
+
+          {/* Live Theme Component Showcase (Interactive Preview) */}
+          <div className="p-5 rounded-2xl border border-border bg-card/80 space-y-4 shadow-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Eye className="h-4 w-4 text-primary" />
+                <h4 className="text-xs font-bold uppercase tracking-wider text-text">
+                  {language === 'th' ? 'การแสดงผลตัวอย่างคอมโพเนนต์สด (Live Component Harmony Preview)' : 'Live Theme Harmony Showcase'}
+                </h4>
+              </div>
+              <span className="text-[10px] font-mono text-text/50">
+                Token Preview
+              </span>
+            </div>
+
+            {/* Interactive Mock Widgets Box */}
+            <div className="p-4 rounded-xl border border-border/80 bg-background space-y-4">
+              {/* Row 1: Buttons */}
+              <div className="flex flex-wrap items-center gap-3">
+                <Button variant="primary" size="sm" leftIcon={<Zap className="h-3.5 w-3.5" />}>
+                  {language === 'th' ? 'ปุ่มหลัก (Primary)' : 'Primary Action'}
+                </Button>
+                <Button variant="secondary" size="sm">
+                  {language === 'th' ? 'ปุ่มรอง (Secondary)' : 'Secondary'}
+                </Button>
+                <Button variant="outline" size="sm">
+                  {language === 'th' ? 'เส้นขอบ (Outline)' : 'Outline'}
+                </Button>
+                <Button variant="danger" size="sm">
+                  {language === 'th' ? 'ปุ่มเตือน (Danger)' : 'Danger'}
+                </Button>
+              </div>
+
+              {/* Row 2: Badges & Tags */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                <Badge variant="primary" size="md" dot>
+                  {language === 'th' ? 'สถานะพร้อมใช้งาน' : 'System Ready'}
+                </Badge>
+                <Badge variant="success" size="md">
+                  {language === 'th' ? 'ชำระแล้ว ฿1,250.00' : 'Paid ฿1,250.00'}
+                </Badge>
+                <Badge variant="warning" size="md">
+                  {language === 'th' ? 'รออนุมัติ PIN' : 'Pending PIN'}
+                </Badge>
+                <Badge variant="purple" size="md">
+                  {language === 'th' ? 'VIP Gold' : 'VIP Gold Tier'}
+                </Badge>
+                <Badge variant="neutral" size="md">
+                  {language === 'th' ? 'สาขา BKK-01' : 'Branch BKK-01'}
+                </Badge>
+              </div>
+
+              {/* Row 3: Mock Input & Mini Card */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="p-3 rounded-xl border border-border bg-card space-y-1">
+                  <div className="text-[10px] uppercase font-bold text-text/50">
+                    {language === 'th' ? 'ช่องกรอกข้อมูล' : 'Form Input Field'}
+                  </div>
+                  <input
+                    type="text"
+                    readOnly
+                    value={language === 'th' ? 'ตัวอย่างข้อความระบบ POS' : 'PRODX Enterprise POS System'}
+                    className="w-full h-8 px-2.5 rounded-lg border border-border bg-background text-xs text-text font-medium"
+                  />
+                </div>
+
+                <div className="p-3 rounded-xl border border-border bg-card flex items-center justify-between">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-text/50">
+                      {language === 'th' ? 'ยอดรวมสุทธิ' : 'Total Net Amount'}
+                    </div>
+                    <div className="text-sm font-black text-primary font-mono">
+                      ฿ 4,890.00
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-text/50">VAT 7% Included</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -242,11 +472,13 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
           <div className="pt-4 border-t border-border/60 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
-                  {language === 'th' ? 'สีเน้นหลักระบบ (Primary Accent Override)' : 'Primary Accent Color'}
+                <label className="block text-xs font-bold text-text uppercase tracking-wider">
+                  {language === 'th' ? 'ปรับแต่งสีเน้นเพิ่มเติม (Custom Accent Override)' : 'Custom Accent Color Override'}
                 </label>
                 <span className="text-[11px] text-text/50">
-                  {language === 'th' ? 'ปรับแต่งสีปุ่ม สัญลักษณ์ และสถานะแอคทีฟทั่วทั้งแอป' : 'Custom accent color for buttons, badges, and focus rings.'}
+                  {language === 'th'
+                    ? 'กำหนดสีไฮไลท์เฉพาะสำหรับแบรนด์ของคุณ (จะแทนที่สีหลักของธีม)'
+                    : 'Override primary button & badge accent while keeping preset canvas tones.'}
                 </span>
               </div>
               {customAccentColor && (
@@ -260,16 +492,17 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                       type: 'info',
                     });
                   }}
-                  className="text-[10px] font-bold text-primary hover:underline cursor-pointer"
+                  className="text-xs font-bold text-primary hover:underline cursor-pointer flex items-center gap-1"
                 >
-                  {language === 'th' ? 'รีเซ็ตกลับเป็นค่าเริ่มต้น' : 'Reset to Default'}
+                  <RotateCcw className="h-3 w-3" />
+                  <span>{language === 'th' ? 'รีเซ็ตกลับเป็นสีธีม' : 'Reset to Theme Accent'}</span>
                 </button>
               )}
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
               {/* Dynamic Color Input */}
-              <div className="relative w-10 h-9 rounded-md border border-border overflow-hidden cursor-pointer shrink-0 shadow-xs">
+              <div className="relative w-10 h-9 rounded-xl border border-border overflow-hidden cursor-pointer shrink-0 shadow-xs">
                 <input
                   type="color"
                   value={customAccentColor || currentPreset.primary}
@@ -281,13 +514,14 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
               {/* Fast Presets Swatches */}
               <div className="flex flex-wrap items-center gap-2">
                 {[
-                  { hex: '#3B82F6', name: 'Electric Blue' },
-                  { hex: '#4F46E5', name: 'Deep Indigo' },
+                  { hex: '#3B82F6', name: 'Electric Sapphire' },
+                  { hex: '#2563EB', name: 'Royal Ocean' },
+                  { hex: '#059669', name: 'Emerald Jade' },
                   { hex: '#06B6D4', name: 'Cyber Cyan' },
-                  { hex: '#10B981', name: 'Emerald' },
-                  { hex: '#F97316', name: 'Amber Glow' },
+                  { hex: '#EA580C', name: 'Sunset Terracotta' },
+                  { hex: '#6366F1', name: 'Cosmic Indigo' },
                   { hex: '#EC4899', name: 'Neon Rose' },
-                  { hex: '#8B5CF6', name: 'Purple Ray' },
+                  { hex: '#D97706', name: 'Golden Amber' },
                 ].map((presetColor) => (
                   <button
                     key={presetColor.hex}
@@ -300,7 +534,7 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                         type: 'success',
                       });
                     }}
-                    className={`w-7 h-7 rounded-full border relative flex items-center justify-center transition-all ${
+                    className={`w-8 h-8 rounded-full border relative flex items-center justify-center transition-all cursor-pointer ${
                       customAccentColor === presetColor.hex
                         ? 'ring-2 ring-offset-2 ring-primary border-transparent scale-110 shadow-sm'
                         : 'border-border/60 hover:scale-105'
@@ -309,7 +543,7 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                     title={presetColor.name}
                   >
                     {customAccentColor === presetColor.hex && (
-                      <Check className="h-3.5 w-3.5 text-white stroke-[3px]" />
+                      <Check className="h-4 w-4 text-white stroke-[3px]" />
                     )}
                   </button>
                 ))}
@@ -319,20 +553,21 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
 
           {/* Store Logo Branding */}
           <div className="pt-4 border-t border-border/60 space-y-3">
-            <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
-              {language === 'th' ? 'ภาพโลโก้แบรนด์ร้านค้า (Custom Store Logo)' : 'Store Brand Logo'}
+            <label className="block text-xs font-bold text-text uppercase tracking-wider">
+              {language === 'th' ? 'ภาพโลโก้แบรนด์ร้านค้า (Store Logo Branding)' : 'Store Logo Branding'}
             </label>
 
-            <div className="flex items-center gap-4 p-4 rounded-lg border border-border/70 bg-card/60">
-              <div className="w-16 h-16 rounded-lg border border-dashed border-border flex items-center justify-center bg-background overflow-hidden shrink-0 shadow-xs">
+            <div className="flex items-center gap-4 p-4 rounded-xl border border-border/80 bg-card/60">
+              <div className="w-16 h-16 rounded-xl border border-dashed border-border flex items-center justify-center bg-background overflow-hidden shrink-0 shadow-xs">
                 {customLogo ? (
                   <img
                     src={customLogo}
                     alt="Custom Store Logo"
                     className="w-full h-full object-contain p-1"
+                    referrerPolicy="no-referrer"
                   />
                 ) : (
-                  <div className="text-[10px] text-text/40 text-center font-bold px-1">
+                  <div className="text-xs text-text/40 text-center font-bold px-1">
                     PRODX
                   </div>
                 )}
@@ -351,8 +586,8 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2 pt-1">
-                  <label className="inline-flex items-center justify-center h-7 px-3 rounded-md bg-primary hover:bg-primary/90 text-white font-bold text-xs cursor-pointer transition shadow-xs gap-1.5">
-                    <Upload className="h-3 w-3" />
+                  <label className="inline-flex items-center justify-center h-8 px-3 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-xs cursor-pointer transition shadow-xs gap-1.5 active:scale-95">
+                    <Upload className="h-3.5 w-3.5" />
                     <span>{language === 'th' ? 'อัปโหลดโลโก้ใหม่' : 'Upload Logo'}</span>
                     <input
                       type="file"
@@ -392,8 +627,8 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                           type: 'info',
                         });
                       }}
-                      className="h-7 text-xs rounded-md"
-                      leftIcon={<Trash2 className="h-3 w-3" />}
+                      className="h-8 text-xs rounded-xl"
+                      leftIcon={<Trash2 className="h-3.5 w-3.5" />}
                     >
                       {language === 'th' ? 'ลบภาพ' : 'Remove'}
                     </Button>
@@ -405,25 +640,22 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
 
           {/* Factory Reset Branding */}
           <div className="pt-4 border-t border-border/60">
-            <div className="flex items-center justify-between p-4 rounded-lg border border-red-500/20 bg-red-500/5">
-              <div>
-                <h4 className="text-xs font-bold text-red-600 dark:text-red-400">
-                  {language === 'th' ? 'คืนค่าเริ่มต้นโรงงาน (Reset to Defaults)' : 'Reset to Factory Defaults'}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 p-4 rounded-xl border border-rose-500/20 bg-rose-500/5">
+              <div className="min-w-0 flex-1">
+                <h4 className="text-xs font-bold text-rose-600 dark:text-rose-400">
+                  {language === 'th' ? 'คืนค่าเริ่มต้นโรงงาน (Reset All Visual Theme Settings)' : 'Reset to Factory Defaults'}
                 </h4>
-                <p className="text-[11px] text-red-600/70 dark:text-red-400/70 mt-0.5">
-                  {language === 'th' ? 'ล้างการตั้งค่าธีม สี และโลโก้ที่ปรับแต่งทั้งหมด' : 'Clears all custom branding, accent colors, and resets to default theme.'}
+                <p className="text-[11px] text-rose-600/70 dark:text-rose-400/70 mt-0.5">
+                  {language === 'th' ? 'ล้างการตั้งค่าธีม สี และโลโก้ที่ปรับแต่งทั้งหมดกลับสู่ค่าเริ่มต้น' : 'Clears all custom branding, accent colors, and resets to default theme.'}
                 </p>
               </div>
               <Button
                 type="button"
                 variant="danger"
                 size="sm"
-                className="shrink-0 font-bold"
+                className="w-full sm:w-auto shrink-0 font-bold whitespace-nowrap rounded-xl"
                 onClick={() => {
-                  setThemeMode('system');
-                  setPreset('enterprise_blue');
-                  setCustomAccentColor(null);
-                  setCustomLogo(null);
+                  resetAllThemeSettings();
                   addToast({
                     title: language === 'th' ? 'คืนค่าเริ่มต้นสำเร็จ' : 'Factory Reset Complete',
                     message: language === 'th' ? 'การตั้งค่ารูปลักษณ์ถูกล้างและกลับเป็นค่าเดิมแล้ว' : 'All appearance settings have been restored to default.',
@@ -439,30 +671,33 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
       </Card>
 
       {/* Customer-Facing Display (CFD) Settings Card */}
-      <Card className="border border-border/80 shadow-sm rounded-lg overflow-hidden">
-        <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5">
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="p-1.5 rounded-md bg-primary/10 text-primary shrink-0">
-              <Tv className="h-4 w-4" />
+      <Card className="border border-border/80 shadow-sm rounded-2xl overflow-hidden">
+        <CardHeader className="bg-card/70 border-b border-border/60 py-4 px-5 sm:px-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 w-full">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <GraphicIcon
+                icon={Tv}
+                color="cyan"
+                variant="badge"
+                size="md"
+              />
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-bold text-text">
+                  {language === 'th' ? 'หน้าจอฝั่งลูกค้า (Customer-Facing Display - CFD)' : 'Customer-Facing Display (CFD)'}
+                </h3>
+                <p className="text-[11px] text-text/50">
+                  {language === 'th'
+                    ? 'กำหนดค่าสำหรับจอมอนิเตอร์ที่ 2 แสดงรายการสแกน ยอดชำระ และ QR พร้อมเพย์'
+                    : 'Secondary customer monitor configuration with real-time BroadcastChannel sync.'}
+                </p>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <h3 className="text-sm font-bold text-text truncate">
-                {language === 'th' ? 'หน้าจอฝั่งลูกค้า (Customer-Facing Display - CFD)' : 'Customer-Facing Display (CFD)'}
-              </h3>
-              <p className="text-[11px] text-text/50 truncate">
-                {language === 'th'
-                  ? 'กำหนดค่าสำหรับจอมอนิเตอร์ที่ 2 แสดงรายการสแกน ยอดชำระ และ QR พร้อมเพย์'
-                  : 'Secondary customer monitor configuration with real-time BroadcastChannel sync.'}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
             <Button
               type="button"
               variant="primary"
               size="sm"
               onClick={handleLaunchDualMonitor}
-              className="rounded-md font-bold text-xs"
+              className="w-full sm:w-auto rounded-xl font-bold text-xs shrink-0 whitespace-nowrap"
               leftIcon={<ExternalLink className="h-3.5 w-3.5" />}
             >
               {language === 'th' ? 'เปิดหน้าต่างจอ 2 (Dual Screen)' : 'Launch 2nd Screen'}
@@ -470,9 +705,9 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
           </div>
         </CardHeader>
 
-        <CardBody className="p-5 space-y-5">
+        <CardBody className="p-5 sm:p-6 space-y-5">
           {/* CFD Enable Toggle */}
-          <div className="flex items-center justify-between p-3.5 rounded-lg border border-border/80 bg-card/60">
+          <div className="flex items-center justify-between p-4 rounded-xl border border-border/80 bg-card/60">
             <div>
               <div className="font-bold text-text text-xs">
                 {language === 'th' ? 'เปิดใช้งานระบบส่งข้อมูลไปยังจอฝั่งลูกค้า (Enable CFD Sync)' : 'Enable Dual-Screen CFD Sync'}
@@ -529,7 +764,7 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                 value={cfdConfig.welcomeMessage}
                 onChange={(e) => onChangeCfdField('welcomeMessage', e.target.value)}
                 placeholder="e.g. ยินดีต้อนรับสู่ PRODX Store"
-                className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
               />
             </div>
 
@@ -542,7 +777,7 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
                 value={cfdConfig.subMessage}
                 onChange={(e) => onChangeCfdField('subMessage', e.target.value)}
                 placeholder="e.g. คุณภาพระดับพรีเมียม บริการด้วยใจ"
-                className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+                className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
               />
             </div>
           </div>
@@ -557,7 +792,7 @@ export const AppearanceSettingsTab: React.FC<AppearanceSettingsTabProps> = ({
               value={cfdConfig.bannerImageUrl}
               onChange={(e) => onChangeCfdField('bannerImageUrl', e.target.value)}
               placeholder="https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1000&q=80"
-              className="w-full h-9 px-3 rounded-md border border-border bg-background text-xs font-mono text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
+              className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-mono text-text focus:outline-none focus:ring-2 focus:ring-primary/20 transition"
             />
             <p className="text-[10px] text-text/50">
               {language === 'th'

@@ -53,13 +53,13 @@ export const Alert: React.FC<AlertProps> = ({
 
   return (
     <div
-      className={`rounded-xl border p-4 flex items-start gap-3 text-xs leading-relaxed ${current.bg} ${current.border} ${current.text} ${className}`}
+      className={`rounded-xl border p-4 flex items-start gap-3 text-body-sm leading-relaxed ${current.bg} ${current.border} ${current.text} ${className}`}
       role="alert"
     >
       <div className="mt-0.5">{current.icon}</div>
-      <div className="flex-1">
-        {title && <h4 className={`font-semibold mb-0.5 ${current.title}`}>{title}</h4>}
-        <div>{children}</div>
+      <div className="flex-1 min-w-0">
+        {title && <h4 className={`text-heading-4 mb-0.5 ${current.title}`}>{title}</h4>}
+        <div className="text-body-sm">{children}</div>
       </div>
       {onDismiss && (
         <button

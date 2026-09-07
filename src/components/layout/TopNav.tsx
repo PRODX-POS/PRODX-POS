@@ -22,7 +22,8 @@ import {
   Lock,
   Cloud,
   RefreshCw,
-  ShoppingCart
+  ShoppingCart,
+  Eye
 } from 'lucide-react';
 import { ProdxLogo } from '../common/ProdxLogo';
 import { NavRoute } from './Sidebar';
@@ -30,6 +31,8 @@ import { ConnectivityBadge } from './ConnectivityBadge';
 import { CustomerDisplayLauncherModal } from '../customerDisplay/CustomerDisplayLauncherModal';
 import { GlobalSearchInput } from './GlobalSearchInput';
 import { getZIndexClass } from '../../utils/ZIndexManager';
+import { AVAILABLE_LANGUAGES, SupportedLanguage } from '../../i18n/types';
+import { useVisualInspector } from '../../context/VisualInspectorContext';
 
 export interface TopNavProps {
   currentRoute?: NavRoute;
@@ -46,12 +49,13 @@ export const TopNav: React.FC<TopNavProps> = ({
   onOpenHoldModal,
   onOpenCommandPalette,
 }) => {
-  const { session, logout, switchStore, switchCurrency, switchDemoRole, lockSystem } = useAuth();
+  const { session, logout, switchStore, switchCurrency, switchDemoRole, lockSystem, staffUsers, switchActiveUser } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const { language, setLanguage, t } = useLanguage();
   const { heldCarts } = useCart();
   const { currentShift } = useShift();
   const { isOnline, pendingCount, isSyncing } = useOffline();
+  const { isInspectorActive, toggleInspector } = useVisualInspector();
 
   const [isStoreMenuOpen, setIsStoreMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -93,16 +97,16 @@ export const TopNav: React.FC<TopNavProps> = ({
         />
       )}
 
-      <header className={`relative ${getZIndexClass('header')} bg-card border-b border-border h-14 sm:h-16 lg:h-16 w-full max-w-full px-2 sm:px-4 lg:px-6 flex items-center justify-between shrink-0 select-none overflow-visible`}>
+      <header className={`relative ${getZIndexClass('header')} bg-card border-b border-border h-14 sm:h-16 lg:h-16 w-full max-w-full px-2 sm:px-4 lg:px-6 flex items-center justify-between shrink-0 select-none overflow-x-clip sm:overflow-visible`}>
         {/* ========================================================================= */}
         {/* ZONE 1: Context & Navigation (Mobile Menu, Brand, Store, Register, Shift) */}
         {/* ========================================================================= */}
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 min-w-0">
+        <div className="flex items-center gap-1 sm:gap-2 lg:gap-3 shrink-0 min-w-0">
           {/* Mobile Drawer Trigger */}
           <button
             type="button"
             onClick={onOpenMobileMenu}
-            className="lg:hidden min-w-[44px] min-h-[44px] p-2.5 rounded-xl text-text/70 hover:text-text hover:bg-background/80 transition-all duration-150 cursor-pointer flex items-center justify-center shrink-0 active:scale-95"
+            className="lg:hidden p-2 sm:p-2.5 min-h-[36px] sm:min-h-[44px] min-w-[36px] sm:min-w-[44px] rounded-xl text-text/70 hover:text-text hover:bg-background/80 transition-all duration-150 cursor-pointer flex items-center justify-center shrink-0 active:scale-95"
             aria-label="Open navigation menu"
           >
             <Menu className="h-5 w-5" />
@@ -126,10 +130,10 @@ export const TopNav: React.FC<TopNavProps> = ({
                 setIsLangMenuOpen(false);
                 setIsUserMenuOpen(false);
               }}
-              className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 min-h-[44px] rounded-xl border border-border border-crisp bg-background/80 hover:bg-background text-xs font-bold text-text transition-all duration-150 cursor-pointer active:scale-95"
+              className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 min-h-[36px] sm:min-h-[44px] rounded-xl border border-border border-crisp bg-background/80 hover:bg-background text-xs font-bold text-text transition-all duration-150 cursor-pointer active:scale-95"
             >
               <StoreIcon className="h-3.5 w-3.5 text-text/60 shrink-0" />
-              <span className="max-w-[110px] sm:max-w-[130px] md:max-w-[170px] lg:max-w-[200px] truncate">
+              <span className="max-w-[70px] min-[380px]:max-w-[95px] sm:max-w-[130px] md:max-w-[170px] lg:max-w-[200px] truncate">
                 {session.currentStore.name}
               </span>
               <ChevronDown className="h-3.5 w-3.5 text-text/50 shrink-0" />
@@ -186,21 +190,24 @@ export const TopNav: React.FC<TopNavProps> = ({
         {/* ========================================================================= */}
         {/* ZONE 2: Search, Utilities & Actions (Hidden or compact on mobile) */}
         {/* ========================================================================= */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 ml-auto pr-1 sm:pr-2">
+        <div className="flex items-center gap-1 sm:gap-2 lg:gap-2.5 shrink-0 ml-auto pr-0 sm:pr-1">
           {/* Global Search Input (Hidden on mobile) */}
           <div className="hidden lg:block w-48 xl:w-64">
             <GlobalSearchInput onNavigate={onNavigate} />
           </div>
 
-          {/* Command Palette Trigger Shortcut Button (Hidden on mobile) */}
+          {/* Command Palette Trigger Shortcut Button */}
           <button
             type="button"
             onClick={onOpenCommandPalette}
-            className="hidden lg:flex items-center gap-1.5 px-2.5 py-2 min-h-[44px] rounded-xl border border-border border-crisp bg-background/80 hover:bg-background text-text/70 hover:text-text text-xs font-semibold transition-all duration-150 cursor-pointer active:scale-95"
-            title="Search or Command (Ctrl+K / ⌘K)"
+            className="flex items-center justify-center p-2 sm:px-2.5 sm:py-2 min-h-[36px] sm:min-h-[44px] min-w-[36px] sm:min-w-[44px] rounded-xl border border-border border-crisp bg-background/80 hover:bg-background text-text/70 hover:text-text text-xs font-semibold transition-all duration-150 cursor-pointer active:scale-95 shrink-0"
+            title="Search Products, Customers, Orders (Ctrl+K / ⌘K)"
+            aria-label="Search Products, Customers, Orders (Ctrl+K)"
           >
-            <Search className="h-3.5 w-3.5 text-text/50" />
-            <span className="font-mono text-[10px] bg-card px-1.5 py-0.5 rounded border border-border/60">⌘K</span>
+            <Search className="h-4 w-4 sm:h-3.5 sm:w-3.5 text-text/60" />
+            <span className="hidden sm:inline font-mono text-[10px] bg-card px-1.5 py-0.5 rounded border border-border/60">
+              Ctrl+K
+            </span>
           </button>
 
           {/* Held Orders Quick Access Button (Hidden on mobile) */}
@@ -219,11 +226,6 @@ export const TopNav: React.FC<TopNavProps> = ({
             )}
           </button>
 
-          {/* Connectivity Badge & Offline Outbox Center */}
-          <div className="hidden sm:block">
-            <ConnectivityBadge />
-          </div>
-
           {/* Customer Facing Display 2nd Monitor Launcher (Hidden on mobile) */}
           <button
             type="button"
@@ -233,6 +235,20 @@ export const TopNav: React.FC<TopNavProps> = ({
           >
             <Tv className="h-4 w-4 shrink-0 text-text/60" />
             <span className="hidden xl:inline">{language === 'th' ? 'จอลูกค้า (CFD)' : 'Customer Display'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleInspector}
+            className={`hidden xl:flex items-center gap-1.5 px-3 py-2 min-h-[44px] rounded-xl border border-border transition-all duration-150 cursor-pointer active:scale-95 justify-center ${
+              isInspectorActive
+                ? 'bg-destructive text-destructive-foreground font-bold shadow-md animate-pulse border-destructive'
+                : 'bg-background/80 hover:bg-background text-text/70 text-text text-xs font-semibold'
+            }`}
+            title="Visual Inspector Mode"
+          >
+            <Eye className={`h-4 w-4 shrink-0 ${isInspectorActive ? 'text-white' : 'text-text/60'}`} />
+            <span className="hidden 2xl:inline">Inspector</span>
           </button>
 
           {/* Base Currency Switcher Dropdown */}
@@ -306,40 +322,39 @@ export const TopNav: React.FC<TopNavProps> = ({
               aria-label={t.topNav.selectLang}
             >
               <Globe className="h-3.5 w-3.5 text-text/60" />
-              <span>{language === 'th' ? 'TH' : 'EN'}</span>
+              <span>{AVAILABLE_LANGUAGES[language as SupportedLanguage]?.flag || '🌐'} {language.toUpperCase()}</span>
             </button>
 
             {isLangMenuOpen && (
               <div
-                className={`${getZIndexClass('dropdown')} absolute right-0 mt-2 w-32 max-w-[90vw] overflow-x-hidden rounded-2xl border border-border border-crisp bg-card shadow-2xl py-2 animate-in fade-in zoom-in-95 duration-100`}
+                className={`${getZIndexClass('dropdown')} absolute right-0 mt-2 w-48 max-w-[90vw] overflow-x-hidden rounded-2xl border border-border border-crisp bg-card shadow-2xl py-2 animate-in fade-in zoom-in-95 duration-100`}
                 onMouseLeave={() => setIsLangMenuOpen(false)}
               >
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLanguage('th');
-                    setIsLangMenuOpen(false);
-                  }}
-                  className={`w-full text-left px-3 py-2.5 min-h-[44px] text-xs flex items-center justify-between cursor-pointer hover:bg-background/80 ${
-                    language === 'th' ? 'font-bold text-primary bg-primary/10' : 'text-text/70'
-                  }`}
-                >
-                  <span>ไทย</span>
-                  {language === 'th' && <Check className="h-4 w-4 text-primary" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLanguage('en');
-                    setIsLangMenuOpen(false);
-                  }}
-                  className={`w-full text-left px-3 py-2.5 min-h-[44px] text-xs flex items-center justify-between cursor-pointer hover:bg-background/80 ${
-                    language === 'en' ? 'font-bold text-primary bg-primary/10' : 'text-text/70'
-                  }`}
-                >
-                  <span>English</span>
-                  {language === 'en' && <Check className="h-4 w-4 text-primary" />}
-                </button>
+                {Object.values(AVAILABLE_LANGUAGES).map((lang) => {
+                  const isSelected = language === lang.code;
+                  return (
+                    <button
+                      key={lang.code}
+                      type="button"
+                      onClick={() => {
+                        setLanguage(lang.code);
+                        setIsLangMenuOpen(false);
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 min-h-[44px] text-xs flex items-center justify-between cursor-pointer hover:bg-background/80 transition-colors ${
+                        isSelected ? 'font-bold text-primary bg-primary/10' : 'text-text/80'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-base">{lang.flag}</span>
+                        <div className="flex flex-col">
+                          <span className="font-semibold text-xs leading-tight">{lang.nativeName}</span>
+                          <span className="text-[10px] text-text/50">{lang.name}</span>
+                        </div>
+                      </div>
+                      {isSelected && <Check className="h-4 w-4 text-primary shrink-0" />}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -353,8 +368,13 @@ export const TopNav: React.FC<TopNavProps> = ({
             {theme === 'dark' ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-primary" />}
           </button>
 
-          {/* Cashier / User Profile & Comprehensive Account Menu */}
-          <div className="relative">
+          {/* Compact 50% Width Animated LIVE Indicator (Placed next to User Profile) */}
+          <div className="flex items-center shrink-0">
+            <ConnectivityBadge />
+          </div>
+
+          {/* Cashier / User Profile & Comprehensive Account Menu (Far Right) */}
+          <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => {
@@ -363,14 +383,21 @@ export const TopNav: React.FC<TopNavProps> = ({
                 setIsCurrencyMenuOpen(false);
                 setIsLangMenuOpen(false);
               }}
-              className="flex items-center gap-2 pl-2.5 pr-2 py-1.5 min-h-[44px] min-w-[44px] rounded-xl border border-border border-crisp bg-background/80 hover:bg-background transition-all duration-150 cursor-pointer active:scale-95"
+              className="flex items-center justify-center gap-1.5 sm:gap-2 p-1 sm:pl-2.5 sm:pr-2 py-1 sm:py-1.5 min-h-[36px] sm:min-h-[44px] min-w-[36px] sm:min-w-[44px] rounded-xl border border-border border-crisp bg-background/80 hover:bg-background transition-all duration-150 cursor-pointer active:scale-95 shrink-0"
             >
               <div className="flex flex-col items-end hidden xl:flex">
                 <span className="text-xs font-bold text-text leading-tight">{session.currentUser.name}</span>
                 <span className="text-[10px] font-bold text-text/50 uppercase leading-tight">{session.currentUser.role}</span>
               </div>
-              <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-xs font-bold text-white shadow-xs">
-                {session.currentUser.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+              {/* User Profile Avatar with Online Status Indicator Dot */}
+              <div className="relative shrink-0">
+                <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center text-xs font-bold text-white shadow-xs">
+                  {session.currentUser.name.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                </div>
+                <span className="absolute -bottom-0.5 -right-0.5 flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 border-2 border-card" />
+                </span>
               </div>
             </button>
 
@@ -399,11 +426,15 @@ export const TopNav: React.FC<TopNavProps> = ({
                 <div className="lg:hidden px-3 py-2 border-b border-border border-crisp grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setLanguage(language === 'th' ? 'en' : 'th')}
+                    onClick={() => {
+                      const sequence: SupportedLanguage[] = ['th', 'en', 'zh', 'ja'];
+                      const next = sequence[(sequence.indexOf(language as SupportedLanguage) + 1) % sequence.length];
+                      setLanguage(next);
+                    }}
                     className="flex items-center justify-center gap-2 py-2 min-h-[44px] rounded-xl border border-border border-crisp text-xs font-bold text-text/80 hover:bg-background cursor-pointer active:scale-95"
                   >
                     <Globe className="h-4 w-4" />
-                    <span>{language === 'th' ? 'EN' : 'TH'}</span>
+                    <span>{AVAILABLE_LANGUAGES[language as SupportedLanguage]?.flag || '🌐'} {language.toUpperCase()}</span>
                   </button>
                   <button
                     type="button"
@@ -445,6 +476,42 @@ export const TopNav: React.FC<TopNavProps> = ({
                     <Lock className="h-4 w-4 text-text/60" />
                     <span>{language === 'th' ? 'ล็อกหน้าจอ' : 'Lock Terminal'}</span>
                   </button>
+                </div>
+
+                {/* Quick Staff User Switcher */}
+                <div className="py-2 px-3 border-t border-border border-crisp">
+                  <div className="text-[10px] font-bold text-text/50 uppercase tracking-wider mb-2 flex items-center justify-between">
+                    <span>{language === 'th' ? 'สลับบัญชีผู้ใช้งาน' : 'Switch Staff'}</span>
+                    <span className="font-mono text-[9px] text-text/40">{staffUsers.length}</span>
+                  </div>
+                  <div className="max-h-36 overflow-y-auto space-y-1 pr-0.5">
+                    {staffUsers.map((user) => {
+                      const isCurrent = session.currentUser.id === user.id;
+                      return (
+                        <button
+                          key={user.id}
+                          type="button"
+                          onClick={() => {
+                            switchActiveUser(user);
+                            setIsUserMenuOpen(false);
+                          }}
+                          className={`w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                            isCurrent
+                              ? 'bg-primary/10 text-primary font-bold border border-primary/20'
+                              : 'hover:bg-background text-text/80'
+                          }`}
+                        >
+                          <div className="truncate pr-2">
+                            <span className="truncate block font-medium">{user.name}</span>
+                            <span className="text-[10px] text-text/50 font-mono block">
+                              {user.employeeCode} • {user.role}
+                            </span>
+                          </div>
+                          {isCurrent && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Quick Role Switcher for testing RBAC boundaries */}

@@ -9,6 +9,7 @@ import { Drawer } from '../common/Drawer';
 import { HoldOrdersModal } from '../../modules/pos/HoldOrdersModal';
 import { CommandPalette } from '../common/CommandPalette';
 import { LockScreenModal } from '../auth/LockScreenModal';
+import { GlobalBreadcrumb } from './GlobalBreadcrumb';
 
 export interface AppShellProps {
   currentRoute: NavRoute;
@@ -44,7 +45,7 @@ export const AppShell: React.FC<AppShellProps> = ({
       <BackgroundLayer />
 
       {/* Desktop Persistent Sidebar */}
-      <div className="hidden lg:block h-full shrink-0 relative z-10 w-64 max-w-full overflow-x-hidden">
+      <div className="hidden lg:block h-full shrink-0 relative z-10 w-[320px] max-w-full overflow-x-hidden">
         <Sidebar currentRoute={currentRoute} onNavigate={onNavigate} />
       </div>
 
@@ -54,10 +55,10 @@ export const AppShell: React.FC<AppShellProps> = ({
         onClose={() => setIsMobileMenuOpen(false)}
         title="PRODX POS Navigation"
         side="left"
-        width="w-[300px] sm:w-[320px] max-w-[85vw]"
+        width="w-[320px] max-w-full"
         noPadding={true}
       >
-        <div className="h-full overflow-y-auto overflow-x-hidden no-scrollbar w-full max-w-full">
+        <div className="h-full flex flex-col overflow-y-auto overflow-x-hidden no-scrollbar w-[320px] max-w-full">
           <Sidebar
             currentRoute={currentRoute}
             onNavigate={onNavigate}
@@ -77,11 +78,14 @@ export const AppShell: React.FC<AppShellProps> = ({
           onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
         />
 
+        {/* Global Navigation Breadcrumb Bar */}
+        <GlobalBreadcrumb currentRoute={currentRoute} onNavigate={onNavigate} />
+
         {/* Offline & Outbox Notice Banner */}
         <OfflineBanner />
 
         {/* Dynamic Route Content */}
-        <main className="flex-1 min-h-0 relative flex flex-col min-w-0 overflow-y-auto overflow-x-hidden">
+        <main className="flex-1 min-h-0 relative flex flex-col min-w-0 overflow-hidden w-full max-w-full">
           {children}
         </main>
 

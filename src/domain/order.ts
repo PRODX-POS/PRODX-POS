@@ -107,9 +107,14 @@ export function calculateLineItem(
   const basePrice = overriddenUnitPrice || product.price;
   const rawSubtotal = multiplyMoney(basePrice, quantity);
   const discountAmount = calculateBasisPoints(rawSubtotal, discountBps);
-  const discountedSubtotal = subtractMoney(rawSubtotal, discountAmount);
-  const lineTax = calculateBasisPoints(discountedSubtotal, product.taxRateBps);
-  const lineTotal = addMoney(discountedSubtotal, lineTax);
+  const discountedSubtotal = subtractMoney(rawSubtotal, discountAmount); // Inclusive final amount
+
+  const taxBps = product.taxRateBps;
+  const taxCents = taxBps > 0
+    ? Math.round((discountedSubtotal.amountInCents * taxBps) / (10000 + taxBps))
+    : 0;
+  const lineTax = createMoney(taxCents, discountedSubtotal.currency);
+  const netSubtotal = subtractMoney(discountedSubtotal, lineTax); // Pre-tax taxable base
 
   return {
     lineId: existingLineId || `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -117,9 +122,9 @@ export function calculateLineItem(
     quantity,
     unitPrice: basePrice,
     discountBps,
-    lineSubtotal: discountedSubtotal,
+    lineSubtotal: netSubtotal,
     lineTax,
-    lineTotal,
+    lineTotal: discountedSubtotal,
   };
 }
 
@@ -149,6 +154,7 @@ export function computeCartTotals(
 
   let grossSubtotal = zero;
   let itemDiscounts = zero;
+  let netSubtotal = zero;
   let totalTax = zero;
   let totalItemsCount = 0;
 
@@ -161,21 +167,29 @@ export function computeCartTotals(
 
     grossSubtotal = addMoney(grossSubtotal, itemGross);
     itemDiscounts = addMoney(itemDiscounts, itemDisc);
+    netSubtotal = addMoney(netSubtotal, item.lineSubtotal);
     totalTax = addMoney(totalTax, item.lineTax);
     totalItemsCount += item.quantity;
   }
 
   const preOrderDiscountSubtotal = subtractMoney(grossSubtotal, itemDiscounts);
   const orderDiscount = calculateBasisPoints(preOrderDiscountSubtotal, orderDiscountBps);
-  const netSubtotal = subtractMoney(preOrderDiscountSubtotal, orderDiscount);
-  const grandTotal = addMoney(netSubtotal, totalTax);
+  const grandTotal = subtractMoney(preOrderDiscountSubtotal, orderDiscount);
+
+  // Proportional scaling for order discounts
+  const discountRatio = preOrderDiscountSubtotal.amountInCents > 0
+    ? grandTotal.amountInCents / preOrderDiscountSubtotal.amountInCents
+    : 1;
+
+  const adjustedNetCents = Math.round(netSubtotal.amountInCents * discountRatio);
+  const adjustedTaxCents = Math.round(totalTax.amountInCents * discountRatio);
 
   return {
     grossSubtotal: createMoney(grossSubtotal.amountInCents, currency),
     itemDiscounts: createMoney(itemDiscounts.amountInCents, currency),
     orderDiscount: createMoney(orderDiscount.amountInCents, currency),
-    netSubtotal: createMoney(netSubtotal.amountInCents, currency),
-    totalTax: createMoney(totalTax.amountInCents, currency),
+    netSubtotal: createMoney(adjustedNetCents, currency),
+    totalTax: createMoney(adjustedTaxCents, currency),
     grandTotal: createMoney(grandTotal.amountInCents, currency),
     totalItemsCount,
   };

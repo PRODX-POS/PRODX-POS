@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { useBreadcrumb, BreadcrumbLevel } from '../../context/BreadcrumbContext';
 import { catalogApi } from '../../adapters/mockAdapter';
 import { Product, Category } from '../../domain/catalog';
 import { ProductCard } from './ProductCard';
@@ -34,9 +35,10 @@ import {
 
 export const PosScreen: React.FC = () => {
   const { session } = useAuth();
-  const { addItem, totals, items } = useCart();
+  const { addItem, totals, items, clearCart } = useCart();
   const { addToast } = useToast();
   const { t, language } = useLanguage();
+  const { setSubLevels } = useBreadcrumb();
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -48,6 +50,46 @@ export const PosScreen: React.FC = () => {
   const [mobileTab, setMobileTab] = useState<'catalog' | 'cart'>('catalog');
   const [isScannerModalOpen, setIsScannerModalOpen] = useState<boolean>(false);
   const [lastRecognizedProduct, setLastRecognizedProduct] = useState<Product | null>(null);
+
+  // Sync breadcrumbs with POS navigation depth
+  useEffect(() => {
+    const activeCategoryObj = categories.find((c) => c.id === selectedCategory);
+    const levels: BreadcrumbLevel[] = [];
+
+    if (searchQuery.trim()) {
+      levels.push({
+        id: 'pos-search',
+        label: { th: `ค้นหา: "${searchQuery}"`, en: `Search: "${searchQuery}"` },
+        onClick: () => setSearchQuery(''),
+      });
+    } else if (selectedCategory !== 'cat-all' && activeCategoryObj) {
+      levels.push({
+        id: 'pos-category',
+        label: activeCategoryObj.name,
+        onClick: () => setSelectedCategory('cat-all'),
+      });
+    } else {
+      levels.push({
+        id: 'pos-all',
+        label: { th: 'สินค้าทั้งหมด', en: 'All Items' },
+        onClick: () => {
+          setSelectedCategory('cat-all');
+          setSearchQuery('');
+        },
+      });
+    }
+
+    if (items.length > 0) {
+      levels.push({
+        id: 'pos-cart',
+        label: { th: 'ตะกร้าสินค้า', en: 'Active Cart' },
+        badge: items.length,
+        onClick: () => setIsMobileCartOpen(true),
+      });
+    }
+
+    setSubLevels(levels);
+  }, [selectedCategory, categories, searchQuery, items.length, setSubLevels]);
 
   // Automatically switch back to Catalog view and close mobile cart drawers if the cart becomes empty (e.g. after clearCart or new sale)
   useEffect(() => {
@@ -425,271 +467,311 @@ export const PosScreen: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row h-full overflow-hidden bg-background">
-      {/* Mobile Tab Switcher */}
-      <div className="lg:hidden px-4 py-2.5 bg-card border-b border-crisp border-border flex items-center gap-2 shrink-0 z-30">
-        <button
-          type="button"
-          onClick={() => setMobileTab('catalog')}
-          className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${
-            mobileTab === 'catalog'
-              ? 'bg-primary text-white shadow-2xs'
-              : 'bg-background text-text/70 hover:text-text border border-border'
-          }`}
-        >
-          <Layers className="h-4 w-4" />
-          <span>{language === 'th' ? 'เลือกสินค้า (Catalog)' : 'Products'}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setMobileTab('cart')}
-          className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 relative ${
-            mobileTab === 'cart'
-              ? 'bg-primary text-white shadow-2xs'
-              : 'bg-background text-text/70 hover:text-text border border-border'
-          }`}
-        >
-          <ShoppingCart className="h-4 w-4" />
-          <span>{language === 'th' ? 'ตะกร้าสินค้า (Cart)' : 'Cart'}</span>
-          {totals.totalItemsCount > 0 && (
-            <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-black h-5 w-5 rounded-full flex items-center justify-center shadow-md">
-              {totals.totalItemsCount}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {/* Left Workspace: Search, Categories & Catalog Grid */}
-      <div className={`flex-1 flex flex-col h-[calc(100%-56px)] lg:h-full min-h-0 min-w-0 overflow-hidden bg-background ${mobileTab === 'cart' ? 'hidden lg:flex' : 'flex'}`}>
-        {/* Top Operational Toolbar: Search, Barcode Input & Hardware Scanner Pill */}
-        <div className="p-4 border-b border-crisp border-border bg-card flex flex-col lg:flex-row gap-3 shrink-0">
-          <div className="flex-1 min-w-0">
-            <SearchInput
-              id="pos-search-input"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onClear={() => setSearchQuery('')}
-              placeholder={t.pos.searchPlaceholder}
-            />
+      {/* Left Workspace: Top 40% (Controls & Filters) + Body 60% (Catalog & Summary) */}
+      <div
+        className={`flex-1 flex flex-col h-full min-h-0 min-w-0 overflow-hidden bg-background ${
+          mobileTab === 'cart' ? 'hidden lg:flex' : 'flex'
+        }`}
+      >
+        {/* ========================================================================= */}
+        {/* TOP SECTION (40% Proportion on Mobile/Tablet, Compact Toolbar on Desktop) */}
+        {/* ========================================================================= */}
+        <div className="h-[40%] sm:h-[38%] min-h-[220px] max-h-[320px] lg:h-auto flex flex-col shrink-0 border-b border-crisp border-border bg-card shadow-2xs z-20 overflow-hidden">
+          {/* Mobile Tab Switcher */}
+          <div className="lg:hidden px-3 pt-2.5 pb-2 bg-card border-b border-border/60 flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => setMobileTab('catalog')}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                mobileTab === 'catalog'
+                  ? 'bg-primary text-white shadow-2xs'
+                  : 'bg-background text-text/70 hover:text-text border border-border'
+              }`}
+            >
+              <Layers className="h-3.5 w-3.5" />
+              <span>{language === 'th' ? 'รายการสินค้า (Catalog)' : 'Products'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileTab('cart')}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 relative ${
+                mobileTab === 'cart'
+                  ? 'bg-primary text-white shadow-2xs'
+                  : 'bg-background text-text/70 hover:text-text border border-border'
+              }`}
+            >
+              <ShoppingCart className="h-3.5 w-3.5" />
+              <span>{language === 'th' ? 'ตะกร้า (Cart)' : 'Cart'}</span>
+              {totals.totalItemsCount > 0 && (
+                <span className="bg-rose-500 text-white text-[10px] font-black h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center shadow-xs">
+                  {totals.totalItemsCount}
+                </span>
+              )}
+            </button>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {/* Barcode Quick Scanner Form */}
-            <form onSubmit={handleBarcodeSubmit} className="flex items-center gap-2 flex-1 sm:w-60 md:w-64">
+          {/* Unified Search & Barcode Quick Actions Row */}
+          <div className="p-2.5 sm:p-3 pb-2 flex flex-col gap-2 shrink-0 overflow-hidden">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <SearchInput
+                  id="pos-search-input"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onClear={() => setSearchQuery('')}
+                  placeholder={t.pos.searchPlaceholder}
+                />
+              </div>
+
+              {/* Bulk Barcode Import Trigger */}
+              <button
+                type="button"
+                onClick={() => {
+                  playScannerSound('click');
+                  setIsBulkAddModalOpen(true);
+                }}
+                title={language === 'th' ? 'นำเข้าบาร์โค้ดแบบกลุ่ม' : 'Bulk Barcode Import'}
+                className="h-10 min-w-[40px] px-2.5 rounded-lg bg-card hover:bg-background border-crisp border border-border text-text/70 hover:text-text transition-colors cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-2xs"
+              >
+                <Clipboard className="h-4 w-4" />
+              </button>
+
+              {/* Hardware Scanner Status & Simulator Launcher */}
+              <div className="flex items-center gap-1 bg-card border-crisp border border-border rounded-lg px-2 h-10 shrink-0 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setIsScannerModalOpen(true)}
+                  title={language === 'th' ? 'เครื่องสแกนบาร์โค้ดฮาร์ดแวร์ & ตัวจำลอง' : 'Hardware Barcode Scanner & Simulator'}
+                  className="py-1 hover:bg-background text-text/70 hover:text-text flex items-center gap-1.5 text-xs font-semibold cursor-pointer rounded-lg transition-all"
+                >
+                  <div className="relative flex items-center justify-center">
+                    <span
+                      className={`h-2.5 w-2.5 rounded-full ${
+                        !isScannerEnabled
+                          ? 'bg-border dark:bg-background'
+                          : !isWindowFocused
+                          ? 'bg-amber-500 animate-pulse'
+                          : isScanning
+                          ? 'bg-primary animate-ping'
+                          : 'bg-emerald-500'
+                      }`}
+                    />
+                  </div>
+
+                  <div className="hidden sm:flex flex-col text-left justify-center">
+                    <span className="text-[8px] text-text/50 uppercase font-bold tracking-wider leading-none">
+                      {language === 'th' ? 'สแกนเนอร์' : 'HID'}
+                    </span>
+                    <span className="text-[9px] font-bold text-text leading-tight">
+                      {!isScannerEnabled ? (
+                        <span className="text-text/50">{language === 'th' ? 'ปิด' : 'Off'}</span>
+                      ) : !isWindowFocused ? (
+                        <span className="text-amber-500">{language === 'th' ? 'ไม่โฟกัส' : 'Unfocused'}</span>
+                      ) : (
+                        <span className="text-emerald-500">{language === 'th' ? 'พร้อม' : 'Ready'}</span>
+                      )}
+                    </span>
+                  </div>
+                </button>
+
+                <div className="h-3.5 w-px bg-border border-crisp mx-0.5" />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    playScannerSound('click');
+                    setIsScannerEnabled(!isScannerEnabled);
+                    addToast({
+                      title: language === 'th' ? 'อัปเดตสแกนเนอร์ฮาร์ดแวร์' : 'Scanner Config Updated',
+                      message: !isScannerEnabled
+                        ? language === 'th'
+                          ? 'เปิดใช้งานการดักฟังคีย์บอร์ดแล้ว'
+                          : 'Keyboard wedge listener active.'
+                        : language === 'th'
+                        ? 'ปิดใช้งานเครื่องสแกนชั่วคราวแล้ว'
+                        : 'Wedge listener paused to bypass keyboard interrupts.',
+                      type: 'info',
+                    });
+                  }}
+                  title={
+                    isScannerEnabled
+                      ? language === 'th'
+                        ? 'คลิกเพื่อหยุดสแกนชั่วคราว'
+                        : 'Pause scanner listener'
+                      : language === 'th'
+                      ? 'คลิกเพื่อเปิดสแกนเนอร์'
+                      : 'Activate scanner listener'
+                  }
+                  className="p-1 flex items-center justify-center text-text/50 hover:text-text transition-colors cursor-pointer rounded hover:bg-background"
+                >
+                  <div
+                    className={`w-6 h-3.5 rounded-full p-0.5 transition-colors duration-200 ease-in-out ${
+                      isScannerEnabled ? 'bg-emerald-500' : 'bg-border dark:bg-background'
+                    }`}
+                  >
+                    <div
+                      className={`w-2.5 h-2.5 rounded-full bg-white shadow-xs transform duration-200 ease-in-out ${
+                        isScannerEnabled ? 'translate-x-2.5' : 'translate-x-0'
+                      }`}
+                    />
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Direct Barcode Quick Scan Input Row */}
+            <form onSubmit={handleBarcodeSubmit} className="flex items-center gap-2 w-full">
               <div className="relative flex-1">
                 <input
                   type="text"
                   value={barcodeInput}
                   onChange={(e) => setBarcodeInput(e.target.value)}
-                  placeholder={language === 'th' ? 'สแกน / กรอกบาร์โค้ด' : 'Scan / Enter Barcode'}
-                  className="w-full min-h-[44px] h-11 rounded-lg border-crisp border border-border bg-card text-sm sm:text-xs pl-9 pr-3 py-2.5 font-mono text-text placeholder-text/40 focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
+                  placeholder={language === 'th' ? 'สแกน / กรอกรหัสบาร์โค้ดสินค้า...' : 'Scan / Enter Product Barcode...'}
+                  className="w-full h-9 rounded-lg border-crisp border border-border bg-card text-xs pl-8 pr-3 py-1 font-mono text-text placeholder-text/40 focus:outline-none focus:ring-2 focus:ring-primary transition-colors"
                 />
-                <Barcode className="h-4 w-4 text-text/40 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Barcode className="h-3.5 w-3.5 text-text/40 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               </div>
               <button
                 type="submit"
                 disabled={!barcodeInput.trim()}
-                className="min-h-[44px] h-11 px-4 rounded-lg bg-primary hover:bg-primary/90 text-white text-xs font-bold tracking-wide disabled:opacity-40 cursor-pointer transition-all shrink-0 flex items-center justify-center shadow-2xs active:scale-95"
+                className="h-9 px-3.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-xs font-bold tracking-wide disabled:opacity-40 cursor-pointer transition-all shrink-0 flex items-center justify-center shadow-2xs active:scale-95"
               >
                 {language === 'th' ? 'สแกน' : 'Scan'}
               </button>
             </form>
+          </div>
 
-            <button
-              type="button"
-              onClick={() => {
-                playScannerSound('click');
-                setIsBulkAddModalOpen(true);
-              }}
-              title={language === 'th' ? 'นำเข้าบาร์โค้ดแบบกลุ่ม' : 'Bulk Barcode Import'}
-              className="min-h-[44px] h-11 px-3.5 rounded-lg bg-card hover:bg-background border-crisp border border-border text-text/70 hover:text-text transition-colors cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-2xs"
-            >
-              <Clipboard className="h-4 w-4" />
-            </button>
-
-            {/* Hardware Scanner Status & Simulator Launcher Button */}
-            <div className="flex items-center gap-1.5 bg-card border-crisp border border-border rounded-lg p-1 h-11 shrink-0 shadow-2xs">
-              <button
-                type="button"
-                onClick={() => setIsScannerModalOpen(true)}
-                title={language === 'th' ? 'เครื่องสแกนบาร์โค้ดฮาร์ดแวร์ & ตัวจำลอง' : 'Hardware Barcode Scanner & Simulator'}
-                className="px-2.5 py-1 h-full hover:bg-background text-text/70 hover:text-text flex items-center gap-2 text-xs font-semibold cursor-pointer rounded-lg transition-all border border-transparent hover:border-crisp hover:border-border"
-              >
-                <div className="relative flex items-center justify-center">
-                  <span className={`h-2.5 w-2.5 rounded-full ${
-                    !isScannerEnabled 
-                      ? 'bg-border dark:bg-background' 
-                      : !isWindowFocused 
-                        ? 'bg-amber-500 animate-pulse' 
-                        : isScanning 
-                          ? 'bg-primary animate-ping' 
-                          : 'bg-emerald-500'
-                  }`} />
-                </div>
-                
-                <div className="flex flex-col text-left justify-center">
-                  <span className="text-[9px] text-text/50 uppercase font-bold tracking-wider leading-none">
-                    {language === 'th' ? 'เครื่องสแกน' : 'HID Scanner'}
-                  </span>
-                  <span className="text-[10px] font-bold text-text leading-tight">
-                    {!isScannerEnabled ? (
-                      <span className="text-text/50">
-                        {language === 'th' ? 'ปิด' : 'Off'}
-                      </span>
-                    ) : !isWindowFocused ? (
-                      <span className="text-amber-500">
-                        {language === 'th' ? 'ไม่โฟกัส' : 'Unfocused'}
-                      </span>
-                    ) : (
-                      <span className="text-emerald-500">
-                        {language === 'th' ? 'พร้อมใช้งาน' : 'Ready'}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              </button>
-
-              <div className="h-4 w-px bg-border border-crisp" />
-              <button
-                type="button"
-                onClick={() => {
-                  playScannerSound('click');
-                  setIsScannerEnabled(!isScannerEnabled);
-                  addToast({
-                    title: language === 'th' ? 'อัปเดตสแกนเนอร์ฮาร์ดแวร์' : 'Scanner Config Updated',
-                    message: !isScannerEnabled
-                      ? (language === 'th' ? 'เปิดใช้งานการดักฟังคีย์บอร์ดแล้ว' : 'Keyboard wedge listener active.')
-                      : (language === 'th' ? 'ปิดใช้งานเครื่องสแกนชั่วคราวแล้ว' : 'Wedge listener paused to bypass keyboard interrupts.'),
-                    type: 'info'
-                  });
-                }}
-                title={isScannerEnabled ? (language === 'th' ? 'คลิกเพื่อหยุดสแกนชั่วคราว' : 'Pause scanner listener') : (language === 'th' ? 'คลิกเพื่อเปิดสแกนเนอร์' : 'Activate scanner listener')}
-                className="px-2 h-full flex items-center justify-center text-text/50 hover:text-text transition-colors cursor-pointer rounded-lg hover:bg-background"
-              >
-                <div className={`w-7 h-4 rounded-full p-0.5 transition-colors duration-200 ease-in-out ${isScannerEnabled ? 'bg-emerald-500' : 'bg-border dark:bg-background'}`}>
-                  <div className={`w-3 h-3 rounded-full bg-white shadow-sm transform duration-200 ease-in-out ${isScannerEnabled ? 'translate-x-3' : 'translate-x-0'}`} />
-                </div>
-              </button>
-            </div>
+          {/* Categories Carousel Pill Bar (Anchored at base of Top 40%) */}
+          <div className="px-2.5 sm:px-3 py-2 border-t border-border/70 bg-card/90 flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0 mt-auto">
+            {categories.map((cat) => {
+              const isSelected = selectedCategory === cat.id;
+              const categoryLabel = cat.id === 'cat-all' ? t.pos.allCategories : cat.name;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => {
+                    playScannerSound('click');
+                    setSelectedCategory(cat.id);
+                  }}
+                  className={`h-8 flex items-center gap-1.5 px-3 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                    isSelected
+                      ? 'bg-primary text-white border-crisp border border-primary'
+                      : 'bg-card text-text/70 border-crisp border border-border hover:text-text hover:bg-background active:scale-95'
+                  }`}
+                >
+                  {cat.color && (
+                    <span
+                      className="h-2 w-2 rounded-full shrink-0"
+                      style={{ backgroundColor: cat.color }}
+                    />
+                  )}
+                  <span>{categoryLabel}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Categories Carousel / Pill Bar */}
-        <div className="px-4 py-3 border-b border-crisp border-border bg-card flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0">
-          {categories.map((cat) => {
-            const isSelected = selectedCategory === cat.id;
-            const categoryLabel = cat.id === 'cat-all' ? t.pos.allCategories : cat.name;
-            return (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => {
-                  playScannerSound('click');
-                  setSelectedCategory(cat.id);
+        {/* ========================================================================= */}
+        {/* BODY + BOTTOM SECTION (60% Proportion on Mobile, Full Height on Desktop) */}
+        {/* ========================================================================= */}
+        <div className="flex-1 h-[60%] sm:h-[62%] lg:h-full min-h-0 flex flex-col relative bg-background overflow-hidden">
+          {/* Product Catalog Grid Scroll Area */}
+          <div className="flex-1 overflow-y-auto p-2.5 sm:p-3.5 lg:p-4 pb-24 lg:pb-4 no-scrollbar">
+            {isLoading ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-3">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="rounded-lg border-crisp border border-border bg-card p-3 space-y-2 shadow-2xs"
+                  >
+                    <Skeleton className="h-3 w-14" />
+                    <Skeleton className="h-4 w-3/4" />
+                    <Skeleton className="h-3 w-1/2" />
+                    <div className="pt-2 border-t border-crisp border-border flex justify-between items-center">
+                      <Skeleton className="h-4 w-12" />
+                      <Skeleton className="h-6 w-6 rounded-lg" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : filteredProducts.length === 0 ? (
+              <EmptyState
+                icon={<Search className="h-6 w-6 text-text/40" />}
+                title={language === 'th' ? 'ไม่พบสินค้า' : 'No Products Found'}
+                description={
+                  searchQuery
+                    ? language === 'th'
+                      ? `ไม่มีสินค้าตรงกับคำค้นหา "${searchQuery}"`
+                      : `No items match the search query "${searchQuery}".`
+                    : language === 'th'
+                    ? 'ไม่มีสินค้าในหมวดหมู่นี้'
+                    : 'No products found in this category.'
+                }
+                actionLabel={language === 'th' ? 'ล้างตัวกรอง' : 'Clear Filter'}
+                onAction={() => {
+                  setSearchQuery('');
+                  setSelectedCategory('cat-all');
                 }}
-                className={`min-h-[44px] flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
-                  isSelected
-                    ? 'bg-primary text-white border-crisp border border-primary'
-                    : 'bg-card text-text/70 border-crisp border border-border hover:text-text hover:bg-background active:scale-95'
-                }`}
-              >
-                {cat.color && (
-                  <span
-                    className="h-2.5 w-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: cat.color }}
+                className="my-8 max-w-md mx-auto"
+              />
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3 content-start">
+                {filteredProducts.map((product, index) => (
+                  <ProductCard
+                    key={product.id}
+                    id={`product-card-${index}`}
+                    product={product}
+                    isFocused={index === focusedProductIndex}
+                    onAddToCart={(p) => {
+                      playScannerSound('click');
+                      addItem(p, 1);
+                    }}
                   />
-                )}
-                <span>{categoryLabel}</span>
-              </button>
-            );
-          })}
-        </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-        {/* Product Catalog Grid Scroll Area */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4 lg:p-5 pb-24 lg:pb-5 no-scrollbar">
-          {isLoading ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
-              {Array.from({ length: 10 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="rounded-lg border-crisp border border-border bg-card p-3.5 space-y-2.5 shadow-2xs"
-                >
-                  <Skeleton className="h-3 w-16" />
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-3 w-1/2" />
-                  <div className="pt-2.5 border-t border-crisp border-border flex justify-between items-center">
-                    <Skeleton className="h-5 w-14" />
-                    <Skeleton className="h-7 w-7 rounded-lg" />
+          {/* Bottom Floating Quick Cart Summary Bar */}
+          <AnimatePresence>
+            {totals.totalItemsCount > 0 && (
+              <motion.div
+                initial={{ y: 120, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: 120, opacity: 0 }}
+                className="lg:hidden absolute bottom-3 left-3 right-3 p-3 border border-crisp border-primary/20 bg-card/95 backdrop-blur-md flex items-center justify-between shadow-xl rounded-xl z-40"
+              >
+                <div>
+                  <div className="text-[10px] text-text/70 font-semibold">
+                    {t.pos.cartTitle} (<span className="font-mono">{totals.totalItemsCount}</span> {t.pos.itemCount})
+                  </div>
+                  <div className="text-base font-black font-mono text-primary">
+                    {formatMoney(totals.grandTotal)}
                   </div>
                 </div>
-              ))}
-            </div>
-          ) : filteredProducts.length === 0 ? (
-            <EmptyState
-              icon={<Search className="h-6 w-6 text-text/40" />}
-              title={language === 'th' ? 'ไม่พบสินค้า' : 'No Products Found'}
-              description={
-                searchQuery
-                  ? (language === 'th' ? `ไม่มีสินค้าตรงกับคำค้นหา "${searchQuery}"` : `No items match the search query "${searchQuery}".`)
-                  : (language === 'th' ? 'ไม่มีสินค้าในหมวดหมู่นี้' : 'No products found in this category.')
-              }
-              actionLabel={language === 'th' ? 'ล้างตัวกรอง' : 'Clear Filter'}
-              onAction={() => {
-                setSearchQuery('');
-                setSelectedCategory('cat-all');
-              }}
-              className="my-12 max-w-md mx-auto"
-            />
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3.5 content-start">
-              {filteredProducts.map((product, index) => (
-                <ProductCard
-                  key={product.id}
-                  id={`product-card-${index}`}
-                  product={product}
-                  isFocused={index === focusedProductIndex}
-                  onAddToCart={(p) => {
-                    playScannerSound('click');
-                    addItem(p, 1);
-                  }}
-                />
-              ))}
-            </div>
-          )}
+
+                <button
+                  type="button"
+                  onClick={() => setIsMobileCartOpen(true)}
+                  className="min-h-[42px] h-10 flex items-center gap-2 px-5 rounded-lg bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-2xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95"
+                >
+                  <ShoppingCart className="h-4 w-4" />
+                  <span>{t.pos.checkoutBtn}</span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-
-        {/* Mobile Floating Cart Summary Bar */}
-        <AnimatePresence>
-          {totals.totalItemsCount > 0 && (
-            <motion.div
-              initial={{ y: 150, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 150, opacity: 0 }}
-              className="lg:hidden absolute bottom-4 left-4 right-4 p-4 border border-crisp border-primary/20 bg-card flex items-center justify-between shadow-2xl rounded-2xl z-40"
-            >
-              <div>
-                <div className="text-[11px] text-text/70 font-semibold">
-                  {t.pos.cartTitle} (<span className="font-mono">{totals.totalItemsCount}</span> {t.pos.itemCount})
-                </div>
-                <div className="text-lg font-black font-mono text-primary">
-                  {formatMoney(totals.grandTotal)}
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsMobileCartOpen(true)}
-                className="min-h-[48px] h-12 flex items-center gap-2.5 px-6 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-sm shadow-2xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95"
-              >
-                <ShoppingCart className="h-4.5 w-4.5" />
-                <span>{t.pos.checkoutBtn}</span>
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
 
-      {/* Desktop/Tablet Right Side Cart Panel / Mobile Cart View */}
-      <div className={`w-full lg:w-[45%] xl:w-[40%] h-[calc(100%-56px)] lg:h-full min-h-0 shrink-0 border-l border-crisp border-border bg-card ${mobileTab === 'cart' ? 'flex flex-col flex-1 lg:flex-initial' : 'hidden lg:block'}`}>
+      {/* Right Side Workspace: Cart Panel (40% width on Desktop) / Mobile Cart View */}
+      <div
+        className={`w-full lg:w-[40%] xl:w-[38%] h-full min-h-0 shrink-0 border-l border-crisp border-border bg-card ${
+          mobileTab === 'cart' ? 'flex flex-col flex-1 lg:flex-initial' : 'hidden lg:block'
+        }`}
+      >
         <CartPanel />
       </div>
 

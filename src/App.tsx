@@ -13,7 +13,10 @@ import { OfflineProvider } from './context/OfflineContext';
 import { ShiftProvider } from './context/ShiftContext';
 import { CartProvider } from './context/CartContext';
 import { ReceiptPrinterProvider } from './context/ReceiptPrinterContext';
+import { VisualInspectorProvider } from './context/VisualInspectorContext';
+import { BreadcrumbProvider } from './context/BreadcrumbContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { GlobalErrorRecoveryProvider } from './context/GlobalErrorRecoveryProvider';
 import { AppShell } from './components/layout/AppShell';
 import { CustomerDisplayView } from './modules/customerDisplay/CustomerDisplayView';
 import { NavRoute } from './components/layout/Sidebar';
@@ -28,6 +31,7 @@ import { AuditScreen } from './modules/audit/AuditScreen';
 import { SettingsScreen } from './modules/settings/SettingsScreen';
 import { ReceiptValidationPortal } from './components/receipt/ReceiptValidationPortal';
 import { ShortcutsOverlay } from './components/common/ShortcutsOverlay';
+import { RbacGuard } from './components/auth/RbacGuard';
 
 const MainApplication: React.FC = () => {
   const { session } = useAuth();
@@ -109,7 +113,14 @@ const MainApplication: React.FC = () => {
         )}
         {currentRoute === 'dashboard' && (
           <ErrorBoundary moduleName="Sales & Analytics Dashboard">
-            <DashboardScreen onNavigate={setCurrentRoute} />
+            <RbacGuard
+              module="dashboard"
+              allowedRoles={['manager', 'admin']}
+              hideMode="denied-card"
+              onRedirectToPos={() => setCurrentRoute('pos')}
+            >
+              <DashboardScreen onNavigate={setCurrentRoute} />
+            </RbacGuard>
           </ErrorBoundary>
         )}
         {currentRoute === 'orders' && (
@@ -124,7 +135,14 @@ const MainApplication: React.FC = () => {
         )}
         {currentRoute === 'shift' && (
           <ErrorBoundary moduleName="Cash Drawer & Shift Management">
-            <ShiftScreen />
+            <RbacGuard
+              module="shift"
+              allowedRoles={['manager', 'admin']}
+              hideMode="denied-card"
+              onRedirectToPos={() => setCurrentRoute('pos')}
+            >
+              <ShiftScreen />
+            </RbacGuard>
           </ErrorBoundary>
         )}
         {currentRoute === 'customers' && (
@@ -134,12 +152,26 @@ const MainApplication: React.FC = () => {
         )}
         {currentRoute === 'audit' && (
           <ErrorBoundary moduleName="Security & Audit Trail">
-            <AuditScreen />
+            <RbacGuard
+              module="audit"
+              allowedRoles={['manager', 'admin']}
+              hideMode="denied-card"
+              onRedirectToPos={() => setCurrentRoute('pos')}
+            >
+              <AuditScreen />
+            </RbacGuard>
           </ErrorBoundary>
         )}
         {currentRoute === 'settings' && (
           <ErrorBoundary moduleName="System & Hardware Settings">
-            <SettingsScreen />
+            <RbacGuard
+              module="settings"
+              allowedRoles={['manager', 'admin']}
+              hideMode="denied-card"
+              onRedirectToPos={() => setCurrentRoute('pos')}
+            >
+              <SettingsScreen />
+            </RbacGuard>
           </ErrorBoundary>
         )}
       </AppShell>
@@ -172,50 +204,60 @@ export default function App() {
 
   if (isReceiptValidationMode) {
     return (
-      <ErrorBoundary isGlobal moduleName="PRODX Receipt Validation Portal">
-        <ThemeProvider>
-          <LanguageProvider>
-            <ReceiptValidationPortal />
-          </LanguageProvider>
-        </ThemeProvider>
-      </ErrorBoundary>
+      <GlobalErrorRecoveryProvider>
+        <ErrorBoundary isGlobal moduleName="PRODX Receipt Validation Portal">
+          <ThemeProvider>
+            <LanguageProvider>
+              <ReceiptValidationPortal />
+            </LanguageProvider>
+          </ThemeProvider>
+        </ErrorBoundary>
+      </GlobalErrorRecoveryProvider>
     );
   }
 
   if (isCustomerDisplayMode) {
     return (
-      <ErrorBoundary isGlobal moduleName="PRODX Customer-Facing Display">
-        <ThemeProvider>
-          <LanguageProvider>
-            <CustomerDisplayView />
-          </LanguageProvider>
-        </ThemeProvider>
-      </ErrorBoundary>
+      <GlobalErrorRecoveryProvider>
+        <ErrorBoundary isGlobal moduleName="PRODX Customer-Facing Display">
+          <ThemeProvider>
+            <LanguageProvider>
+              <CustomerDisplayView />
+            </LanguageProvider>
+          </ThemeProvider>
+        </ErrorBoundary>
+      </GlobalErrorRecoveryProvider>
     );
   }
 
   return (
-    <ErrorBoundary isGlobal moduleName="PRODX POS Core Engine">
-      <ThemeProvider>
-        <LanguageProvider>
-          <SoundProvider>
-            <ToastProvider>
-              <AuthProvider>
-                <OfflineProvider>
-                  <ShiftProvider>
-                    <CartProvider>
-                      <ReceiptPrinterProvider>
-                        <MainApplication />
-                      </ReceiptPrinterProvider>
-                    </CartProvider>
-                  </ShiftProvider>
-                </OfflineProvider>
-              </AuthProvider>
-            </ToastProvider>
-          </SoundProvider>
-        </LanguageProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
+    <GlobalErrorRecoveryProvider>
+      <ErrorBoundary isGlobal moduleName="PRODX POS Core Engine">
+        <ThemeProvider>
+          <LanguageProvider>
+            <SoundProvider>
+              <ToastProvider>
+                <AuthProvider>
+                  <OfflineProvider>
+                    <ShiftProvider>
+                      <CartProvider>
+                        <ReceiptPrinterProvider>
+                          <VisualInspectorProvider>
+                            <BreadcrumbProvider>
+                              <MainApplication />
+                            </BreadcrumbProvider>
+                          </VisualInspectorProvider>
+                        </ReceiptPrinterProvider>
+                      </CartProvider>
+                    </ShiftProvider>
+                  </OfflineProvider>
+                </AuthProvider>
+              </ToastProvider>
+            </SoundProvider>
+          </LanguageProvider>
+        </ThemeProvider>
+      </ErrorBoundary>
+    </GlobalErrorRecoveryProvider>
   );
 }
 

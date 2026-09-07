@@ -602,8 +602,18 @@ export class ThermalReceiptService {
 
     try {
       const nav = navigator as any;
+      if (!nav.serial) {
+        throw new Error('Web Serial API is not available.');
+      }
       const port = await nav.serial.requestPort();
+      if (!port) {
+        throw new Error('No serial port selected.');
+      }
       await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
+
+      if (!port.writable) {
+        throw new Error('Serial port writable stream is not available.');
+      }
 
       const writer = port.writable.getWriter();
       await writer.write(data);
@@ -637,15 +647,26 @@ export class ThermalReceiptService {
 
     try {
       const nav = navigator as any;
+      if (!nav.usb) {
+        throw new Error('WebUSB API is not available.');
+      }
       const device = await nav.usb.requestDevice({
         filters: [{ classCode: 7 }], // USB Printer Class
       });
+
+      if (!device) {
+        throw new Error('No USB device selected.');
+      }
 
       await device.open();
       if (device.configuration === null) {
         await device.selectConfiguration(1);
       }
       await device.claimInterface(0);
+
+      if (!device.transferOut) {
+        throw new Error('USB transferOut is not supported on this device.');
+      }
 
       // Endpoint 1 or 2 Out
       await device.transferOut(1, data);
@@ -678,23 +699,47 @@ export class ThermalReceiptService {
 
     try {
       const nav = navigator as any;
+      if (!nav.bluetooth) {
+        throw new Error('Web Bluetooth API is not available.');
+      }
       const device = await nav.bluetooth.requestDevice({
         acceptAllDevices: true,
         optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb', '49535343-fe7d-4ae5-8fa9-9fafd205e455'],
       });
 
+      if (!device || !device.gatt) {
+        throw new Error('No Bluetooth device or GATT server found.');
+      }
+
       const server = await device.gatt.connect();
+      if (!server) {
+        throw new Error('Failed to connect to GATT server.');
+      }
+
       // Transmit chunks (Bluetooth characteristic buffer is typically 20-512 bytes)
       const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
+      if (!service) {
+        throw new Error('Primary service not found.');
+      }
+
       const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb');
+      if (!characteristic) {
+        throw new Error('Characteristic not found.');
+      }
 
       const chunkSize = 64;
       for (let i = 0; i < data.length; i += chunkSize) {
         const chunk = data.slice(i, i + chunkSize);
-        await characteristic.writeValue(chunk);
+        if (typeof characteristic.writeValue === 'function') {
+          await characteristic.writeValue(chunk);
+        } else if (typeof characteristic.writeValueWithResponse === 'function') {
+          await characteristic.writeValueWithResponse(chunk);
+        }
       }
 
-      await server.disconnect();
+      if (server.connected) {
+        await server.disconnect();
+      }
 
       return {
         success: true,

@@ -12,7 +12,7 @@ export type BadgeVariant =
 export interface BadgeProps {
   children: React.ReactNode;
   variant?: BadgeVariant;
-  size?: 'sm' | 'md';
+  size?: 'xs' | 'sm' | 'md';
   dot?: boolean;
   className?: string;
   id?: string;
@@ -72,7 +72,12 @@ export const Badge: React.FC<BadgeProps> = ({
   id,
 }) => {
   const styles = variantStyles[variant];
-  const sizeCls = size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-2.5 py-1 text-xs font-medium';
+  const sizeCls =
+    size === 'xs'
+      ? 'px-1.5 py-0.2 text-label-xs'
+      : size === 'sm'
+      ? 'px-2 py-0.5 text-label-sm'
+      : 'px-2.5 py-1 text-label-md';
 
   return (
     <span

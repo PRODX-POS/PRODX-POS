@@ -6,7 +6,7 @@
  */
 
 import { User, SessionContext, Store } from '../domain/auth';
-import { Product, Category, InventoryLedgerEntry, StockMovementReason } from '../domain/catalog';
+import { Product, Category, InventoryLedgerEntry, StockMovementReason, BulkImportItem, BulkImportMode, BulkImportResult } from '../domain/catalog';
 import { Order, CartLineItem, CartTotals, TenderPayment } from '../domain/order';
 import { Shift, CashMovement, CashMovementType, TimeclockRecord } from '../domain/shift';
 import { AuditLogEntry, AuditAction, AuditSeverity } from '../domain/audit';
@@ -77,6 +77,13 @@ export interface ICatalogApi {
     value: number,
     userId: string
   ): Promise<readonly Product[]>;
+  bulkImportProducts(
+    storeId: string,
+    items: readonly BulkImportItem[],
+    mode: BulkImportMode,
+    userId: string,
+    notes?: string
+  ): Promise<BulkImportResult>;
 }
 
 export interface IOrderApi {

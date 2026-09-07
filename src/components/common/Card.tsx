@@ -1,4 +1,5 @@
 import React from 'react';
+import { Heading, Text } from './Typography';
 
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
@@ -40,6 +41,34 @@ export const CardHeader: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({
   </div>
 );
 
+export interface CardTitleProps extends Omit<React.HTMLAttributes<HTMLHeadingElement>, 'color'> {
+  children: React.ReactNode;
+}
+
+export const CardTitle: React.FC<CardTitleProps> = ({
+  children,
+  className = '',
+  ...props
+}) => (
+  <Heading level={3} className={`text-text ${className}`} {...props}>
+    {children}
+  </Heading>
+);
+
+export interface CardDescriptionProps extends Omit<React.HTMLAttributes<HTMLParagraphElement>, 'color'> {
+  children: React.ReactNode;
+}
+
+export const CardDescription: React.FC<CardDescriptionProps> = ({
+  children,
+  className = '',
+  ...props
+}) => (
+  <Text size="sm" className={`text-text/70 mt-0.5 ${className}`} {...props}>
+    {children}
+  </Text>
+);
+
 export const CardBody: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({
   children,
   className = '',
@@ -62,3 +91,4 @@ export const CardFooter: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({
     {children}
   </div>
 );
+

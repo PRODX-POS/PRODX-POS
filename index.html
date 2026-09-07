@@ -17,20 +17,40 @@
       (function() {
         try {
           var PRESETS = {
-            enterprise_blue: { primary: '#2563EB', background: '#F8FAFC', card: '#FFFFFF', text: '#0F172A', border: '#E2E8F0', isDark: false },
-            deep_obsidian: { primary: '#3B82F6', background: '#090D16', card: '#0F172A', text: '#F8FAFC', border: '#1E293B', isDark: true },
-            modern: { primary: '#3B82F6', background: '#F8FAFC', card: '#FFFFFF', text: '#0F172A', border: '#E2E8F0', isDark: false },
-            minimal: { primary: '#0F172A', background: '#F8FAFC', card: '#FFFFFF', text: '#0F172A', border: '#E2E8F0', isDark: false },
-            dark_elegant: { primary: '#60A5FA', background: '#0B0D11', card: '#151821', text: '#F1F3F5', border: '#2A2E3D', isDark: true },
-            emerald: { primary: '#10B981', background: '#F0FDF4', card: '#FFFFFF', text: '#064E3B', border: '#D1FAE5', isDark: false },
-            cyberpunk: { primary: '#38BDF8', background: '#0B0F19', card: '#111827', text: '#F9FAFB', border: '#1E293B', isDark: true },
-            sunset: { primary: '#F97316', background: '#FFF8F5', card: '#FFFFFF', text: '#5B1E00', border: '#FFE4D6', isDark: false },
-            ocean: { primary: '#0284C7', background: '#F0FDFA', card: '#FFFFFF', text: '#0F172A', border: '#E2E8F0', isDark: false },
-            lavender: { primary: '#6366F1', background: '#F8FAFC', card: '#FFFFFF', text: '#0F172A', border: '#E2E8F0', isDark: false }
+            enterprise_obsidian: {
+              primary: '#3B82F6', primaryDark: '#1D4ED8', primaryLight: 'rgba(59, 130, 246, 0.12)', primaryGlow: 'rgba(59, 130, 246, 0.25)',
+              background: '#090D16', card: '#0F172A', cardHover: '#1E293B', text: '#F8FAFC', textMuted: '#94A3B8', border: '#1E293B', borderHover: '#334155',
+              buttonRadius: '12px', cardRadius: '16px', isDark: true
+            },
+            nordic_slate: {
+              primary: '#2563EB', primaryDark: '#1D4ED8', primaryLight: 'rgba(37, 99, 235, 0.08)', primaryGlow: 'rgba(37, 99, 235, 0.18)',
+              background: '#F8FAFC', card: '#FFFFFF', cardHover: '#F1F5F9', text: '#0F172A', textMuted: '#64748B', border: '#E2E8F0', borderHover: '#CBD5E1',
+              buttonRadius: '12px', cardRadius: '16px', isDark: false
+            },
+            royal_emerald: {
+              primary: '#059669', primaryDark: '#047857', primaryLight: 'rgba(5, 150, 105, 0.09)', primaryGlow: 'rgba(5, 150, 105, 0.22)',
+              background: '#F4FBF7', card: '#FFFFFF', cardHover: '#ECFDF5', text: '#064E3B', textMuted: '#047857', border: '#D1FAE5', borderHover: '#A7F3D0',
+              buttonRadius: '14px', cardRadius: '18px', isDark: false
+            },
+            cyberpunk_neon: {
+              primary: '#06B6D4', primaryDark: '#0891B2', primaryLight: 'rgba(6, 182, 212, 0.14)', primaryGlow: 'rgba(6, 182, 212, 0.35)',
+              background: '#0B0F19', card: '#111827', cardHover: '#1F2937', text: '#F9FAFB', textMuted: '#9CA3AF', border: '#1F2937', borderHover: '#374151',
+              buttonRadius: '10px', cardRadius: '14px', isDark: true
+            },
+            sunset_terracotta: {
+              primary: '#EA580C', primaryDark: '#C2410C', primaryLight: 'rgba(234, 88, 12, 0.09)', primaryGlow: 'rgba(234, 88, 12, 0.2)',
+              background: '#FFFBF7', card: '#FFFFFF', cardHover: '#FFF7ED', text: '#431407', textMuted: '#9A3412', border: '#FFEDD5', borderHover: '#FED7AA',
+              buttonRadius: '16px', cardRadius: '20px', isDark: false
+            },
+            midnight_indigo: {
+              primary: '#6366F1', primaryDark: '#4F46E5', primaryLight: 'rgba(99, 102, 241, 0.13)', primaryGlow: 'rgba(99, 102, 241, 0.28)',
+              background: '#0A0A14', card: '#13132B', cardHover: '#1E1E3F', text: '#F8FAFC', textMuted: '#A5B4FC', border: '#23234A', borderHover: '#3B3B6D',
+              buttonRadius: '12px', cardRadius: '16px', isDark: true
+            }
           };
 
-          var savedPresetId = localStorage.getItem('prodx_pos_theme_preset') || 'enterprise_blue';
-          var preset = PRESETS[savedPresetId] || PRESETS.enterprise_blue;
+          var savedPresetId = localStorage.getItem('prodx_pos_theme_preset') || 'enterprise_obsidian';
+          var preset = PRESETS[savedPresetId] || PRESETS.enterprise_obsidian;
           var savedMode = localStorage.getItem('prodx_pos_theme_mode');
           var systemDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
           
@@ -50,53 +70,77 @@
 
           var bgColor = preset.background;
           var cardColor = preset.card;
+          var cardHoverColor = preset.cardHover;
           var textColor = preset.text;
+          var textMutedColor = preset.textMuted;
           var borderColor = preset.border;
+          var borderHoverColor = preset.borderHover;
           var primaryColor = customAccent || preset.primary;
-          var primaryDarkColor = '#1D4ED8';
-          var primaryGlow = 'rgba(37, 99, 235, 0.2)';
+          var primaryDarkColor = preset.primaryDark;
+          var primaryLightColor = preset.primaryLight;
+          var primaryGlow = preset.primaryGlow;
 
           if (isDark) {
             if (preset.isDark) {
               bgColor = preset.background;
               cardColor = preset.card;
+              cardHoverColor = preset.cardHover;
               textColor = preset.text;
+              textMutedColor = preset.textMuted;
               borderColor = preset.border;
+              borderHoverColor = preset.borderHover;
               primaryColor = customAccent || preset.primary;
             } else {
               bgColor = '#090D16';
               cardColor = '#0F172A';
+              cardHoverColor = '#1E293B';
               textColor = '#F8FAFC';
+              textMutedColor = '#94A3B8';
               borderColor = '#1E293B';
-              primaryColor = customAccent || '#3B82F6';
+              borderHoverColor = '#334155';
+              primaryColor = customAccent || preset.primary;
+              primaryDarkColor = '#1D4ED8';
+              primaryLightColor = 'rgba(59, 130, 246, 0.12)';
+              primaryGlow = 'rgba(59, 130, 246, 0.25)';
             }
-            primaryDarkColor = '#2563EB';
-            primaryGlow = 'rgba(59, 130, 246, 0.25)';
           } else {
             if (!preset.isDark) {
               bgColor = preset.background;
               cardColor = preset.card;
+              cardHoverColor = preset.cardHover;
               textColor = preset.text;
+              textMutedColor = preset.textMuted;
               borderColor = preset.border;
+              borderHoverColor = preset.borderHover;
               primaryColor = customAccent || preset.primary;
             } else {
               bgColor = '#F8FAFC';
               cardColor = '#FFFFFF';
+              cardHoverColor = '#F1F5F9';
               textColor = '#0F172A';
+              textMutedColor = '#64748B';
               borderColor = '#E2E8F0';
-              primaryColor = customAccent || '#2563EB';
+              borderHoverColor = '#CBD5E1';
+              primaryColor = customAccent || preset.primary;
+              primaryDarkColor = '#1D4ED8';
+              primaryLightColor = 'rgba(37, 99, 235, 0.08)';
+              primaryGlow = 'rgba(37, 99, 235, 0.18)';
             }
-            primaryDarkColor = '#1D4ED8';
-            primaryGlow = 'rgba(37, 99, 235, 0.2)';
           }
 
           root.style.setProperty('--primary-color', primaryColor);
           root.style.setProperty('--primary-dark', primaryDarkColor);
+          root.style.setProperty('--primary-light', primaryLightColor);
           root.style.setProperty('--primary-glow', primaryGlow);
           root.style.setProperty('--bg-color', bgColor);
           root.style.setProperty('--card-color', cardColor);
+          root.style.setProperty('--card-hover', cardHoverColor);
           root.style.setProperty('--text-color', textColor);
+          root.style.setProperty('--text-muted', textMutedColor);
           root.style.setProperty('--border-color', borderColor);
+          root.style.setProperty('--border-hover', borderHoverColor);
+          root.style.setProperty('--button-radius', preset.buttonRadius);
+          root.style.setProperty('--card-radius', preset.cardRadius);
 
           if (isDark) {
             root.classList.add('dark');
@@ -112,4 +156,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-
