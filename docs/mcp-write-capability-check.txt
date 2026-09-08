@@ -1,0 +1,1 @@
+MCP write capability verification artifact. This file is intentionally created on an audit branch and is not production code.
