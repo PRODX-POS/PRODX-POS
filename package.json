@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "server:check": "tsc -p tsconfig.server.json",
+    "server:test": "tsx --test server/**/*.test.ts",
     "theme:validate": "tsx theme-validator.ts --check",
     "theme:fix": "tsx theme-validator.ts"
   },

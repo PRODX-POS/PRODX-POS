@@ -315,13 +315,6 @@ export const DEFAULT_STAFF_DIRECTORY: User[] = [
   },
 ];
 
-export const DEFAULT_STAFF_PINS: Record<string, string> = {
-  'usr-admin-alex': '1234',
-  'usr-manager-sarah': '5678',
-  'usr-cashier-john': '0000',
-  'usr-cashier-emily': '1111',
-};
-
 export const STAFF_STORAGE_KEY = 'prodx_pos_staff_directory';
 export const ROLE_PERMS_STORAGE_KEY = 'prodx_pos_role_permissions';
 export const STAFF_PINS_STORAGE_KEY = 'prodx_pos_staff_pins';
@@ -373,7 +366,7 @@ export function getStoredStaffPins(): Record<string, string> {
   } catch (e) {
     console.error('Failed to parse staff pins from storage', e);
   }
-  return { ...DEFAULT_STAFF_PINS };
+  return {};
 }
 
 export function saveStoredStaffPins(pins: Record<string, string>): void {

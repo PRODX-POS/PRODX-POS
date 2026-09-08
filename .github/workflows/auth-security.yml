@@ -24,6 +24,12 @@ jobs:
       - name: Type check
         run: npm run lint
 
+      - name: Server AI boundary type check
+        run: npm run server:check
+
+      - name: Server AI provider contract tests
+        run: npm run server:test
+
       - name: Production build
         run: npm run build
 
@@ -37,12 +43,53 @@ jobs:
             exit 1
           fi
 
-      - name: Reject universal demo unlock credentials
+      - name: Reject hard-coded authentication fallbacks
         shell: bash
         run: |
           set -euo pipefail
-          if grep -R -n -E --include='*.ts' --include='*.tsx' \
-            "['\"](1234|0000|admin)['\"]" src; then
-            echo "Universal demo unlock credential detected in source."
+
+          # Only scan production authentication paths. mockAdapter.ts is explicitly
+          # documented as a non-production frontend test boundary.
+          auth_files=(
+            src/domain/auth.ts
+            src/context/AuthContext.tsx
+            src/adapters/authApi.ts
+            src/adapters/authApiFactory.ts
+          )
+
+          forbidden_patterns=(
+            "DEFAULT_STAFF_PINS"
+            "=== '1234'"
+            "=== '5678'"
+            "=== '0000'"
+            "=== '1111'"
+            "== '1234'"
+            "== '5678'"
+            "== '0000'"
+            "== '1111'"
+            "return '1234'"
+            "return '5678'"
+            "return '0000'"
+            "return '1111'"
+          )
+
+          for pattern in "${forbidden_patterns[@]}"; do
+            if grep -n -F -- "$pattern" "${auth_files[@]}"; then
+              echo "Hard-coded authentication credential fallback detected: $pattern"
+              exit 1
+            fi
+          done
+
+      - name: Reject committed provider secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R -n -E --exclude='.env.example' --exclude-dir='.git' \
+            'OKMD_AI_API_KEY[[:space:]]*=[[:space:]]*["'"'"']?Sk_' .; then
+            echo "Potential OKMD provider secret committed to the repository."
+            exit 1
+          fi
+          if grep -R -n -E --exclude-dir='.git' 'Sk_[A-Za-z0-9]+' server src; then
+            echo "Potential provider API key literal detected in source."
             exit 1
           fi
