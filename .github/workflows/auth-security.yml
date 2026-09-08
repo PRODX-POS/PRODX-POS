@@ -24,6 +24,12 @@ jobs:
       - name: Type check
         run: npm run lint
 
+      - name: Server AI boundary type check
+        run: npm run server:check
+
+      - name: Server AI provider contract tests
+        run: npm run server:test
+
       - name: Production build
         run: npm run build
 
@@ -44,5 +50,19 @@ jobs:
           if grep -R -n -E --include='*.ts' --include='*.tsx' \
             "['\"](1234|0000|admin)['\"]" src; then
             echo "Universal demo unlock credential detected in source."
+            exit 1
+          fi
+
+      - name: Reject committed provider secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R -n -E --exclude='.env.example' --exclude-dir='.git' \
+            '(^|["'"'"'[:space:]])(OKMD_AI_API_KEY|GEMINI_API_KEY)[[:space:]]*=[[:space:]]*["'"'"']?[^<${][^[:space:]]+' .; then
+            echo "Potential AI provider secret committed to the repository."
+            exit 1
+          fi
+          if grep -R -n -E --exclude-dir='.git' 'Sk_[A-Za-z0-9]+' server src . 2>/dev/null; then
+            echo "Potential provider API key literal detected in source."
             exit 1
           fi
