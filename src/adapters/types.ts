@@ -1,6 +1,6 @@
 /**
  * PRODX POS - API Adapter Interface Contracts
- * 
+ *
  * Formal typed boundaries separating UI and application services from the
  * infrastructure / backend API layer (e.g. NestJS + PostgreSQL).
  */
@@ -42,10 +42,15 @@ export interface CheckoutResponse {
   readonly idempotencyCached?: boolean;
 }
 
+/**
+ * Authentication is session-cookie based in production.
+ * The browser carries the HttpOnly session cookie automatically; the frontend
+ * must not persist or manually forward an authentication bearer token.
+ */
 export interface IAuthApi {
   login(req: LoginRequest): Promise<SessionContext>;
   logout(): Promise<void>;
-  verifySession(token: string): Promise<SessionContext | null>;
+  verifySession(): Promise<SessionContext | null>;
   getStores(orgSlug: string): Promise<readonly Store[]>;
 }
 
