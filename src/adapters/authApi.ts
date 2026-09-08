@@ -1,9 +1,8 @@
 /**
  * Production authentication adapter boundary.
  *
- * This module deliberately contains network-only authentication wiring. It does
- * not fall back to the frontend mock adapter. The backend contract is the
- * source of truth for credentials, sessions, and authorization.
+ * Production authentication is session-cookie based. The backend remains the
+ * source of truth for credentials, sessions, tenancy, and authorization.
  */
 import { IAuthApi, LoginRequest } from './types';
 import { SessionContext, Store } from '../domain/auth';
