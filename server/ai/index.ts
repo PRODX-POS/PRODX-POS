@@ -8,6 +8,8 @@ export { AI_CAPABILITIES, AI_NON_AUTHORITATIVE_DOMAINS, DEFAULT_AI_CAPABILITY_PO
 export type { AICapability, AICapabilityPolicy, AINonAuthoritativeDomain } from './capabilities';
 export { AI_AUTHORITY_RULE } from './capability-contract';
 export type { AIAuthoritativeDomain } from './capability-contract';
+export { AICapabilityError, AIProductionBoundary } from './production-boundary';
+export type { AIAuditSink, AIProductionMessage, AIProductionRequest, AIRateLimiter } from './production-boundary';
 export { OKMDProvider } from './okmdProvider';
 export type { OKMDProviderConfig } from './okmdProvider';
 export type {
