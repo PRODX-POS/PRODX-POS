@@ -1,0 +1,1 @@
+Production authentication security boundary: universal demo unlock credentials and client-side role switching must not be accepted in production builds.
