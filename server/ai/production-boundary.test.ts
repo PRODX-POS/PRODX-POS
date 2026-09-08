@@ -22,7 +22,8 @@ function setup() {
     },
   };
   const core = new AICoreService(createAIProviderRegistry([provider], 'okmd'));
-  return { boundary: new AIProductionBoundary(new AIBackendBoundary(core)), calls: () => calls };
+  const backend = new AIBackendBoundary(core);
+  return { backend, boundary: new AIProductionBoundary(backend), calls: () => calls };
 }
 
 const request = (capability: 'assistant' | 'explanation' | 'draft') => ({
@@ -42,20 +43,16 @@ test('allows only explicitly supported assistive capabilities', async () => {
 test('rejects an unsupported authoritative capability before provider execution', async () => {
   const { boundary, calls } = setup();
   await assert.rejects(
-    boundary.chat({
-      ...request('assistant'),
-      capability: 'financial_totals' as never,
-    }),
+    boundary.chat({ ...request('assistant'), capability: 'financial_totals' as never }),
     AICapabilityError,
   );
   assert.equal(calls(), 0);
 });
 
 test('rate limiter executes before provider access', async () => {
-  const { calls } = setup();
+  const { backend, calls } = setup();
   let checked = 0;
-  const providerBoundary = setup().boundary;
-  const boundary = new AIProductionBoundary(providerBoundary['backend'] as never, {
+  const boundary = new AIProductionBoundary(backend, {
     check: () => {
       checked += 1;
       throw new Error('rate limited');
@@ -66,21 +63,20 @@ test('rate limiter executes before provider access', async () => {
   assert.equal(calls(), 0);
 });
 
-test('audit records success and denied outcomes without recording message content', async () => {
-  const { boundary } = setup();
+test('audit records outcomes without recording message content', async () => {
+  const { backend } = setup();
   const events: Array<{ outcome: string; capability: string; content?: string }> = [];
-  const audited = new AIProductionBoundary(
-    new AIBackendBoundary(new AICoreService(createAIProviderRegistry([], 'okmd'))),
-    undefined,
-    { record: (event) => events.push(event) },
-  );
-  await assert.rejects(audited.chat(request('assistant')));
+  const audited = new AIProductionBoundary(backend, undefined, {
+    record: (event) => events.push(event),
+  });
+  await audited.chat(request('assistant'));
   await assert.rejects(
     audited.chat({ ...request('assistant'), capability: 'inventory' as never }),
+    AICapabilityError,
   );
   assert.deepEqual(events.map(({ outcome, capability }) => ({ outcome, capability })), [
-    { outcome: 'error', capability: 'assistant' },
+    { outcome: 'success', capability: 'assistant' },
     { outcome: 'denied', capability: 'inventory' },
   ]);
   assert.equal(JSON.stringify(events).includes('hello'), false);
-}
+});
