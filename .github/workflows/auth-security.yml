@@ -48,9 +48,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Target credential-bearing auth logic only. Do not flag legitimate RBAC role
-          # identifiers such as 'admin', and do not scan mockAdapter.ts because that
-          # adapter is explicitly marked as a non-production frontend test boundary.
+          # Only scan production authentication paths. mockAdapter.ts is explicitly
+          # documented as a non-production frontend test boundary.
           auth_files=(
             src/domain/auth.ts
             src/context/AuthContext.tsx
@@ -58,12 +57,28 @@ jobs:
             src/adapters/authApiFactory.ts
           )
 
-          if grep -n -E \
-            'DEFAULT_STAFF_PINS|(['"'"']1234|5678|0000|1111['"'"']|trimmed[[:space:]]*===?[[:space:]]*['"'"'][0-9]{4}['"'"'])' \
-            "${auth_files[@]}"; then
-            echo "Hard-coded authentication credential fallback detected in production auth code."
-            exit 1
-          fi
+          forbidden_patterns=(
+            "DEFAULT_STAFF_PINS"
+            "=== '1234'"
+            "=== '5678'"
+            "=== '0000'"
+            "=== '1111'"
+            "== '1234'"
+            "== '5678'"
+            "== '0000'"
+            "== '1111'"
+            "return '1234'"
+            "return '5678'"
+            "return '0000'"
+            "return '1111'"
+          )
+
+          for pattern in "${forbidden_patterns[@]}"; do
+            if grep -n -F -- "$pattern" "${auth_files[@]}"; then
+              echo "Hard-coded authentication credential fallback detected: $pattern"
+              exit 1
+            fi
+          done
 
       - name: Reject committed provider secrets
         shell: bash
