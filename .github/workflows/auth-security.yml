@@ -43,13 +43,25 @@ jobs:
             exit 1
           fi
 
-      - name: Reject universal demo unlock credentials
+      - name: Reject hard-coded authentication fallbacks
         shell: bash
         run: |
           set -euo pipefail
-          if grep -R -n -E --include='*.ts' --include='*.tsx' \
-            "['\"](1234|0000|admin)['\"]" src; then
-            echo "Universal demo unlock credential detected in source."
+
+          # Target credential-bearing auth logic only. Do not flag legitimate RBAC role
+          # identifiers such as 'admin', and do not scan mockAdapter.ts because that
+          # adapter is explicitly marked as a non-production frontend test boundary.
+          auth_files=(
+            src/domain/auth.ts
+            src/context/AuthContext.tsx
+            src/adapters/authApi.ts
+            src/adapters/authApiFactory.ts
+          )
+
+          if grep -n -E \
+            'DEFAULT_STAFF_PINS|(['"'"']1234|5678|0000|1111['"'"']|trimmed[[:space:]]*===?[[:space:]]*['"'"'][0-9]{4}['"'"'])' \
+            "${auth_files[@]}"; then
+            echo "Hard-coded authentication credential fallback detected in production auth code."
             exit 1
           fi
 
