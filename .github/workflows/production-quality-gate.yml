@@ -15,9 +15,28 @@ concurrency:
 
 jobs:
   quality-gate:
-    name: Typecheck, build & theme validation
+    name: Typecheck, build & backend foundation
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: prodx
+          POSTGRES_PASSWORD: prodx_ci_password
+          POSTGRES_DB: prodx_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prodx -d prodx_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://prodx:prodx_ci_password@localhost:5432/prodx_ci
+      DB_APPLICATION_NAME: prodx-pos-ci
+      DB_STATEMENT_TIMEOUT_MS: 5000
 
     steps:
       - name: Checkout
@@ -28,11 +47,40 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
       - name: Install dependencies from lockfile
         run: bun install --frozen-lockfile
 
       - name: Type check
         run: bun run lint
+
+      - name: Server type check
+        run: bun run server:check
+
+      - name: Backend contract tests
+        run: bun run server:test
+
+      - name: Apply PostgreSQL foundation migration
+        run: psql "$DATABASE_URL" --set ON_ERROR_STOP=1 --file=server/backend/migrations/0001_backend_foundation.sql
+
+      - name: Verify PostgreSQL foundation schema
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" --set ON_ERROR_STOP=1 <<'SQL'
+          SELECT 1 FROM organizations WHERE FALSE;
+          SELECT 1 FROM stores WHERE FALSE;
+          SELECT 1 FROM idempotency_keys WHERE FALSE;
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_name = 'idempotency_keys'
+            AND column_name IN ('organization_id', 'key', 'request_hash', 'status')
+          GROUP BY table_name
+          HAVING COUNT(*) = 4;
+          SQL
 
       - name: Theme validation
         run: bun run theme:validate
