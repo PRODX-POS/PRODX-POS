@@ -79,13 +79,13 @@ export const MODULE_ACCESS_RULES: Record<NavRoute, ModuleRule> = {
     isSensitiveFinancial: true,
   },
   shift: {
-    allowedRoles: ['manager', 'admin'],
-    requiredPermissions: ['shift:pay_movement'],
+    allowedRoles: ['cashier', 'manager', 'admin'],
+    requiredPermissions: ['shift:open'],
     featureNameEn: 'Cash Drawer & Shift Management',
     featureNameTh: 'ควบคุมกะการทำงานและลิ้นชักเงินสด',
-    descriptionEn: 'High-security cash float adjustments, drawer reconciliation, safe drops, and Z-Reports.',
-    descriptionTh: 'การกระทบยอดเงินสดในลิ้นชัก ปรับปรุงเงินทอน นำเงินเข้า/ออกเซฟ และปิดยอดสรุปกะ Z-Report',
-    isSensitiveFinancial: true,
+    descriptionEn: 'Cash drawer float, staff timeclock, drawer reconciliation, and shift Z-Reports.',
+    descriptionTh: 'การนับเงินทอนเริ่มต้น บันทึกเวลาเข้า-ออกกะ การกระทบยอดลิ้นชัก และการปิดสรุปกะ Z-Report',
+    isSensitiveFinancial: false,
   },
   audit: {
     allowedRoles: ['manager', 'admin'],

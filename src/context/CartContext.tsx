@@ -55,13 +55,26 @@ interface CartContextType {
   remainingBalanceDue: Money;
   changeDue: Money;
   isFullyTendered: boolean;
-  addItem: (product: Product, quantity?: number) => void;
+  lastScannedLineId: string | null;
+  lastScannedAt: number | null;
+  triggerScanFlash: (lineIdOrProductId: string) => void;
+  addItem: (product: Product, quantity?: number, options?: { isBarcodeScan?: boolean }) => string;
   updateQuantity: (lineId: string, delta: number) => void;
   setItemQuantity: (lineId: string, quantity: number) => void;
   setItemPrice: (lineId: string, price: Money) => void;
   setItemDiscount: (lineId: string, discountBps: number) => void;
+  setAllItemsDiscount: (discountBps: number) => void;
   removeItem: (lineId: string) => void;
   clearCart: () => void;
+  reorderItems: (
+    items: readonly CartLineItem[],
+    options?: {
+      replace?: boolean;
+      customer?: Customer | null;
+      orderDiscountBps?: number;
+      notes?: string;
+    }
+  ) => void;
   setCustomer: (customer: Customer | null) => void;
   setOrderDiscount: (discountBps: number) => void;
   setNotes: (notes: string) => void;
@@ -88,6 +101,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const { addToast } = useToast();
   const { language } = useLanguage();
   const [items, setItems] = useState<CartLineItem[]>([]);
+  const itemsRef = React.useRef(items);
+  useEffect(() => { itemsRef.current = items; }, [items]);
 
   // Safety threshold stock check
   const checkStockSafety = (product: Product, previousQty: number, nextQty: number) => {
@@ -114,6 +129,32 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [notes, setNotes] = useState<string>('');
   const [heldCarts, setHeldCarts] = useState<HeldCart[]>([]);
   const [stagedPayments, setStagedPayments] = useState<TenderPayment[]>([]);
+  const [lastScannedLineId, setLastScannedLineId] = useState<string | null>(null);
+  const [lastScannedAt, setLastScannedAt] = useState<number | null>(null);
+  const scanTimeoutRef = React.useRef<any>(null);
+
+  const triggerScanFlash = (lineIdOrProductId: string) => {
+    let targetLineId = lineIdOrProductId;
+    const matchedItem = items.find((i) => i.lineId === lineIdOrProductId || i.product.id === lineIdOrProductId);
+    if (matchedItem) {
+      targetLineId = matchedItem.lineId;
+    }
+    setLastScannedLineId(targetLineId);
+    setLastScannedAt(Date.now());
+
+    if (scanTimeoutRef.current) {
+      clearTimeout(scanTimeoutRef.current);
+    }
+    scanTimeoutRef.current = setTimeout(() => {
+      setLastScannedLineId(null);
+    }, 2200);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (scanTimeoutRef.current) clearTimeout(scanTimeoutRef.current);
+    };
+  }, []);
 
   // Multi-currency state & persistence
   const [exchangeRates, setExchangeRatesState] = useState<{ [currency: string]: number }>(() => {
@@ -201,10 +242,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, [items, totals, customer]);
 
-  const addItem = (product: Product, quantity = 1) => {
-    const existing = items.find((item) => item.product.id === product.id);
+  const addItem = React.useCallback((product: Product, quantity = 1, options?: { isBarcodeScan?: boolean }): string => {
+    const existing = itemsRef.current.find((item) => item.product.id === product.id);
     const previousQty = existing ? existing.quantity : 0;
     const nextQty = previousQty + quantity;
+    let resultingLineId = existing ? existing.lineId : `${product.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
     checkStockSafety(product, previousQty, nextQty);
 
@@ -212,19 +254,47 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const existingIdx = prev.findIndex((item) => item.product.id === product.id);
       if (existingIdx !== -1) {
         const existingItem = prev[existingIdx];
-        const updated = calculateLineItem(product, nextQty, existingItem.discountBps);
+        resultingLineId = existingItem.lineId;
+        const updated = calculateLineItem(product, nextQty, existingItem.discountBps, existingItem.unitPrice, existingItem.lineId);
         const next = [...prev];
         next[existingIdx] = updated;
         return next;
       } else {
-        const newItem = calculateLineItem(product, quantity, 0);
+        const newItem = calculateLineItem(product, quantity, 0, undefined, resultingLineId);
         return [newItem, ...prev];
       }
     });
-  };
 
-  const updateQuantity = (lineId: string, delta: number) => {
-    const current = items.find((i) => i.lineId === lineId);
+    if (options?.isBarcodeScan) {
+      setLastScannedLineId(resultingLineId);
+      setLastScannedAt(Date.now());
+
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+      }
+      scanTimeoutRef.current = setTimeout(() => {
+        setLastScannedLineId(null);
+      }, 2200);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('prodx:item-scanned-to-cart', {
+            detail: {
+              lineId: resultingLineId,
+              product,
+              quantity,
+              timestamp: Date.now(),
+            },
+          })
+        );
+      }
+    }
+
+    return resultingLineId;
+  }, []);
+
+  const updateQuantity = React.useCallback((lineId: string, delta: number) => {
+    const current = itemsRef.current.find((i) => i.lineId === lineId);
     if (!current) return;
 
     const previousQty = current.quantity;
@@ -247,14 +317,14 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       next[targetIdx] = updated;
       return next;
     });
-  };
+  }, []);
 
-  const setItemQuantity = (lineId: string, quantity: number) => {
+  const setItemQuantity = React.useCallback((lineId: string, quantity: number) => {
     if (quantity <= 0) {
-      removeItem(lineId);
+      setItems((prev) => prev.filter((i) => i.lineId !== lineId));
       return;
     }
-    const current = items.find((i) => i.lineId === lineId);
+    const current = itemsRef.current.find((i) => i.lineId === lineId);
     if (!current) return;
 
     const previousQty = current.quantity;
@@ -272,9 +342,9 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       next[targetIdx] = updated;
       return next;
     });
-  };
+  }, []);
 
-  const setItemDiscount = (lineId: string, discountBps: number) => {
+  const setItemDiscount = React.useCallback((lineId: string, discountBps: number) => {
     setItems((prev) => {
       const targetIdx = prev.findIndex((i) => i.lineId === lineId);
       if (targetIdx === -1) return prev;
@@ -285,9 +355,17 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       next[targetIdx] = updated;
       return next;
     });
-  };
+  }, []);
 
-  const setItemPrice = (lineId: string, price: Money) => {
+  const setAllItemsDiscount = React.useCallback((discountBps: number) => {
+    setItems((prev) => {
+      return prev.map((item) =>
+        calculateLineItem(item.product, item.quantity, discountBps, item.unitPrice, item.lineId)
+      );
+    });
+  }, []);
+
+  const setItemPrice = React.useCallback((lineId: string, price: Money) => {
     setItems((prev) => {
       const targetIdx = prev.findIndex((i) => i.lineId === lineId);
       if (targetIdx === -1) return prev;
@@ -298,19 +376,81 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       next[targetIdx] = updated;
       return next;
     });
-  };
+  }, []);
 
-  const removeItem = (lineId: string) => {
+  const removeItem = React.useCallback((lineId: string) => {
     setItems((prev) => prev.filter((i) => i.lineId !== lineId));
-  };
+  }, []);
 
-  const clearCart = () => {
+  const clearCart = React.useCallback(() => {
     setItems([]);
     setCustomer(null);
     setOrderDiscountBps(0);
     setNotes('');
     setStagedPayments([]);
-  };
+  }, []);
+
+  const reorderItems = React.useCallback((
+    orderItems: readonly CartLineItem[],
+    options?: {
+      replace?: boolean;
+      customer?: Customer | null;
+      orderDiscountBps?: number;
+      notes?: string;
+    }
+  ) => {
+    const shouldReplace = options?.replace ?? true;
+
+    // Check stock safety alerts for each product
+    for (const item of orderItems) {
+      const prevQty = shouldReplace
+        ? 0
+        : (itemsRef.current.find((i) => i.product.id === item.product.id)?.quantity || 0);
+      checkStockSafety(item.product, prevQty, prevQty + item.quantity);
+    }
+
+    if (shouldReplace) {
+      const freshItems = orderItems.map((item) =>
+        calculateLineItem(item.product, item.quantity, item.discountBps, item.unitPrice)
+      );
+      setItems(freshItems);
+      if (options?.customer !== undefined) {
+        setCustomer(options.customer);
+      }
+      if (options?.orderDiscountBps !== undefined) {
+        setOrderDiscountBps(options.orderDiscountBps);
+      }
+      if (options?.notes !== undefined) {
+        setNotes(options.notes);
+      }
+      setStagedPayments([]);
+    } else {
+      setItems((prev) => {
+        let currentItems = [...prev];
+        for (const item of orderItems) {
+          const existingIdx = currentItems.findIndex((ci) => ci.product.id === item.product.id);
+          if (existingIdx !== -1) {
+            const existing = currentItems[existingIdx];
+            const newQty = existing.quantity + item.quantity;
+            currentItems[existingIdx] = calculateLineItem(
+              item.product,
+              newQty,
+              item.discountBps,
+              item.unitPrice,
+              existing.lineId
+            );
+          } else {
+            const newItem = calculateLineItem(item.product, item.quantity, item.discountBps, item.unitPrice);
+            currentItems = [newItem, ...currentItems];
+          }
+        }
+        return currentItems;
+      });
+      if (options?.customer) {
+        setCustomer((c) => c ? c : options.customer!);
+      }
+    }
+  }, []);
 
   const holdCurrentCart = (label?: string) => {
     if (items.length === 0) return;
@@ -368,9 +508,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setStagedPayments([]);
   };
 
-  return (
-    <CartContext.Provider
-      value={{
+  const value = useMemo(() => ({
         items,
         totals,
         customer,
@@ -382,13 +520,18 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         remainingBalanceDue,
         changeDue,
         isFullyTendered,
+        lastScannedLineId,
+        lastScannedAt,
+        triggerScanFlash,
         addItem,
         updateQuantity,
         setItemQuantity,
         setItemPrice,
         setItemDiscount,
+        setAllItemsDiscount,
         removeItem,
         clearCart,
+        reorderItems,
         setCustomer,
         setOrderDiscount: setOrderDiscountBps,
         setNotes,
@@ -404,8 +547,15 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setActiveSecondaryCurrency,
         setExchangeRate,
         secondaryTotals,
-      }}
-    >
+  }), [
+    items, totals, customer, orderDiscountBps, notes, heldCarts, stagedPayments,
+    totalTenderedAmount, remainingBalanceDue, changeDue, isFullyTendered,
+    lastScannedLineId, lastScannedAt, exchangeRates, activeSecondaryCurrency, secondaryTotals,
+    addItem, updateQuantity, setItemQuantity, setItemPrice, setItemDiscount, setAllItemsDiscount, removeItem, clearCart, reorderItems
+  ]);
+
+  return (
+    <CartContext.Provider value={value}>
       {children}
     </CartContext.Provider>
   );

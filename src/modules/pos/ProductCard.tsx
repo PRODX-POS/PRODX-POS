@@ -2,6 +2,7 @@ import React from 'react';
 import { Product } from '../../domain/catalog';
 import { formatMoney } from '../../domain/money';
 import { useLanguage } from '../../context/LanguageContext';
+import { triggerHaptic } from '../../services/hapticService';
 import { AlertCircle, Plus } from 'lucide-react';
 
 export interface ProductCardProps {
@@ -11,7 +12,7 @@ export interface ProductCardProps {
   id?: string;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart, isFocused = false, id }) => {
+export const ProductCard = React.memo<ProductCardProps>(({ product, onAddToCart, isFocused = false, id }) => {
   const { t } = useLanguage();
   const isLowStock = product.currentStock <= product.reorderPoint;
   const isOutOfStock = product.currentStock <= 0;
@@ -22,12 +23,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart, 
       role="button"
       tabIndex={isOutOfStock ? -1 : 0}
       onClick={() => {
-        if (!isOutOfStock) onAddToCart(product);
+        if (!isOutOfStock) {
+          triggerHaptic('tap');
+          onAddToCart(product);
+        }
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          if (!isOutOfStock) onAddToCart(product);
+          if (!isOutOfStock) {
+            triggerHaptic('tap');
+            onAddToCart(product);
+          }
         }
       }}
       className={`group relative min-h-[128px] theme-btn-radius border-crisp border p-3.5 sm:p-4 text-left transition-all select-none flex flex-col justify-between shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 dark:focus-visible:ring-offset-card ${
@@ -85,4 +92,4 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onAddToCart, 
       </div>
     </div>
   );
-};
+});

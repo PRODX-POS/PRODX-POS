@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { ProdxLogo } from '../common/ProdxLogo';
 import { NavRoute } from './Sidebar';
-import { ConnectivityBadge } from './ConnectivityBadge';
+import { SyncStatusIndicator } from './SyncStatusIndicator';
 import { CustomerDisplayLauncherModal } from '../customerDisplay/CustomerDisplayLauncherModal';
 import { GlobalSearchInput } from './GlobalSearchInput';
 import { getZIndexClass } from '../../utils/ZIndexManager';
@@ -368,9 +368,9 @@ export const TopNav: React.FC<TopNavProps> = ({
             {theme === 'dark' ? <Sun className="h-4 w-4 text-amber-400" /> : <Moon className="h-4 w-4 text-primary" />}
           </button>
 
-          {/* Compact 50% Width Animated LIVE Indicator (Placed next to User Profile) */}
+          {/* Offline-First Sync Status Indicator */}
           <div className="flex items-center shrink-0">
-            <ConnectivityBadge />
+            <SyncStatusIndicator />
           </div>
 
           {/* Cashier / User Profile & Comprehensive Account Menu (Far Right) */}

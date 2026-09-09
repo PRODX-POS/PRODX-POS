@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Delete, Check } from 'lucide-react';
 import { Button } from './Button';
 import { useLanguage } from '../../context/LanguageContext';
+import { triggerHaptic } from '../../services/hapticService';
 
 export interface VirtualNumpadProps {
   initialValue?: string;
@@ -22,6 +23,7 @@ export const VirtualNumpad: React.FC<VirtualNumpadProps> = ({
   const { language } = useLanguage();
 
   const handleKeyPress = (key: string) => {
+    triggerHaptic('numpad');
     if (key === '.') {
       if (allowDecimal && !value.includes('.')) {
         setValue(value + '.');
@@ -32,10 +34,12 @@ export const VirtualNumpad: React.FC<VirtualNumpadProps> = ({
   };
 
   const handleBackspace = () => {
+    triggerHaptic('tap');
     setValue(value.length > 1 ? value.slice(0, -1) : '');
   };
 
   const handleConfirm = () => {
+    triggerHaptic('medium');
     if (value === '' || value === '.') {
       onConfirm('0');
     } else {

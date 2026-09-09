@@ -7,6 +7,7 @@ import {
   ShieldCheck,
   Database,
   ChevronRight,
+  ChevronDown,
   Settings as SettingsIcon,
   Sparkles,
   Wifi,
@@ -27,6 +28,9 @@ import {
   Smartphone,
   Activity,
   Download,
+  Check,
+  X,
+  Zap,
 } from 'lucide-react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
@@ -76,154 +80,173 @@ import { DataSyncSettingsTab } from './components/DataSyncSettingsTab';
 import { ModulesControlSettingsTab } from './components/ModulesControlSettingsTab';
 import { SystemToolsManagementTab } from './components/SystemToolsManagementTab';
 import { LoyaltyCrmSettingsTab } from './components/LoyaltyCrmSettingsTab';
+import { AiAssistantSettingsTab } from './components/AiAssistantSettingsTab';
 import { StickyActionBar } from './components/StickyActionBar';
 import { SettingsKeyboardShortcutsModal } from './components/SettingsKeyboardShortcutsModal';
 import { SystemDiagnosticOverlay } from './components/SystemDiagnosticOverlay';
 import { SystemHealthWidget } from './components/SystemHealthWidget';
+import { SettingsMenuSelector } from './components/SettingsMenuSelector';
 
 const TAB_ITEMS: SettingsTabItem[] = [
-  // 1. Core & Management
+  // 1. Store & POS Config
   {
     id: 'general',
-    label: { th: 'ข้อมูลสาขาและทั่วไป', en: 'General & Store' },
-    sublabel: { th: 'โปรไฟล์ร้าน, ภาษา, สกุลเงินหลัก', en: 'Identity, language, base currency' },
+    label: { th: 'ข้อมูลสาขาและใบเสร็จ', en: 'Store Identity & Receipt' },
+    sublabel: { th: 'โปรไฟล์ร้าน, ภาษา, สกุลเงินหลัก, หัว/ท้ายบิล', en: 'Identity, language, currency, receipt header' },
     iconName: 'Building2',
     graphicColor: 'primary',
-    category: 'core',
+    category: 'store_pos',
+    isQuickTab: true,
+  },
+  {
+    id: 'appearance',
+    label: { th: 'รูปลักษณ์และจอฝั่งลูกค้า (CFD)', en: 'Appearance & CFD' },
+    sublabel: { th: 'ธีมองค์กร, โลโก้, จอแสดงผลฝั่งลูกค้า', en: 'Themes, branding, customer display' },
+    iconName: 'Palette',
+    graphicColor: 'cyan',
+    category: 'store_pos',
+    isQuickTab: true,
+  },
+  {
+    id: 'tax_accounting',
+    label: { th: 'การเงินและภาษี (VAT)', en: 'Tax & Accounting' },
+    sublabel: { th: 'อัตราภาษี VAT, การคำนวณบิล, ช่องทางชำระ', en: 'VAT rate, tax inclusive/exclusive, payment channels' },
+    iconName: 'ReceiptText',
+    graphicColor: 'emerald',
+    category: 'store_pos',
+    isQuickTab: true,
   },
   {
     id: 'modules_control',
     label: { th: 'จัดการโมดูลทั้งระบบ (100%)', en: 'System Modules Control' },
-    sublabel: { th: 'เปิด/ปิดทุกโมดูลและฟีเจอร์ย่อย', en: 'Toggle modules & feature flags' },
+    sublabel: { th: 'เปิด/ปิดทุกโมดูลและฟีเจอร์ย่อยในระบบ', en: 'Toggle modules & feature flags' },
     iconName: 'Sliders',
     graphicColor: 'primary',
-    badge: '100%',
-    category: 'core',
+    badge: 'ADVANCED',
+    category: 'store_pos',
+    isQuickTab: false,
+  },
+
+  // 2. Hardware & Peripherals
+  {
+    id: 'hardware',
+    label: { th: 'เครื่องพิมพ์และฮาร์ดแวร์', en: 'Printers & Peripherals' },
+    sublabel: { th: 'เครื่องพิมพ์ใบเสร็จ, ลิ้นชักเก็บเงิน, เสียง', en: 'Thermal printer, cash drawer, sound' },
+    iconName: 'Printer',
+    graphicColor: 'amber',
+    category: 'hardware_peripherals',
+    isQuickTab: true,
   },
   {
     id: 'system_tools',
-    label: { th: 'เครื่องมือจัดการคอมโพเนนต์', en: 'Component Tools Hub' },
-    sublabel: { th: 'ปุ่มลัด, ช่องทางชำระ, ส่วนลด, ภาษี, ใบเสร็จ', en: 'Quick keys, tenders, discounts, receipts' },
+    label: { th: 'คอมโพเนนต์และปุ่มลัด', en: 'Component Tools Hub' },
+    sublabel: { th: 'ปุ่มลัดสินค้า, ช่องทางชำระเงิน, ส่วนลด', en: 'Quick keys, payment tenders, discounts' },
     iconName: 'Wrench',
     graphicColor: 'indigo',
     badge: 'CRUD',
-    category: 'management',
+    category: 'hardware_peripherals',
+    isQuickTab: true,
   },
+
+  // 3. Loyalty & CRM
   {
     id: 'loyalty_crm',
-    label: { th: 'ระบบสมาชิกและ VIP Tiers', en: 'Loyalty CRM & VIP' },
-    sublabel: { th: 'คำนวณแต้มสะสม, สิทธิ์ส่วนลดระดับขั้น', en: 'Points engine & tier privileges' },
+    label: { th: 'สมาชิกและ VIP Tiers', en: 'Loyalty CRM & VIP' },
+    sublabel: { th: 'คำนวณแต้มสะสม, สิทธิ์ส่วนลดระดับขั้น', en: 'Points calculation & tier privileges' },
     iconName: 'Crown',
     graphicColor: 'purple',
     badge: 'CRM',
-    category: 'management',
+    category: 'loyalty_crm',
+    isQuickTab: true,
   },
 
-  // 2. Hardware & Financial
-  {
-    id: 'appearance',
-    label: { th: 'รูปลักษณ์และการแสดงผล', en: 'Appearance & CFD' },
-    sublabel: { th: 'ธีมองค์กร, โลโก้, จอฝั่งลูกค้า CFD', en: 'Themes, branding, customer display' },
-    iconName: 'Palette',
-    graphicColor: 'cyan',
-    category: 'hardware_fin',
-  },
-  {
-    id: 'hardware',
-    label: { th: 'อุปกรณ์และฮาร์ดแวร์', en: 'Hardware & Peripherals' },
-    sublabel: { th: 'เครื่องพิมพ์ใบเสร็จ, ลิ้นชัก, เสียง', en: 'Thermal printer, cash drawer, sound' },
-    iconName: 'Printer',
-    graphicColor: 'amber',
-    category: 'hardware_fin',
-  },
-  {
-    id: 'tax_accounting',
-    label: { th: 'การเงินและภาษี', en: 'Tax & Accounting' },
-    sublabel: { th: 'อัตรา VAT, ช่องทางชำระ, อัตราแลกเปลี่ยน', en: 'VAT basis points, payment rails' },
-    iconName: 'ReceiptText',
-    graphicColor: 'emerald',
-    category: 'hardware_fin',
-  },
-
-  // 3. Security & RBAC
+  // 4. Security & System Admin
   {
     id: 'security_roles',
-    label: { th: 'ความปลอดภัยและนโยบาย', en: 'Security & Governance' },
-    sublabel: { th: 'รหัส PIN, พักหน้าจอ, การอนุมัติคำสั่ง', en: 'PIN codes, auto-lock, authorizations' },
+    label: { th: 'ความปลอดภัยและนโยบาย', en: 'Security & PIN Governance' },
+    sublabel: { th: 'รหัส PIN, พักหน้าจออัตโนมัติ, การอนุมัติคำสั่ง', en: 'PIN codes, auto-lock timeout, authorizations' },
     iconName: 'ShieldCheck',
     graphicColor: 'rose',
-    category: 'security',
+    category: 'security_admin',
+    isQuickTab: true,
   },
   {
     id: 'role_management',
-    label: { th: 'จัดการบทบาทและสิทธิ์ (RoleManagement)', en: 'RoleManagement & RBAC Hub' },
-    sublabel: { th: 'ตารางกำหนดบทบาทพนักงาน, จัดการสิทธิ์แอดมิน, ยืนยัน', en: 'User-to-role assignment table & permission controls' },
+    label: { th: 'จัดการบทบาทและสิทธิ์ (RBAC)', en: 'Role & Permission Matrix' },
+    sublabel: { th: 'ตารางสิทธิ์พนักงาน, จัดการสิทธิ์แอดมิน/แคชเชียร์', en: 'Role permissions matrix & staff assignments' },
     iconName: 'ShieldCheck',
     graphicColor: 'blue',
     badge: 'RBAC',
-    category: 'security',
+    category: 'security_admin',
+    isQuickTab: true,
   },
   {
     id: 'role_assignment',
-    label: { th: 'กำหนดบทบาทพนักงาน', en: 'Role Assignments' },
-    sublabel: { th: 'ตารางกำหนดสิทธิ์และมอบหมายตำแหน่งพนักงาน', en: 'User-to-role assignment matrix' },
+    label: { th: 'มอบหมายตำแหน่งพนักงาน', en: 'Staff Role Assignments' },
+    sublabel: { th: 'ตารางมอบหมายตำแหน่งพนักงานและสาขา', en: 'User-to-role assignment table' },
     iconName: 'UserCheck',
     graphicColor: 'blue',
-    badge: 'RBAC',
-    category: 'security',
+    badge: 'ADVANCED',
+    category: 'security_admin',
+    isQuickTab: false,
   },
   {
     id: 'permission_sets',
     label: { th: 'ชุดสิทธิ์พนักงานกำหนดเอง', en: 'Custom Permission Sets' },
-    sublabel: { th: 'กำหนดชุดสิทธิ์ตามบทบาท, sandbox จำลองสิทธิ์', en: 'Custom role profiles, access sandbox' },
+    sublabel: { th: 'สร้างชุดสิทธิ์เฉพาะทาง, sandbox ทดสอบสิทธิ์', en: 'Custom role profiles & access sandbox' },
     iconName: 'Layers',
     graphicColor: 'purple',
-    badge: 'RBAC',
-    category: 'security',
+    badge: 'ADVANCED',
+    category: 'security_admin',
+    isQuickTab: false,
   },
-
-  // 4. Engine & Sync
+  {
+    id: 'ai_assistant',
+    label: { th: 'ผู้ช่วย AI อัจฉริยะ (KKU AI)', en: 'AI Assistant & Gemini' },
+    sublabel: { th: 'ตั้งค่า API Key, โมเดล Gemini, ทดสอบ AI', en: 'KKU AI / Gemini Endpoint & API Key' },
+    iconName: 'Sparkles',
+    graphicColor: 'indigo',
+    badge: 'AI',
+    category: 'security_admin',
+    isQuickTab: true,
+  },
   {
     id: 'data_sync',
-    label: { th: 'การซิงค์และสำรองข้อมูล', en: 'Offline & Data Sync' },
-    sublabel: { th: 'คิว Outbox, แคช IndexedDB, รีเซ็ตระบบ', en: 'Outbox queue, local cache, diagnostics' },
+    label: { th: 'การซิงค์และสำรองข้อมูล', en: 'Offline Data Sync & Cache' },
+    sublabel: { th: 'คิวซิงค์ Outbox, แคช IndexedDB, สำรองระบบ', en: 'Outbox queue, local storage, backup' },
     iconName: 'Database',
     graphicColor: 'slate',
-    category: 'engine',
+    category: 'security_admin',
+    isQuickTab: true,
   },
 ];
 
 interface SettingsCategoryGroup {
-  id: 'core' | 'management' | 'hardware_fin' | 'security' | 'engine';
+  id: 'store_pos' | 'hardware_peripherals' | 'loyalty_crm' | 'security_admin';
   label: { th: string; en: string };
   iconName: string;
 }
 
 const CATEGORIES: SettingsCategoryGroup[] = [
   {
-    id: 'core',
-    label: { th: 'ระบบหลักและร้านค้า', en: 'Core & Store' },
+    id: 'store_pos',
+    label: { th: '1. ร้านค้าและหน้าขาย', en: '1. Store & POS' },
     iconName: 'Building2',
   },
   {
-    id: 'management',
-    label: { th: 'เครื่องมือและบริการ', en: 'Tools & CRM' },
-    iconName: 'Wrench',
-  },
-  {
-    id: 'hardware_fin',
-    label: { th: 'แสดงผล ฮาร์ดแวร์ และภาษี', en: 'Display, Hardware & Tax' },
+    id: 'hardware_peripherals',
+    label: { th: '2. อุปกรณ์และฮาร์ดแวร์', en: '2. Hardware & Peripherals' },
     iconName: 'Printer',
   },
   {
-    id: 'security',
-    label: { th: 'ความปลอดภัยและสิทธิ์ใช้งาน', en: 'Security & Governance' },
-    iconName: 'ShieldCheck',
+    id: 'loyalty_crm',
+    label: { th: '3. สมาชิกและโปรโมชัน', en: '3. Loyalty & CRM' },
+    iconName: 'Crown',
   },
   {
-    id: 'engine',
-    label: { th: 'ข้อมูลและระบบซิงก์', en: 'Data & Sync Engine' },
-    iconName: 'Database',
+    id: 'security_admin',
+    label: { th: '4. ความปลอดภัยและระบบ', en: '4. Security & Admin' },
+    iconName: 'ShieldCheck',
   },
 ];
 
@@ -247,6 +270,7 @@ export const SettingsScreen: React.FC = () => {
     const lastExport = localStorage.getItem('prodx_last_settings_export_date');
     return lastExport !== today;
   });
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const handleExportSettingsJson = () => {
     try {
@@ -330,6 +354,23 @@ export const SettingsScreen: React.FC = () => {
   const [isDiagnosticOverlayOpen, setIsDiagnosticOverlayOpen] = useState(false);
   const [navSearchQuery, setNavSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [settingsMode, setSettingsMode] = useState<'quick' | 'advanced'>(() => {
+    return (localStorage.getItem('prodx_settings_mode') as 'quick' | 'advanced') || 'quick';
+  });
+
+  const handleToggleSettingsMode = (mode: 'quick' | 'advanced') => {
+    setSettingsMode(mode);
+    localStorage.setItem('prodx_settings_mode', mode);
+    addToast({
+      title: mode === 'quick'
+        ? (language === 'th' ? 'โหมดตั้งค่าด่วน (Quick Mode)' : 'Quick Mode Active')
+        : (language === 'th' ? 'โหมดตั้งค่าขั้นสูง (Advanced Admin Mode)' : 'Advanced Admin Mode Active'),
+      message: mode === 'quick'
+        ? (language === 'th' ? 'แสดงเฉพาะหัวข้อหลักที่ใช้งานบ่อย ลดความสับสน' : 'Showing essential core settings for quick configuration.')
+        : (language === 'th' ? 'แสดงเมนูและเครื่องมือเทคนิคทั้งหมด 100%' : 'Showing 100% full system controls and technical tools.'),
+      type: 'info',
+    });
+  };
 
   // Synchronize Settings navigation depth with global breadcrumbs
   useEffect(() => {
@@ -826,6 +867,8 @@ export const SettingsScreen: React.FC = () => {
     switch (name) {
       case 'Building2':
         return Building2;
+      case 'Sparkles':
+        return Sparkles;
       case 'Sliders':
         return Sliders;
       case 'Wrench':
@@ -854,6 +897,11 @@ export const SettingsScreen: React.FC = () => {
   // Grouped & Filtered Navigation Items
   const filteredTabItems = useMemo(() => {
     return TAB_ITEMS.filter((tab) => {
+      // In Quick Mode, hide non-quick tabs unless searching
+      if (settingsMode === 'quick' && !navSearchQuery && !tab.isQuickTab) {
+        return false;
+      }
+
       const matchesCategory = categoryFilter === 'all' || tab.category === categoryFilter;
       if (!matchesCategory) return false;
       if (!navSearchQuery) return true;
@@ -865,7 +913,7 @@ export const SettingsScreen: React.FC = () => {
         tab.sublabel.en.toLowerCase().includes(query)
       );
     });
-  }, [categoryFilter, navSearchQuery]);
+  }, [categoryFilter, navSearchQuery, settingsMode]);
 
   return (
     <div
@@ -942,6 +990,40 @@ export const SettingsScreen: React.FC = () => {
 
         {/* Status Badges & Theme Mode Switcher Toolbar */}
         <div className="flex flex-wrap items-center gap-2 self-stretch md:self-auto justify-start md:justify-end text-xs">
+          {/* Quick / Advanced Complexity Mode Switcher */}
+          <div
+            className="h-9 p-1 rounded-xl border border-border/80 bg-card flex items-center gap-1 shadow-2xs"
+            role="group"
+            aria-label="Settings complexity mode"
+          >
+            <button
+              type="button"
+              onClick={() => handleToggleSettingsMode('quick')}
+              title={language === 'th' ? 'โหมดด่วน: แสดงเฉพาะหัวข้อหลักที่ใช้บ่อย' : 'Quick Mode: Show essential settings'}
+              className={`h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                settingsMode === 'quick'
+                  ? 'bg-primary text-primary-foreground shadow-xs font-bold'
+                  : 'text-text/60 hover:text-text hover:bg-background/40'
+              }`}
+            >
+              <Zap className="h-3.5 w-3.5" />
+              <span>{language === 'th' ? 'ตั้งค่าด่วน' : 'Quick'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleSettingsMode('advanced')}
+              title={language === 'th' ? 'โหมดขั้นสูง: แสดงทุกเครื่องมือและเมนู 100%' : 'Advanced Mode: Full 100% settings controls'}
+              className={`h-7 px-2.5 rounded-lg flex items-center gap-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                settingsMode === 'advanced'
+                  ? 'bg-primary text-primary-foreground shadow-xs font-bold'
+                  : 'text-text/60 hover:text-text hover:bg-background/40'
+              }`}
+            >
+              <Sliders className="h-3.5 w-3.5" />
+              <span>{language === 'th' ? 'ขั้นสูง' : 'Advanced'}</span>
+            </button>
+          </div>
+
           {/* Swipe Tab Switcher Quick Toggle */}
           <button
             type="button"
@@ -1109,99 +1191,23 @@ export const SettingsScreen: React.FC = () => {
             <span className="text-[10px] font-mono text-text/40 hidden md:inline">Alt+1..9</span>
           </div>
 
-          {/* Quick Category Filter Pills */}
-          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1 pt-0.5">
-            <button
-              type="button"
-              onClick={() => setCategoryFilter('all')}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition cursor-pointer ${
-                categoryFilter === 'all'
-                  ? 'bg-primary text-primary-foreground shadow-xs'
-                  : 'bg-card border border-border/70 text-text/60 hover:text-text hover:border-border'
-              }`}
-            >
-              {language === 'th' ? `ทั้งหมด (${TAB_ITEMS.length})` : `All (${TAB_ITEMS.length})`}
-            </button>
-            {CATEGORIES.map((cat) => {
-              const count = TAB_ITEMS.filter((t) => t.category === cat.id).length;
-              const isCatActive = categoryFilter === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  type="button"
-                  onClick={() => setCategoryFilter(cat.id)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap transition cursor-pointer ${
-                    isCatActive
-                      ? 'bg-primary text-primary-foreground shadow-xs'
-                      : 'bg-card border border-border/70 text-text/60 hover:text-text hover:border-border'
-                  }`}
-                >
-                  {cat.label[language]} ({count})
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Search Box in Settings Navigation */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-text/40 pointer-events-none" />
-            <input
-              type="text"
-              value={navSearchQuery}
-              onChange={(e) => setNavSearchQuery(e.target.value)}
-              placeholder={language === 'th' ? 'ค้นหาการตั้งค่า...' : 'Filter settings...'}
-              className="w-full pl-8 pr-3 py-2 text-xs font-medium rounded-xl border border-border bg-card text-text placeholder:text-text/40 focus:outline-hidden focus:ring-2 focus:ring-primary/20 shadow-xs"
-            />
-          </div>
-
-          {/* Mobile Dropdown Category Selector */}
-          <div className="block md:hidden mb-2 bg-background/95 backdrop-blur-md pt-1 pb-2 z-20 space-y-2">
-            <select
-              value={activeTab}
-              onChange={(e) => setActiveTab(e.target.value as SettingsTabId)}
-              aria-label={language === 'th' ? 'เลือกหมวดหมู่การตั้งค่า' : 'Select settings category'}
-              className="w-full h-12 px-3.5 py-2 rounded-xl border border-border bg-card text-xs font-bold text-text shadow-xs focus:ring-2 focus:ring-primary focus:outline-hidden cursor-pointer"
-            >
-              {CATEGORIES.map((cat) => {
-                const catTabs = TAB_ITEMS.filter((t) => t.category === cat.id);
-                if (catTabs.length === 0) return null;
-                return (
-                  <optgroup key={cat.id} label={cat.label[language]}>
-                    {catTabs.map((tab) => (
-                      <option key={tab.id} value={tab.id}>
-                        {tab.label[language]}
-                      </option>
-                    ))}
-                  </optgroup>
-                );
-              })}
-            </select>
-
-            {/* Mobile swipe gesture toggle indicator */}
-            <div className="flex items-center justify-between px-3 py-2 rounded-xl border border-border/80 bg-card/60 text-xs">
-              <div className="flex items-center gap-2">
-                <MoveHorizontal className="h-3.5 w-3.5 text-primary" />
-                <span className="text-[11px] font-medium text-text/80">
-                  {language === 'th' ? 'สไลด์หน้าจอด้านข้างเพื่อสลับแท็บ' : 'Swipe left/right to switch tabs'}
-                </span>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={enableSwipeNavigation}
-                onClick={() => handleToggleSwipeNavigation(!enableSwipeNavigation)}
-                className={`w-10 h-5 shrink-0 flex items-center rounded-full p-0.5 transition-colors cursor-pointer ${
-                  enableSwipeNavigation ? 'bg-primary' : 'bg-border dark:bg-background'
-                }`}
-              >
-                <div
-                  className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
-                    enableSwipeNavigation ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
-            </div>
-          </div>
+          {/* Modern Interactive Settings Navigation Selector Hub */}
+          <SettingsMenuSelector
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            tabItems={filteredTabItems}
+            categories={CATEGORIES}
+            categoryFilter={categoryFilter}
+            setCategoryFilter={setCategoryFilter}
+            navSearchQuery={navSearchQuery}
+            setNavSearchQuery={setNavSearchQuery}
+            settingsMode={settingsMode}
+            isStoreDirty={isStoreDirty}
+            isCfdDirty={isCfdDirty}
+            isTaxDirty={isTaxDirty}
+            isSecurityDirty={isSecurityDirty}
+            language={language}
+          />
 
           {/* Desktop Categorized Navigation Sidebar */}
           <nav
@@ -1343,6 +1349,8 @@ export const SettingsScreen: React.FC = () => {
                 }
               />
             )}
+
+            {activeTab === 'ai_assistant' && <AiAssistantSettingsTab />}
 
             {activeTab === 'modules_control' && (
               <ModulesControlSettingsTab

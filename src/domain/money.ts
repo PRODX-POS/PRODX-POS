@@ -126,3 +126,55 @@ export function formatMoney(m: Money, locale = 'en-US'): string {
 export function toDecimalString(m: Money): string {
   return (m.amountInCents / 100).toFixed(2);
 }
+
+export type RoundingStrategy = 'exact_cents' | 'round_whole' | 'charm_99' | 'charm_95';
+
+/**
+ * Safely applies a percentage increase or decrease to Money.
+ * Guarantees pure integer arithmetic and zero IEEE 754 precision drift.
+ *
+ * Invariants:
+ * 1. Percentage (e.g. 7.5% or 12.25%) is converted into integer basis points (750 or 1225 bps).
+ * 2. Cents arithmetic is strictly integer-based with deterministic half-up rounding.
+ * 3. Never produces negative prices (clamped at 0).
+ */
+export function applyPercentageAdjustment(
+  base: Money,
+  percentage: number,
+  direction: 'increase' | 'decrease',
+  rounding: RoundingStrategy = 'exact_cents'
+): Money {
+  if (!Number.isFinite(percentage) || percentage < 0) {
+    throw new TypeError(`[Money] Invalid percentage: ${percentage}`);
+  }
+
+  // Convert percentage into integer basis points (1% = 100 bps, 0.01% = 1 bp)
+  // Math.round removes any input floating-point fuzz (e.g. 7.55 * 100 = 754.9999999999999 -> 755)
+  const basisPoints = Math.round(percentage * 100);
+
+  // Integer delta cents calculation: (amountInCents * basisPoints) / 10000
+  const deltaCents = Math.round((base.amountInCents * basisPoints) / 10000);
+
+  let resultCents = direction === 'increase'
+    ? base.amountInCents + deltaCents
+    : Math.max(0, base.amountInCents - deltaCents);
+
+  if (rounding === 'round_whole') {
+    // Round to nearest whole currency unit (e.g. 100 cents = ฿1.00)
+    resultCents = Math.round(resultCents / 100) * 100;
+  } else if (rounding === 'charm_99') {
+    // Psychological pricing ending in .99 (e.g. ฿99, ฿199, ฿1,299)
+    if (resultCents > 0) {
+      const wholeMajor = Math.floor(resultCents / 100);
+      resultCents = Math.max(99, wholeMajor * 100 + 99);
+    }
+  } else if (rounding === 'charm_95') {
+    // Psychological pricing ending in .95
+    if (resultCents > 0) {
+      const wholeMajor = Math.floor(resultCents / 100);
+      resultCents = Math.max(95, wholeMajor * 100 + 95);
+    }
+  }
+
+  return createMoney(Math.max(0, resultCents), base.currency);
+}

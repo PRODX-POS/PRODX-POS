@@ -5,6 +5,7 @@ import { useCart } from '../../context/CartContext';
 import { useToast } from '../../context/ToastContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { useBreadcrumb, BreadcrumbLevel } from '../../context/BreadcrumbContext';
+import { useSettings } from '../../context/SettingsContext';
 import { catalogApi } from '../../adapters/mockAdapter';
 import { Product, Category } from '../../domain/catalog';
 import { ProductCard } from './ProductCard';
@@ -16,9 +17,13 @@ import { Drawer } from '../../components/common/Drawer';
 import { Modal } from '../../components/common/Modal';
 import { Button } from '../../components/common/Button';
 import { formatMoney } from '../../domain/money';
-import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { usePosKeyboardWedgeScanner } from '../../hooks/usePosKeyboardWedgeScanner';
 import { playScannerSound } from '../../services/soundService';
+import { triggerHaptic } from '../../services/hapticService';
 import { BarcodeScannerTesterModal } from './BarcodeScannerTesterModal';
+import { QuickPayDrawer } from './QuickPayDrawer';
+import { PaymentConfirmationModal } from './PaymentConfirmationModal';
+import { PosAiAssistantModal } from './PosAiAssistantModal';
 import {
   Barcode,
   Search,
@@ -31,6 +36,8 @@ import {
   CheckCircle2,
   Clipboard,
   Layers,
+  Bot,
+  Keyboard,
 } from 'lucide-react';
 
 export const PosScreen: React.FC = () => {
@@ -50,6 +57,16 @@ export const PosScreen: React.FC = () => {
   const [mobileTab, setMobileTab] = useState<'catalog' | 'cart'>('catalog');
   const [isScannerModalOpen, setIsScannerModalOpen] = useState<boolean>(false);
   const [lastRecognizedProduct, setLastRecognizedProduct] = useState<Product | null>(null);
+  const [isQuickPayOpen, setIsQuickPayOpen] = useState<boolean>(false);
+  const [isFullPaymentModalOpen, setIsFullPaymentModalOpen] = useState<boolean>(false);
+  const [isAiModalOpen, setIsAiModalOpen] = useState<boolean>(false);
+
+  // Listen for external or cart-triggered quick-pay requests
+  useEffect(() => {
+    const handleOpenQuickPay = () => setIsQuickPayOpen(true);
+    window.addEventListener('prodx:open-quickpay', handleOpenQuickPay);
+    return () => window.removeEventListener('prodx:open-quickpay', handleOpenQuickPay);
+  }, []);
 
   // Sync breadcrumbs with POS navigation depth
   useEffect(() => {
@@ -111,6 +128,8 @@ export const PosScreen: React.FC = () => {
   // Connection monitoring and enabling state
   const [isWindowFocused, setIsWindowFocused] = useState<boolean>(true);
   const [isScannerEnabled, setIsScannerEnabled] = useState<boolean>(true);
+  const { config, updateConfig } = useSettings();
+  const isKeyboardNavEnabled = config.hardware?.keyboardFocusCapture ?? true;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -124,25 +143,6 @@ export const PosScreen: React.FC = () => {
     return () => {
       window.removeEventListener('focus', handleFocus);
       window.removeEventListener('blur', handleBlur);
-    };
-  }, []);
-
-  // States and refs for barcode scanner flash and floating feedback
-  const [isFlashActive, setIsFlashActive] = useState<boolean>(false);
-  const [activeIndicator, setActiveIndicator] = useState<{
-    id: number;
-    name: string;
-    barcode: string;
-    price: string;
-  } | null>(null);
-
-  const flashTimeoutRef = React.useRef<any>(null);
-  const indicatorTimeoutRef = React.useRef<any>(null);
-
-  useEffect(() => {
-    return () => {
-      if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
-      if (indicatorTimeoutRef.current) clearTimeout(indicatorTimeoutRef.current);
     };
   }, []);
 
@@ -185,103 +185,28 @@ export const PosScreen: React.FC = () => {
     };
   }, [loadCatalog]);
 
-  // Centralized Barcode Lookup & Cart Addition Handler
-  const handleBarcodeLookup = useCallback(
-    async (scannedCode: string, source: 'hardware' | 'manual' | 'simulator' = 'hardware') => {
-      const cleanCode = scannedCode.trim();
-      if (!cleanCode || !session) return;
-
-      // 1. Check local catalog cache for instant response
-      let foundProduct = products.find(
-        (p) =>
-          p.barcode.toLowerCase() === cleanCode.toLowerCase() ||
-          p.sku.toLowerCase() === cleanCode.toLowerCase()
-      );
-
-      // 2. Query catalog API adapter if not in current local state
-      if (!foundProduct) {
-        try {
-          const remoteProduct = await catalogApi.getProductByBarcode(session.currentStore.id, cleanCode);
-          if (remoteProduct) {
-            foundProduct = remoteProduct;
-          }
-        } catch (err) {
-          console.error('[PosScreen] Barcode remote query error:', err);
-        }
-      }
-
-      if (foundProduct) {
-        if (foundProduct.currentStock <= 0) {
-          playScannerSound('error');
-          addToast({
-            title: language === 'th' ? 'สินค้าหมดสต็อก' : 'Product Out of Stock',
-            message:
-              language === 'th'
-                ? `${foundProduct.name} (${cleanCode}) หมดสต็อก ไม่สามารถเพิ่มในบิลได้`
-                : `${foundProduct.name} (${cleanCode}) is currently out of stock.`,
-            type: 'warning',
-          });
-          return;
-        }
-
-        addItem(foundProduct, 1);
-        playScannerSound('success');
-        setLastRecognizedProduct(foundProduct);
-
-        // Subtle screen flash effect
-        setIsFlashActive(true);
-        if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
-        flashTimeoutRef.current = setTimeout(() => {
-          setIsFlashActive(false);
-        }, 180);
-
-        // Floating scanner feedback badge
-        const indicatorId = Date.now();
-        setActiveIndicator({
-          id: indicatorId,
-          name: foundProduct.name,
-          barcode: cleanCode,
-          price: formatMoney(foundProduct.price),
-        });
-        if (indicatorTimeoutRef.current) clearTimeout(indicatorTimeoutRef.current);
-        indicatorTimeoutRef.current = setTimeout(() => {
-          setActiveIndicator(null);
-        }, 2000);
-
-        addToast({
-          title:
-            source === 'hardware'
-              ? (language === 'th' ? 'สแกนเนอร์ฮาร์ดแวร์ทำงาน' : 'Hardware Barcode Detected')
-              : (language === 'th' ? 'สแกนบาร์โค้ดสำเร็จ' : 'Barcode Scanned'),
-          message: `${foundProduct.name} • ${formatMoney(foundProduct.price)} (${cleanCode})`,
-          type: 'info',
-        });
-      } else {
-        playScannerSound('error');
-        addToast({
-          title: language === 'th' ? 'ไม่พบบาร์โค้ดสินค้า' : 'Barcode Not Found',
-          message:
-            language === 'th'
-              ? `ไม่พบรายการสินค้าที่ตรงกับบาร์โค้ด "${cleanCode}"`
-              : `No product registered for barcode "${cleanCode}"`,
-          type: 'warning',
-        });
-      }
-    },
-    [session, products, language, addItem, addToast]
-  );
-
-  // Hardware Barcode Scanner Hook
+  // Global Keyboard Wedge Barcode Scanner Hook for the POS module
   const {
     lastScannedBarcode,
+    lastScannedProduct,
     lastScannedAt,
     scanCount,
     isScanning,
+    isFlashActive,
+    activeIndicator,
     simulateScan,
-  } = useBarcodeScanner({
+    clearLastScan,
+  } = usePosKeyboardWedgeScanner({
+    products,
     enabled: isScannerEnabled && !isLoading,
-    onScan: (barcode) => {
-      handleBarcodeLookup(barcode, 'hardware');
+    maxIntervalMs: 50,
+    minLength: 3,
+    terminatorKeys: ['Enter', 'NumpadEnter', 'Tab'],
+    captureInInputs: true,
+    preventDefault: true,
+    filterValidSkus: true,
+    onItemAdded: (prod) => {
+      setLastRecognizedProduct(prod);
     },
   });
 
@@ -289,7 +214,7 @@ export const PosScreen: React.FC = () => {
   const handleBarcodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!barcodeInput.trim()) return;
-    await handleBarcodeLookup(barcodeInput.trim(), 'manual');
+    simulateScan(barcodeInput.trim());
     setBarcodeInput('');
   };
 
@@ -334,7 +259,7 @@ export const PosScreen: React.FC = () => {
         if (prod.currentStock <= 0) {
           outOfStockList.push(prod);
         } else {
-          addItem(prod, 1);
+          addItem(prod, 1, { isBarcodeScan: true });
           addedList.push(prod);
         }
       } else {
@@ -405,8 +330,8 @@ export const PosScreen: React.FC = () => {
   // Keyboard navigation for product grid
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if a modal is open
-      if (isBulkAddModalOpen || isScannerModalOpen || isMobileCartOpen) return;
+      // Ignore if a modal is open or keyboard nav is disabled
+      if (isBulkAddModalOpen || isScannerModalOpen || isMobileCartOpen || !isKeyboardNavEnabled) return;
 
       const activeTag = document.activeElement?.tagName;
       const isInputFocused = activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT';
@@ -463,7 +388,7 @@ export const PosScreen: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [filteredProducts, focusedProductIndex, addItem, isBulkAddModalOpen, isScannerModalOpen, isMobileCartOpen]);
+  }, [filteredProducts, focusedProductIndex, addItem, isBulkAddModalOpen, isScannerModalOpen, isMobileCartOpen, isKeyboardNavEnabled]);
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row h-full overflow-hidden bg-background">
@@ -523,6 +448,52 @@ export const PosScreen: React.FC = () => {
                 />
               </div>
 
+              {/* AI Cashier Assistant Button */}
+              <button
+                type="button"
+                id="pos-header-ai-assistant-btn"
+                onClick={() => {
+                  playScannerSound('click');
+                  setIsAiModalOpen(true);
+                }}
+                title={language === 'th' ? 'ผู้ช่วย AI แคชเชียร์ (แนะนำสินค้า & อัพเซลล์)' : 'AI Cashier Assistant & Upselling'}
+                className="h-10 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs transition-all shrink-0 active:scale-95 shadow-2xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles className="h-4 w-4 text-yellow-300 animate-pulse" />
+                <span className="hidden sm:inline font-bold whitespace-nowrap">
+                  {language === 'th' ? 'AI ผู้ช่วย' : 'AI Assistant'}
+                </span>
+              </button>
+
+              {/* Quick-Pay Action Trigger for Store Managers */}
+              <button
+                type="button"
+                id="pos-header-quickpay-btn"
+                disabled={totals.totalItemsCount === 0}
+                onClick={() => {
+                  if (totals.totalItemsCount === 0) return;
+                  playScannerSound('click');
+                  triggerHaptic('medium');
+                  setIsQuickPayOpen(true);
+                }}
+                title={language === 'th' ? 'ชำระด่วนสำหรับผู้จัดการ (แตะครั้งเดียว)' : 'Manager Quick-Pay (1-Tap Checkout)'}
+                className={`h-10 px-3 rounded-lg border-crisp border flex items-center gap-1.5 font-bold text-xs transition-all shrink-0 active:scale-95 shadow-2xs ${
+                  totals.totalItemsCount > 0
+                    ? 'bg-amber-500 hover:bg-amber-400 text-black border-amber-400/90 ring-1 ring-amber-400/40 cursor-pointer'
+                    : 'bg-card text-text/30 border-border/40 cursor-not-allowed opacity-50'
+                }`}
+              >
+                <Zap className="h-4 w-4 fill-current text-black" />
+                <span className="hidden md:inline font-black whitespace-nowrap">
+                  {language === 'th' ? 'จ่ายด่วน' : 'Quick-Pay'}
+                </span>
+                {totals.totalItemsCount > 0 && (
+                  <span className="text-[10px] font-mono font-black px-1.5 py-0.5 rounded bg-black/15 text-black">
+                    {formatMoney(totals.grandTotal)}
+                  </span>
+                )}
+              </button>
+
               {/* Bulk Barcode Import Trigger */}
               <button
                 type="button"
@@ -534,6 +505,23 @@ export const PosScreen: React.FC = () => {
                 className="h-10 min-w-[40px] px-2.5 rounded-lg bg-card hover:bg-background border-crisp border border-border text-text/70 hover:text-text transition-colors cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-2xs"
               >
                 <Clipboard className="h-4 w-4" />
+              </button>
+
+              {/* Keyboard Nav Toggle */}
+              <button
+                type="button"
+                onClick={() => {
+                  playScannerSound('click');
+                  updateConfig({ hardware: { ...config.hardware, keyboardFocusCapture: !isKeyboardNavEnabled } });
+                }}
+                title={language === 'th' ? 'สลับเปิด-ปิดระบบควบคุมด้วยคีย์บอร์ด' : 'Toggle Keyboard Navigation'}
+                className={`h-10 min-w-[40px] px-2.5 rounded-lg border-crisp border transition-colors cursor-pointer flex items-center justify-center shrink-0 active:scale-95 shadow-2xs ${
+                  isKeyboardNavEnabled 
+                    ? 'bg-primary/10 border-primary/30 text-primary' 
+                    : 'bg-card hover:bg-background border-border text-text/40 hover:text-text/70'
+                }`}
+              >
+                <Keyboard className="h-4 w-4" />
               </button>
 
               {/* Hardware Scanner Status & Simulator Launcher */}
@@ -741,25 +729,42 @@ export const PosScreen: React.FC = () => {
                 initial={{ y: 120, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 120, opacity: 0 }}
-                className="lg:hidden absolute bottom-3 left-3 right-3 p-3 border border-crisp border-primary/20 bg-card/95 backdrop-blur-md flex items-center justify-between shadow-xl rounded-xl z-40"
+                className="lg:hidden absolute bottom-3 left-3 right-3 p-2.5 border border-crisp border-primary/20 bg-card/95 backdrop-blur-md flex items-center justify-between shadow-xl rounded-xl z-40 gap-2"
               >
-                <div>
-                  <div className="text-[10px] text-text/70 font-semibold">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] text-text/70 font-semibold truncate">
                     {t.pos.cartTitle} (<span className="font-mono">{totals.totalItemsCount}</span> {t.pos.itemCount})
                   </div>
-                  <div className="text-base font-black font-mono text-primary">
+                  <div className="text-base font-black font-mono text-primary truncate">
                     {formatMoney(totals.grandTotal)}
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsMobileCartOpen(true)}
-                  className="min-h-[42px] h-10 flex items-center gap-2 px-5 rounded-lg bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-2xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95"
-                >
-                  <ShoppingCart className="h-4 w-4" />
-                  <span>{t.pos.checkoutBtn}</span>
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {/* Quick-Pay CTA on Mobile */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic('medium');
+                      playScannerSound('click');
+                      setIsQuickPayOpen(true);
+                    }}
+                    className="min-h-[42px] h-10 flex items-center gap-1 px-3 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-black text-xs shadow-2xs cursor-pointer transition-colors active:scale-95 border border-amber-400"
+                  >
+                    <Zap className="h-4 w-4 fill-current text-black" />
+                    <span>{language === 'th' ? 'จ่ายด่วน' : 'Quick-Pay'}</span>
+                  </button>
+
+                  {/* Open Cart Drawer CTA */}
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileCartOpen(true)}
+                    className="min-h-[42px] h-10 flex items-center gap-1.5 px-3 rounded-lg bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-2xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-95"
+                  >
+                    <ShoppingCart className="h-4 w-4" />
+                    <span className="hidden sm:inline">{t.pos.checkoutBtn}</span>
+                  </button>
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -772,7 +777,7 @@ export const PosScreen: React.FC = () => {
           mobileTab === 'cart' ? 'flex flex-col flex-1 lg:flex-initial' : 'hidden lg:block'
         }`}
       >
-        <CartPanel />
+        <CartPanel onOpenQuickPay={() => setIsQuickPayOpen(true)} />
       </div>
 
       {/* Mobile Cart Drawer */}
@@ -785,9 +790,30 @@ export const PosScreen: React.FC = () => {
         noPadding={true}
       >
         <div className="h-full flex flex-col">
-          <CartPanel />
+          <CartPanel
+            onOpenQuickPay={() => {
+              setIsMobileCartOpen(false);
+              setIsQuickPayOpen(true);
+            }}
+          />
         </div>
       </Drawer>
+
+      {/* Quick-Pay Slide-Over Drawer for Managers */}
+      <QuickPayDrawer
+        isOpen={isQuickPayOpen}
+        onClose={() => setIsQuickPayOpen(false)}
+        onOpenFullPaymentModal={() => {
+          setIsQuickPayOpen(false);
+          setIsFullPaymentModalOpen(true);
+        }}
+      />
+
+      {/* Full Payment Modal fallback for split/complex payment */}
+      <PaymentConfirmationModal
+        isOpen={isFullPaymentModalOpen}
+        onClose={() => setIsFullPaymentModalOpen(false)}
+      />
 
       {/* Barcode Scanner Simulator & Testing Modal */}
       <BarcodeScannerTesterModal
@@ -864,6 +890,17 @@ export const PosScreen: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* POS AI Cashier Assistant Modal */}
+      <PosAiAssistantModal
+        isOpen={isAiModalOpen}
+        onClose={() => setIsAiModalOpen(false)}
+        products={products}
+        onAddProductToCart={(prod) => {
+          addItem(prod, 1);
+          setIsAiModalOpen(false);
+        }}
+      />
 
       {/* Barcode Scan Visual Feedback Overlays */}
       <AnimatePresence>

@@ -54,6 +54,7 @@ const DEFAULT_PRINTER_CONFIG: PrinterHardwareConfig = {
   autoPrintOnCheckout: true,
   autoKickDrawerOnCash: true,
   copies: 1,
+  quickPrint: false,
 };
 
 const ReceiptPrinterContext = createContext<ReceiptPrinterContextType | undefined>(undefined);
@@ -88,7 +89,10 @@ export const ReceiptPrinterProvider: React.FC<{ children: React.ReactNode }> = (
   const [printerConfig, setPrinterConfig] = useState<PrinterHardwareConfig>(() => {
     try {
       const stored = localStorage.getItem(PRINTER_CONFIG_KEY);
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return { ...DEFAULT_PRINTER_CONFIG, ...parsed };
+      }
     } catch {
       // ignore
     }

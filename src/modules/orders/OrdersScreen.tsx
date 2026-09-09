@@ -20,6 +20,8 @@ import { FullTaxInvoiceModal } from '../../components/receipt/FullTaxInvoiceModa
 import { SupervisorAuthModal } from '../../components/auth/SupervisorAuthModal';
 import { OrderRefundModal } from '../../components/orders/OrderRefundModal';
 import { User } from '../../domain/auth';
+import { useCart } from '../../context/CartContext';
+import { NavRoute } from '../../components/layout/Sidebar';
 import {
   Receipt,
   Search,
@@ -35,19 +37,53 @@ import {
   RotateCcw,
   ChevronDown,
   ChevronUp,
+  Zap,
+  ShoppingCart,
 } from 'lucide-react';
+import { triggerHaptic } from '../../services/hapticService';
 
-export const OrdersScreen: React.FC = () => {
+export interface OrdersScreenProps {
+  onNavigate?: (route: NavRoute) => void;
+}
+
+export const OrdersScreen: React.FC<OrdersScreenProps> = ({ onNavigate }) => {
   const { session, can } = useAuth();
   const { addToast } = useToast();
   const { t, language } = useLanguage();
-  const { printReceipt, isPrinting } = useReceiptPrinter();
+  const { printReceipt, isPrinting, printerConfig } = useReceiptPrinter();
   const { setSubLevels } = useBreadcrumb();
+  const { items: currentCartItems, reorderItems } = useCart();
 
   const [orders, setOrders] = useState<readonly Order[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [reorderCandidateOrder, setReorderCandidateOrder] = useState<Order | null>(null);
   const [isReceiptPrintModalOpen, setIsReceiptPrintModalOpen] = useState(false);
   const [isFullTaxModalOpen, setIsFullTaxModalOpen] = useState(false);
+
+  const handleOrderPrint = async (order: Order) => {
+    setSelectedOrder(order);
+    if (printerConfig.quickPrint) {
+      triggerHaptic('tap');
+      const res = await printReceipt(order);
+      if (res.success) {
+        addToast({
+          title: language === 'th' ? 'ส่งคำสั่งพิมพ์ด่วนสำเร็จ' : 'Quick Print Dispatched',
+          message: language === 'th'
+            ? `พิมพ์ใบเสร็จ #${order.orderNumber} ตรงไปยังเครื่องพิมพ์เรียบร้อย (ข้ามหน้าต่าง Preview)`
+            : `Receipt #${order.orderNumber} sent directly to thermal printer (Quick Print enabled).`,
+          type: 'success',
+        });
+      } else {
+        addToast({
+          title: language === 'th' ? 'การพิมพ์ล้มเหลว' : 'Print Error',
+          message: res.message,
+          type: 'error',
+        });
+      }
+    } else {
+      setIsReceiptPrintModalOpen(true);
+    }
+  };
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
   const [isSupervisorVoidModalOpen, setIsSupervisorVoidModalOpen] = useState(false);
   const [activeFilter, setActiveFilter] = useState<string>('all');
@@ -154,9 +190,11 @@ export const OrdersScreen: React.FC = () => {
     };
 
     window.addEventListener('prodx:order-completed', handleOrderCompleted);
+    window.addEventListener('prodx:inventory-updated', handleOrderCompleted);
     window.addEventListener('prodx:select-order', handleSelectOrderEvent);
     return () => {
       window.removeEventListener('prodx:order-completed', handleOrderCompleted);
+      window.removeEventListener('prodx:inventory-updated', handleOrderCompleted);
       window.removeEventListener('prodx:select-order', handleSelectOrderEvent);
     };
   }, [session]);
@@ -241,6 +279,52 @@ export const OrdersScreen: React.FC = () => {
     }
   };
 
+  const handleReorder = (order: Order, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!order || order.items.length === 0) {
+      addToast({
+        title: language === 'th' ? 'ไม่มีรายการสินค้า' : 'No Items to Reorder',
+        message: language === 'th' ? 'คำสั่งซื้อนี้ไม่มีรายการสินค้า' : 'This order has no line items.',
+        type: 'warning',
+      });
+      return;
+    }
+
+    // If active POS cart already contains items, prompt user for action
+    if (currentCartItems.length > 0) {
+      setReorderCandidateOrder(order);
+      return;
+    }
+
+    // Cart is currently empty, proceed directly
+    executeReorder(order, true);
+  };
+
+  const executeReorder = (order: Order, replace: boolean) => {
+    triggerHaptic('success');
+    const totalUnits = order.items.reduce((sum, item) => sum + item.quantity, 0);
+
+    reorderItems(order.items, {
+      replace,
+      customer: order.customer || null,
+      notes: order.notes ? `[Reorder #${order.orderNumber}] ${order.notes}` : `[Reorder #${order.orderNumber}]`,
+    });
+
+    addToast({
+      title: language === 'th' ? 'นำสินค้าเข้าตะกร้าสำเร็จ' : 'Order Loaded into POS Cart',
+      message: language === 'th'
+        ? `นำเข้า ${order.items.length} รายการ (${totalUnits} ชิ้น) จากบิล #${order.orderNumber} ไปยังหน้าขายเรียบร้อย`
+        : `Loaded ${order.items.length} items (${totalUnits} units) from order #${order.orderNumber} into active register.`,
+      type: 'success',
+    });
+
+    setReorderCandidateOrder(null);
+    setSelectedOrder(null);
+    if (onNavigate) {
+      onNavigate('pos');
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6 bg-background text-text no-scrollbar">
       {/* Top Header */}
@@ -255,6 +339,40 @@ export const OrdersScreen: React.FC = () => {
         </div>
         {/* Action button container */}
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 shrink-0">
+          <Button
+            id="orders-quick-refund-top-btn"
+            variant="outline"
+            size="md"
+            onClick={() => {
+              // If an order is selected, open refund modal for it
+              if (selectedOrder && selectedOrder.status !== 'voided' && selectedOrder.status !== 'refunded') {
+                setIsRefundModalOpen(true);
+                return;
+              }
+              // Otherwise find the latest refundable order
+              const refundable = orders.find(
+                (o) => o.status !== 'voided' && o.status !== 'refunded'
+              );
+              if (refundable) {
+                setSelectedOrder(refundable);
+                setIsRefundModalOpen(true);
+              } else {
+                addToast({
+                  title: language === 'th' ? 'ไม่พบบิลที่คืนเงินได้' : 'No Refundable Orders',
+                  message:
+                    language === 'th'
+                      ? 'ไม่มีคำสั่งซื้อที่สามารถทำรายการคืนเงินได้ในขณะนี้'
+                      : 'No active completed orders available for refund.',
+                  type: 'info',
+                });
+              }
+            }}
+            leftIcon={<Zap className="h-4 w-4 text-amber-500 fill-amber-500/20" />}
+            className="whitespace-nowrap border-amber-500/40 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 font-bold"
+          >
+            {t.orders.quickRefund || (language === 'th' ? 'คืนเงินด่วน' : 'Quick Refund')}
+          </Button>
+
           <Button
             variant="secondary"
             size="md"
@@ -606,18 +724,50 @@ export const OrdersScreen: React.FC = () => {
                                       <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60 flex-wrap">
                                         <Button
                                           type="button"
-                                          variant="secondary"
+                                          variant="primary"
                                           size="sm"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            setSelectedOrder(order);
-                                            setIsReceiptPrintModalOpen(true);
+                                            handleReorder(order);
                                           }}
-                                          leftIcon={<Printer className="h-3.5 w-3.5 text-primary shrink-0" />}
+                                          leftIcon={<ShoppingCart className="h-3.5 w-3.5 shrink-0" />}
                                           className="text-xs h-8 px-2.5 font-bold cursor-pointer"
                                         >
-                                          {t.orders.reprintReceipt}
+                                          {t.orders.reorder || (language === 'th' ? 'สั่งซื้อซ้ำ' : 'Reorder')}
                                         </Button>
+
+                                        <div className="flex items-center gap-1.5">
+                                          <Button
+                                            type="button"
+                                            variant="secondary"
+                                            size="sm"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleOrderPrint(order);
+                                            }}
+                                            leftIcon={printerConfig.quickPrint ? <Zap className="h-3.5 w-3.5 text-amber-500 shrink-0" /> : <Printer className="h-3.5 w-3.5 text-primary shrink-0" />}
+                                            className="text-xs h-8 px-2.5 font-bold cursor-pointer"
+                                            isLoading={isPrinting && selectedOrder?.id === order.id}
+                                          >
+                                            {printerConfig.quickPrint ? (language === 'th' ? 'พิมพ์สลิปด่วน' : 'Quick Print') : t.orders.reprintReceipt}
+                                          </Button>
+                                          {printerConfig.quickPrint && (
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              title={language === 'th' ? 'ดูตัวอย่างก่อนพิมพ์' : 'Preview receipt layout'}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setSelectedOrder(order);
+                                                setIsReceiptPrintModalOpen(true);
+                                              }}
+                                              className="text-xs h-8 px-2 font-bold cursor-pointer"
+                                            >
+                                              <Eye className="h-3.5 w-3.5 text-text/60" />
+                                            </Button>
+                                          )}
+                                        </div>
 
                                         <Button
                                           type="button"
@@ -645,10 +795,10 @@ export const OrdersScreen: React.FC = () => {
                                                 setSelectedOrder(order);
                                                 setIsRefundModalOpen(true);
                                               }}
-                                              leftIcon={<RotateCcw className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />}
-                                              className="text-xs h-8 px-2.5 font-bold cursor-pointer text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
+                                              leftIcon={<Zap className="h-3.5 w-3.5 text-amber-500 fill-amber-500/20 shrink-0" />}
+                                              className="text-xs h-8 px-2.5 font-bold cursor-pointer text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10"
                                             >
-                                              {language === 'th' ? 'คืนเงิน' : 'Refund'}
+                                              {t.orders.quickRefund || (language === 'th' ? 'คืนเงินด่วน' : 'Quick Refund')}
                                             </Button>
 
                                             <Button
@@ -767,13 +917,37 @@ export const OrdersScreen: React.FC = () => {
               <Button
                 variant="primary"
                 size="sm"
-                onClick={() => setIsReceiptPrintModalOpen(true)}
-                leftIcon={<Printer className="h-3.5 w-3.5" />}
+                onClick={() => handleReorder(selectedOrder)}
+                leftIcon={<ShoppingCart className="h-3.5 w-3.5 shrink-0" />}
+                className="font-bold cursor-pointer"
               >
-                {t.orders.reprintReceipt}
+                {t.orders.reorder || (language === 'th' ? 'สั่งซื้อซ้ำ' : 'Reorder')}
               </Button>
+
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => handleOrderPrint(selectedOrder)}
+                  isLoading={isPrinting}
+                  leftIcon={printerConfig.quickPrint ? <Zap className="h-3.5 w-3.5 text-amber-500" /> : <Printer className="h-3.5 w-3.5 text-primary" />}
+                >
+                  {printerConfig.quickPrint ? (language === 'th' ? 'พิมพ์ด่วน' : 'Quick Print') : t.orders.reprintReceipt}
+                </Button>
+                {printerConfig.quickPrint && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    title={language === 'th' ? 'ดูตัวอย่าง' : 'Preview'}
+                    onClick={() => setIsReceiptPrintModalOpen(true)}
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
               <Button
-                variant="secondary"
+                variant="outline"
                 size="sm"
                 onClick={() => setIsFullTaxModalOpen(true)}
                 leftIcon={<FileText className="h-3.5 w-3.5 text-primary" />}
@@ -786,10 +960,10 @@ export const OrdersScreen: React.FC = () => {
                     variant="outline"
                     size="sm"
                     onClick={() => setIsRefundModalOpen(true)}
-                    className="text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
-                    leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
+                    className="text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10 font-bold"
+                    leftIcon={<Zap className="h-3.5 w-3.5 text-amber-500 fill-amber-500/20" />}
                   >
-                    {language === 'th' ? 'คืนเงิน / รับคืน' : 'Refund'}
+                    {t.orders.quickRefund || (language === 'th' ? 'คืนเงินด่วน' : 'Quick Refund')}
                   </Button>
                   <Button
                     variant="danger"
@@ -834,16 +1008,24 @@ export const OrdersScreen: React.FC = () => {
                         variant="outline"
                         size="sm"
                         onClick={() => setIsRefundModalOpen(true)}
-                        className="text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
-                        leftIcon={<RotateCcw className="h-3.5 w-3.5" />}
+                        className="text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10 font-bold"
+                        leftIcon={<Zap className="h-3.5 w-3.5 text-amber-500 fill-amber-500/20" />}
                       >
-                        {language === 'th' ? 'คืนเงิน' : 'Refund'}
+                        {t.orders.quickRefund || (language === 'th' ? 'คืนเงินด่วน' : 'Quick Refund')}
                       </Button>
                     </>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 ml-auto">
+                <div className="flex items-center gap-2 ml-auto flex-wrap">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => handleReorder(selectedOrder)}
+                    leftIcon={<ShoppingCart className="h-3.5 w-3.5" />}
+                  >
+                    {t.orders.reorder || (language === 'th' ? 'สั่งซื้อซ้ำ' : 'Reorder')}
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -852,14 +1034,27 @@ export const OrdersScreen: React.FC = () => {
                   >
                     {language === 'th' ? 'ใบกำกับภาษี' : 'Tax Invoice'}
                   </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => setIsReceiptPrintModalOpen(true)}
-                    leftIcon={<Printer className="h-3.5 w-3.5" />}
-                  >
-                    <span>{t.orders.reprintReceipt}</span>
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleOrderPrint(selectedOrder)}
+                      isLoading={isPrinting}
+                      leftIcon={printerConfig.quickPrint ? <Zap className="h-3.5 w-3.5 text-amber-300" /> : <Printer className="h-3.5 w-3.5" />}
+                    >
+                      <span>{printerConfig.quickPrint ? (language === 'th' ? 'พิมพ์ด่วน' : 'Quick Print') : t.orders.reprintReceipt}</span>
+                    </Button>
+                    {printerConfig.quickPrint && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        title={language === 'th' ? 'ดูตัวอย่าง' : 'Preview'}
+                        onClick={() => setIsReceiptPrintModalOpen(true)}
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
                   <Button variant="secondary" size="sm" onClick={() => setSelectedOrder(null)}>
                     {language === 'th' ? 'ปิด' : 'Close'}
                   </Button>
@@ -988,6 +1183,95 @@ export const OrdersScreen: React.FC = () => {
             handleSupervisorVoidAuthorized(supervisor, reason);
           }}
         />
+      )}
+
+      {/* Reorder Active Cart Conflict Modal */}
+      {reorderCandidateOrder && (
+        <Modal
+          isOpen={Boolean(reorderCandidateOrder)}
+          onClose={() => setReorderCandidateOrder(null)}
+          title={language === 'th' ? 'สั่งซื้อซ้ำ: มีสินค้าค้างในตะกร้า' : 'Reorder: Active Cart Conflict'}
+          description={
+            language === 'th'
+              ? `ขณะนี้มีสินค้าอยู่ในตะกร้าขาย ${currentCartItems.length} รายการ (${currentCartItems.reduce((s, i) => s + i.quantity, 0)} ชิ้น) ต้องการดำเนินการอย่างไร?`
+              : `Your POS register cart currently contains ${currentCartItems.length} items (${currentCartItems.reduce((s, i) => s + i.quantity, 0)} units). How would you like to populate the cart?`
+          }
+          maxWidth="md"
+          footer={
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 w-full">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setReorderCandidateOrder(null)}
+              >
+                {language === 'th' ? 'ยกเลิก' : 'Cancel'}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => executeReorder(reorderCandidateOrder, false)}
+                leftIcon={<ShoppingCart className="h-3.5 w-3.5 text-primary" />}
+              >
+                {language === 'th' ? 'เพิ่มต่อท้าย (Append)' : 'Append to Cart'}
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => executeReorder(reorderCandidateOrder, true)}
+              >
+                {language === 'th' ? 'เขียนทับตะกร้า (Replace)' : 'Replace Cart'}
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            {/* Target Order Summary Card */}
+            <div className="p-3.5 rounded-xl border border-border bg-card space-y-2.5">
+              <div className="flex items-center justify-between text-xs font-bold text-text">
+                <span className="flex items-center gap-1.5 text-primary">
+                  <Receipt className="h-4 w-4" />
+                  <span>#{reorderCandidateOrder.orderNumber}</span>
+                </span>
+                <span className="font-mono text-primary font-bold">
+                  {formatMoney(reorderCandidateOrder.totals.grandTotal)}
+                </span>
+              </div>
+              <div className="text-xs text-text/70 space-y-1">
+                <p>
+                  <span className="font-semibold text-text">{language === 'th' ? 'ลูกค้า' : 'Customer'}:</span>{' '}
+                  {reorderCandidateOrder.customer?.name || t.pos.walkIn}
+                </p>
+                <p>
+                  <span className="font-semibold text-text">{language === 'th' ? 'จำนวนรายการ' : 'Items'}:</span>{' '}
+                  {reorderCandidateOrder.items.length} {language === 'th' ? 'รายการ' : 'items'} (
+                  {reorderCandidateOrder.items.reduce((s, i) => s + i.quantity, 0)} {language === 'th' ? 'ชิ้น' : 'units'})
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-800 dark:text-amber-300">
+              <p className="font-semibold">
+                {language === 'th'
+                  ? '💡 ข้อแนะนำการใช้งาน:'
+                  : '💡 Recommendation:'}
+              </p>
+              <ul className="list-disc list-inside mt-1 space-y-0.5 opacity-90">
+                <li>
+                  <strong>{language === 'th' ? 'เขียนทับตะกร้า (Replace)' : 'Replace Cart'}:</strong>{' '}
+                  {language === 'th'
+                    ? 'ล้างตะกร้าเดิมและใส่สินค้าชุดใหม่ตามบิลนี้พอดี'
+                    : 'Clears existing cart and sets exact items from this order.'}
+                </li>
+                <li>
+                  <strong>{language === 'th' ? 'เพิ่มต่อท้าย (Append)' : 'Append to Cart'}:</strong>{' '}
+                  {language === 'th'
+                    ? 'เก็บสินค้าในตะกร้าเดิมไว้ และเพิ่มจำนวนสินค้าจากบิลนี้เข้าไป'
+                    : 'Keeps existing cart items and adds quantities from this order.'}
+                </li>
+              </ul>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

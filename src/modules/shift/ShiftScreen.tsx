@@ -55,6 +55,18 @@ export const ShiftScreen: React.FC = () => {
   const [timeclockRecords, setTimeclockRecords] = useState<TimeclockRecord[]>([]);
   const [orders, setOrders] = useState<readonly Order[]>([]);
 
+  const triggerOpenShiftModal = () => {
+    if (currentShift && currentShift.status === 'open') {
+      addToast({
+        title: t.shift.shiftAlreadyActive,
+        message: t.shift.shiftAlreadyActiveWarning,
+        type: 'warning',
+      });
+      return;
+    }
+    setIsOpenShiftModal(true);
+  };
+
   useEffect(() => {
     if (session) {
       shiftApi.getTimeclockRecords(session.currentStore.id)
@@ -310,6 +322,17 @@ export const ShiftScreen: React.FC = () => {
   };
 
   const handleOpenShift = async () => {
+    // Validation check: Warn if another shift is still active in the local database
+    if (currentShift && currentShift.status === 'open') {
+      addToast({
+        title: t.shift.shiftAlreadyActive,
+        message: t.shift.shiftAlreadyActiveWarning,
+        type: 'warning',
+      });
+      setIsOpenShiftModal(false);
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const cents = Math.round(parseFloat(openingFloatDollars || '0') * 100);
@@ -464,7 +487,7 @@ export const ShiftScreen: React.FC = () => {
             <Button
               variant="primary"
               size="md"
-              onClick={() => setIsOpenShiftModal(true)}
+              onClick={triggerOpenShiftModal}
               leftIcon={<Unlock className="h-4 w-4" />}
               className="whitespace-nowrap min-h-[44px]"
             >
@@ -609,7 +632,7 @@ export const ShiftScreen: React.FC = () => {
           <Button
             variant="primary"
             size="lg"
-            onClick={() => setIsOpenShiftModal(true)}
+            onClick={triggerOpenShiftModal}
             leftIcon={<Unlock className="h-4 w-4" />}
           >
             {t.shift.openShiftBtn}

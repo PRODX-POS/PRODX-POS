@@ -6,6 +6,7 @@ import { GraphicIconColor } from '../../components/common/GraphicIcon';
 
 export type SettingsTabId =
   | 'general'
+  | 'ai_assistant'
   | 'modules_control'
   | 'system_tools'
   | 'loyalty_crm'
@@ -25,7 +26,8 @@ export interface SettingsTabItem {
   iconName: string;
   graphicColor: GraphicIconColor;
   badge?: string;
-  category: 'core' | 'management' | 'hardware_fin' | 'security' | 'engine';
+  category: 'store_pos' | 'hardware_peripherals' | 'loyalty_crm' | 'security_admin';
+  isQuickTab?: boolean;
 }
 
 export interface StoreProfileFormState {

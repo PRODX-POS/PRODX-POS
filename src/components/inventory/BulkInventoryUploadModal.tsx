@@ -9,6 +9,11 @@ import { useLanguage } from '../../context/LanguageContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import {
+  downloadCsvFile,
+  generateInventoryCsv,
+  getBlankCsvTemplate,
+} from '../../utils/csvExport';
+import {
   UploadCloud,
   FileSpreadsheet,
   FileCode,
@@ -60,7 +65,21 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
     type: 'string',
     description: 'Unique product identifier (e.g. BEV-LAT-01)',
     descriptionTh: 'รหัสสินค้าเอกลักษณ์ประจำรายการ',
-    aliases: ['sku', 'item_sku', 'product_sku', 'code', 'item_code', 'product_code', 'item_id', 'product_id', 'id'],
+    aliases: [
+      'sku',
+      'item_sku',
+      'product_sku',
+      'code',
+      'item_code',
+      'product_code',
+      'item_id',
+      'product_id',
+      'id',
+      'รหัสสินค้า',
+      'รหัส',
+      'รหัสแท่ง',
+      'sku_code',
+    ],
   },
   {
     key: 'name',
@@ -70,7 +89,19 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
     type: 'string',
     description: 'Display title for POS and receipts (Required for new items)',
     descriptionTh: 'ชื่อที่แสดงในระบบขายและใบเสร็จ (จำเป็นสำหรับสินค้าใหม่)',
-    aliases: ['name', 'product_name', 'item_name', 'title', 'product_title', 'description_name'],
+    aliases: [
+      'name',
+      'product_name',
+      'item_name',
+      'title',
+      'product_title',
+      'description_name',
+      'ชื่อสินค้า',
+      'ชื่อ',
+      'รายการ',
+      'ชื่อรายการ',
+      'สินค้า',
+    ],
   },
   {
     key: 'barcode',
@@ -80,7 +111,17 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
     type: 'string',
     description: 'Scannable 8-14 digit barcode string',
     descriptionTh: 'รหัสบาร์โค้ดสำหรับสแกนเนอร์',
-    aliases: ['barcode', 'upc', 'ean', 'isbn', 'barcode_number', 'gtin', 'scan_code'],
+    aliases: [
+      'barcode',
+      'upc',
+      'ean',
+      'isbn',
+      'barcode_number',
+      'gtin',
+      'scan_code',
+      'บาร์โค้ด',
+      'รหัสบาร์โค้ด',
+    ],
   },
   {
     key: 'priceAmountInCents',
@@ -88,9 +129,23 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
     labelTh: 'ราคาขายปลีก',
     required: false,
     type: 'number',
-    description: 'Selling price per unit (e.g. 85.00 or 8500 in cents)',
+    description: 'Selling price per unit (e.g. 85.00 or 1500 in Baht)',
     descriptionTh: 'ราคาขายหน้าร้านต่อหน่วย',
-    aliases: ['price', 'retail_price', 'sale_price', 'unit_price', 'selling_price', 'price_thb', 'price_usd', 'msrp'],
+    aliases: [
+      'price',
+      'retail_price',
+      'sale_price',
+      'unit_price',
+      'selling_price',
+      'price_thb',
+      'price_usd',
+      'msrp',
+      'ราคา',
+      'ราคาขาย',
+      'ราคาปลีก',
+      'ราคาต่อหน่วย',
+      'ราคาหน้าร้าน',
+    ],
   },
   {
     key: 'costPriceAmountInCents',
@@ -100,7 +155,19 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
     type: 'number',
     description: 'Purchase cost per unit for margin calculation',
     descriptionTh: 'ต้นทุนสินค้าต่อหน่วยเพื่อคำนวณกำไร',
-    aliases: ['cost', 'cost_price', 'unit_cost', 'cogs', 'supply_price', 'buy_price', 'purchase_cost'],
+    aliases: [
+      'cost',
+      'cost_price',
+      'unit_cost',
+      'cogs',
+      'supply_price',
+      'buy_price',
+      'purchase_cost',
+      'ราคาทุน',
+      'ต้นทุน',
+      'ทุน',
+      'ราคาต้นทุน',
+    ],
   },
   {
     key: 'currentStock',
@@ -110,7 +177,22 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
     type: 'number',
     description: 'Current physical inventory count or quantity on hand',
     descriptionTh: 'จำนวนสินค้าที่มีอยู่ในคลัง',
-    aliases: ['stock', 'current_stock', 'quantity', 'qty', 'on_hand', 'stock_on_hand', 'inventory', 'balance'],
+    aliases: [
+      'stock',
+      'current_stock',
+      'quantity',
+      'qty',
+      'on_hand',
+      'stock_on_hand',
+      'inventory',
+      'balance',
+      'สต็อก',
+      'จำนวน',
+      'คงเหลือ',
+      'สต็อกคงเหลือ',
+      'จำนวนคงเหลือ',
+      'ยอดนับ',
+    ],
   },
   {
     key: 'reorderPoint',
@@ -120,7 +202,19 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
     type: 'number',
     description: 'Low-stock alert threshold (default: 10)',
     descriptionTh: 'เกณฑ์แจ้งเตือนสต็อกต่ำ',
-    aliases: ['reorder_point', 'reorder', 'min_stock', 'safety_stock', 'alert_threshold', 'threshold', 'low_stock_level'],
+    aliases: [
+      'reorder_point',
+      'reorder',
+      'min_stock',
+      'safety_stock',
+      'alert_threshold',
+      'threshold',
+      'low_stock_level',
+      'จุดสั่งซื้อ',
+      'จุดเตือน',
+      'สต็อกขั้นต่ำ',
+      'เกณฑ์เตือน',
+    ],
   },
   {
     key: 'category',
@@ -130,7 +224,20 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
     type: 'string',
     description: 'Category name or ID (e.g. cat-coffee or Beverages)',
     descriptionTh: 'ชื่อหรือรหัสหมวดหมู่สินค้า',
-    aliases: ['category', 'category_id', 'category_name', 'cat', 'dept', 'department', 'group', 'collection'],
+    aliases: [
+      'category',
+      'category_id',
+      'category_name',
+      'cat',
+      'dept',
+      'department',
+      'group',
+      'collection',
+      'หมวดหมู่',
+      'หมวด',
+      'กลุ่มสินค้า',
+      'ประเภท',
+    ],
   },
   {
     key: 'unitOfMeasure',
@@ -140,7 +247,16 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
     type: 'string',
     description: 'e.g. cup, piece, bottle, pack, box, kg',
     descriptionTh: 'เช่น แก้ว, ชิ้น, ขวด, กล่อง, แพ็ก',
-    aliases: ['unit', 'unit_of_measure', 'uom', 'measure_unit', 'unit_name', 'type'],
+    aliases: [
+      'unit',
+      'unit_of_measure',
+      'uom',
+      'measure_unit',
+      'unit_name',
+      'type',
+      'หน่วย',
+      'หน่วยนับ',
+    ],
   },
   {
     key: 'taxRateBps',
@@ -150,7 +266,17 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
     type: 'number',
     description: 'Tax rate percentage or bps (e.g. 7 for 7% VAT or 700 bps)',
     descriptionTh: 'อัตราภาษี เช่น 7 สำหรับ VAT 7% หรือ 700 bps',
-    aliases: ['tax', 'tax_rate', 'vat', 'tax_percentage', 'tax_bps', 'vat_rate'],
+    aliases: [
+      'tax',
+      'tax_rate',
+      'vat',
+      'tax_percentage',
+      'tax_bps',
+      'vat_rate',
+      'ภาษี',
+      'อัตราภาษี',
+      'vat_percent',
+    ],
   },
   {
     key: 'description',
@@ -160,7 +286,17 @@ const SYSTEM_FIELDS: FieldDefinition[] = [
     type: 'string',
     description: 'Brief product description or supplier notes',
     descriptionTh: 'คำอธิบายสินค้าเพิ่มเติม',
-    aliases: ['description', 'desc', 'details', 'notes', 'summary', 'product_description'],
+    aliases: [
+      'description',
+      'desc',
+      'details',
+      'notes',
+      'summary',
+      'product_description',
+      'รายละเอียด',
+      'คำอธิบาย',
+      'หมายเหตุ',
+    ],
   },
 ];
 
@@ -354,16 +490,29 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
 
     // Smart Auto-Mapping
     const initialMapping: Record<string, string> = {};
-    const normalizedHeaders = headers.map((h) => ({
-      original: h,
-      clean: h.toLowerCase().replace(/[^a-z0-9]/g, '_'),
-    }));
+    const normalizedHeaders = headers.map((h) => {
+      const trimmed = h.trim();
+      const lower = trimmed.toLowerCase();
+      return {
+        original: trimmed,
+        clean: lower.replace(/[\s\-_.]+/g, '_'),
+        alphaNumeric: lower.replace(/[^a-z0-9]/g, ''),
+      };
+    });
 
     SYSTEM_FIELDS.forEach((sysField) => {
       for (const norm of normalizedHeaders) {
         if (
           norm.clean === sysField.key.toLowerCase() ||
-          sysField.aliases.some((alias) => norm.clean === alias || norm.clean.includes(alias))
+          norm.alphaNumeric === sysField.key.toLowerCase() ||
+          sysField.aliases.some((alias) => {
+            const cleanAlias = alias.toLowerCase().replace(/[\s\-_.]+/g, '_');
+            return (
+              norm.clean === cleanAlias ||
+              norm.clean.includes(cleanAlias) ||
+              norm.original.toLowerCase().includes(alias.toLowerCase())
+            );
+          })
         ) {
           initialMapping[sysField.key] = norm.original;
           break;
@@ -436,23 +585,20 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
   };
 
   // Sample Template Download Generator
-  const downloadSampleTemplate = (format: 'csv' | 'json') => {
-    if (format === 'csv') {
-      const sampleCsv =
-        'sku,barcode,name,category,price,cost_price,stock,reorder_point,unit,tax_rate,description\n' +
-        'BEV-MAT-01,890123450090,Organic Uji Matcha Latte,cat-coffee,95.00,32.00,50,15,cup,7,Ceremonial grade matcha with steamed oat milk\n' +
-        'BAK-CRO-02,890123450091,Salted Egg Yolk Croissant,cat-bakery,85.00,28.00,24,10,piece,7,Hand-rolled butter croissant with creamy custard\n' +
-        'RET-MUG-03,890123450092,PRODX Thermal Travel Flask,cat-retail,650.00,220.00,30,5,unit,7,Double-wall stainless steel insulated flask\n' +
-        'BEV-ESP-01,890123450001,Signature Espresso Shot,cat-coffee,65.00,15.00,100,25,cup,7,Single origin washed Ethiopian coffee';
-
-      const blob = new Blob([sampleCsv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', 'PRODX_Inventory_Import_Template.csv');
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+  const downloadSampleTemplate = (format: 'csv' | 'json' | 'current_catalog') => {
+    if (format === 'current_catalog') {
+      const csvContent = generateInventoryCsv(existingProducts as Product[], categories as Category[]);
+      downloadCsvFile(`PRODX_Inventory_Catalog_${new Date().toISOString().split('T')[0]}`, csvContent);
+      addToast({
+        title: language === 'th' ? 'ส่งออกสต็อกปัจจุบันสำเร็จ' : 'Catalog Exported',
+        message:
+          language === 'th'
+            ? `ส่งออกข้อมูลสินค้าปัจจุบัน ${existingProducts.length} รายการเป็น CSV เรียบร้อยแล้ว`
+            : `Exported ${existingProducts.length} current catalog items to CSV.`,
+        type: 'success',
+      });
+    } else if (format === 'csv') {
+      downloadCsvFile('PRODX_Inventory_Import_Template', getBlankCsvTemplate());
     } else {
       const sampleJson = JSON.stringify(
         [
@@ -508,6 +654,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      URL.revokeObjectURL(url);
     }
   };
 
@@ -584,7 +731,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
         );
       }
 
-      // Validate Price
+      // Validate Price: standard input is in currency units (e.g. 85.00 or 1500) -> convert to cents (8500 or 150000)
       let priceAmountInCents: number | undefined = undefined;
       if (rawPrice !== undefined && rawPrice !== '') {
         const num = parseNumeric(rawPrice);
@@ -593,12 +740,12 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
         } else if (num < 0) {
           errors.push(language === 'th' ? 'ราคาขายต้องไม่ติดลบ' : 'Price cannot be negative');
         } else {
-          // If price is e.g. 85 or 85.00, convert to cents (8500) if small number; if > 10000 and has no decimal, assume cents
-          priceAmountInCents = num < 1000 ? Math.round(num * 100) : Math.round(num);
+          const isExplicitCents = priceField ? (priceField.toLowerCase().includes('cent') || priceField.toLowerCase().includes('satang')) : false;
+          priceAmountInCents = isExplicitCents ? Math.round(num) : Math.round(num * 100);
         }
       }
 
-      // Validate Cost
+      // Validate Cost: standard input is in currency units
       let costPriceAmountInCents: number | undefined = undefined;
       if (rawCost !== undefined && rawCost !== '') {
         const num = parseNumeric(rawCost);
@@ -607,7 +754,8 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
         } else if (num < 0) {
           errors.push(language === 'th' ? 'ราคาทุนต้องไม่ติดลบ' : 'Cost cannot be negative');
         } else {
-          costPriceAmountInCents = num < 1000 ? Math.round(num * 100) : Math.round(num);
+          const isExplicitCostCents = costField ? (costField.toLowerCase().includes('cent') || costField.toLowerCase().includes('satang')) : false;
+          costPriceAmountInCents = isExplicitCostCents ? Math.round(num) : Math.round(num * 100);
         }
       }
 
@@ -670,20 +818,20 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
         }
       }
 
-      // Build parsed object
+      // Build parsed object - preserves existing product fields if not specified in CSV
       const parsedItem: BulkImportItem = {
         sku: rawSku,
-        name: rawName || (rawSku ? `Item ${rawSku}` : undefined),
+        name: rawName ? rawName : (isExisting ? undefined : `Item ${rawSku}`),
         barcode: rawBarcode || undefined,
-        description: rawDesc || undefined,
-        categoryId: categoryId || defaultCategoryId,
+        description: rawDesc ? rawDesc : undefined,
+        categoryId: categoryId ? categoryId : (isExisting ? undefined : defaultCategoryId),
         categoryName: categoryName,
         priceAmountInCents: priceAmountInCents,
         costPriceAmountInCents: costPriceAmountInCents,
         currentStock: currentStock,
-        reorderPoint: reorderPoint ?? 10,
-        unitOfMeasure: rawUnit || 'piece',
-        taxRateBps: taxRateBps ?? defaultTaxRate * 100,
+        reorderPoint: reorderPoint !== undefined ? reorderPoint : (isExisting ? undefined : 10),
+        unitOfMeasure: rawUnit ? rawUnit : (isExisting ? undefined : 'piece'),
+        taxRateBps: taxRateBps !== undefined ? taxRateBps : (isExisting ? undefined : defaultTaxRate * 100),
       };
 
       // Determine status
@@ -996,7 +1144,7 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
               </div>
 
               {/* Sample Template Downloads */}
-              <div className="flex items-center gap-1.5 self-end sm:self-auto">
+              <div className="flex items-center gap-1.5 self-end sm:self-auto flex-wrap">
                 <span className="text-[11px] text-text/50 font-medium">
                   {language === 'th' ? 'ดาวน์โหลดเทมเพลต:' : 'Templates:'}
                 </span>
@@ -1006,7 +1154,15 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                   onClick={() => downloadSampleTemplate('csv')}
                   leftIcon={<Download className="h-3 w-3" />}
                 >
-                  CSV
+                  {language === 'th' ? 'แบบฟอร์มเปล่า (CSV)' : 'Blank CSV'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => downloadSampleTemplate('current_catalog')}
+                  leftIcon={<Download className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />}
+                >
+                  {language === 'th' ? 'สต็อกปัจจุบัน (CSV)' : 'Current Inventory (CSV)'}
                 </Button>
                 <Button
                   variant="secondary"
@@ -1461,9 +1617,25 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                               {row.parsed.name || '—'}
                             </td>
                             <td className="p-3 font-mono">
-                              {row.parsed.priceAmountInCents !== undefined
-                                ? `฿${(row.parsed.priceAmountInCents / 100).toFixed(2)}`
-                                : '—'}
+                              {row.isExisting && row.existingProduct && row.parsed.priceAmountInCents !== undefined && row.parsed.priceAmountInCents !== row.existingProduct.price.amountInCents ? (
+                                <div className="flex flex-col">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-text/40 line-through text-[11px]">
+                                      ฿{(row.existingProduct.price.amountInCents / 100).toFixed(2)}
+                                    </span>
+                                    <span className="text-primary font-bold">
+                                      ฿{(row.parsed.priceAmountInCents / 100).toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <span className="text-[10px] text-primary/70 font-semibold">
+                                    {language === 'th' ? 'เปลี่ยนราคา' : 'Price update'}
+                                  </span>
+                                </div>
+                              ) : row.parsed.priceAmountInCents !== undefined ? (
+                                `฿${(row.parsed.priceAmountInCents / 100).toFixed(2)}`
+                              ) : (
+                                '—'
+                              )}
                             </td>
                             <td className="p-3 font-mono text-text/60">
                               {row.parsed.costPriceAmountInCents !== undefined
@@ -1471,8 +1643,43 @@ export const BulkInventoryUploadModal: React.FC<BulkInventoryUploadModalProps> =
                                 : '—'}
                             </td>
                             <td className="p-3 font-mono font-bold">
-                              {row.parsed.currentStock !== undefined ? (
-                                <span className={row.isExisting ? 'text-indigo-600 dark:text-indigo-400' : 'text-emerald-600 dark:text-emerald-400'}>
+                              {row.isExisting && row.existingProduct ? (
+                                (() => {
+                                  const current = row.existingProduct.currentStock;
+                                  let next = current;
+                                  let delta = 0;
+                                  if (importMode === 'stock_replenish') {
+                                    delta = row.parsed.currentStock ?? 0;
+                                    next = Math.max(0, current + delta);
+                                  } else {
+                                    if (row.parsed.currentStock !== undefined) {
+                                      next = Math.max(0, row.parsed.currentStock);
+                                      delta = next - current;
+                                    }
+                                  }
+                                  return (
+                                    <div className="flex flex-col">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-text/50">{current}</span>
+                                        <span className="text-text/30">→</span>
+                                        <span className="text-indigo-600 dark:text-indigo-400 font-bold">{next}</span>
+                                        {delta !== 0 && (
+                                          <span
+                                            className={`text-[10px] px-1 py-0.5 rounded font-mono font-bold leading-none ${
+                                              delta > 0
+                                                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                                : 'bg-rose-500/15 text-rose-600 dark:text-rose-400'
+                                            }`}
+                                          >
+                                            {delta > 0 ? `+${delta}` : delta}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })()
+                              ) : row.parsed.currentStock !== undefined ? (
+                                <span className="text-emerald-600 dark:text-emerald-400">
                                   {row.parsed.currentStock}
                                 </span>
                               ) : (

@@ -85,3 +85,37 @@ export interface BulkImportResult {
   readonly ledgerEntries: readonly InventoryLedgerEntry[];
   readonly errors: ReadonlyArray<{ sku: string; rowNumber?: number; reason: string }>;
 }
+
+export type PriceAdjustmentDirection = 'increase' | 'decrease';
+
+export interface BatchPriceAdjustmentParams {
+  readonly storeId: string;
+  readonly productIds: readonly string[];
+  readonly direction: PriceAdjustmentDirection;
+  readonly percentage: number; // e.g. 5.5 for 5.5%
+  readonly roundingStrategy?: 'exact_cents' | 'round_whole' | 'charm_99' | 'charm_95';
+  readonly reasonNotes?: string;
+  readonly userId: string;
+  readonly supervisorName?: string;
+}
+
+export interface BatchPriceAdjustmentItemResult {
+  readonly productId: string;
+  readonly sku: string;
+  readonly name: string;
+  readonly oldPriceCents: number;
+  readonly newPriceCents: number;
+  readonly deltaCents: number;
+  readonly percentageEffective: number;
+}
+
+export interface BatchPriceAdjustmentResult {
+  readonly batchReference: string;
+  readonly updatedCount: number;
+  readonly previousTotalRetailValueCents: number;
+  readonly newTotalRetailValueCents: number;
+  readonly deltaRetailValueCents: number;
+  readonly items: readonly BatchPriceAdjustmentItemResult[];
+  readonly updatedProducts: readonly Product[];
+  readonly timestamp: string;
+}

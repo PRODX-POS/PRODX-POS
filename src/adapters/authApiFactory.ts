@@ -9,4 +9,7 @@ import { IAuthApi } from './types';
 import { productionAuthApi } from './authApi';
 import { authApi as mockAuthApi } from './mockAdapter';
 
-export const authApi: IAuthApi = import.meta.env.DEV ? mockAuthApi : productionAuthApi;
+export const authApi: IAuthApi =
+  import.meta.env.DEV || !import.meta.env.VITE_AUTH_API_BASE_URL
+    ? mockAuthApi
+    : productionAuthApi;

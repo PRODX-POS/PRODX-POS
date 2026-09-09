@@ -23,4 +23,7 @@ export interface HourlyDataPoint {
   readonly amount: number;
   readonly orders: number;
   readonly units: number;
+  readonly fullHour?: string;
+  readonly isCurrentHour?: boolean;
+  readonly hour24?: number;
 }

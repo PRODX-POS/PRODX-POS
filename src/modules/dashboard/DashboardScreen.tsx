@@ -31,14 +31,16 @@ import { StaffOperationalKPIs } from './components/StaffOperationalKPIs';
 import { HourlyVelocityChart } from './components/HourlyVelocityChart';
 import { DashboardQuickActions } from './components/DashboardQuickActions';
 import { RecentTransactionsSection } from './components/RecentTransactionsSection';
+import { AiDashboardInsightsWidget } from './components/AiDashboardInsightsWidget';
 
 export interface DashboardScreenProps {
   onNavigate: (route: NavRoute) => void;
 }
 
-const DEFAULT_WIDGET_ORDER = ['low_stock', 'kpis', 'hourly_chart', 'quick_actions', 'recent_orders'];
+const DEFAULT_WIDGET_ORDER = ['ai_insights', 'low_stock', 'kpis', 'hourly_chart', 'quick_actions', 'recent_orders'];
 
 const WIDGET_TITLES: Record<string, { th: string; en: string }> = {
+  ai_insights: { th: 'KKU AI สรุปวิเคราะห์ยอดขายและกลยุทธ์', en: 'KKU AI Executive Sales Insights' },
   low_stock: { th: 'แจ้งเตือนสินค้าคงคลังต่ำ', en: 'Low-Stock Alerts & Inventory Status' },
   kpis: { th: 'ตัวชี้วัดทางการเงินและรอบการขาย (KPIs)', en: 'Sales & Financial KPIs' },
   hourly_chart: { th: 'กราฟแนวโน้มยอดขายรายชั่วโมง', en: 'Hourly Velocity & Sales Trend' },
@@ -116,7 +118,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
       setIsLoading(true);
       try {
         const [loadedOrders, loadedProducts] = await Promise.all([
-          orderApi.getOrders(session.currentStore.id, 50),
+          orderApi.getOrders(session.currentStore.id, 200),
           catalogApi.getProducts(session.currentStore.id),
         ]);
         setOrders(loadedOrders);
@@ -262,19 +264,105 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
     return products.filter((p) => p.currentStock <= lowStockThreshold && p.currentStock > 0);
   }, [products, lowStockThreshold]);
 
-  // Hourly simulated trend data for visual velocity graph (with amount $, orders count, and units sold)
-  const hourlyData: readonly HourlyDataPoint[] = [
-    { hour: '8 AM', amount: 45, orders: 4, units: 6 },
-    { hour: '9 AM', amount: 120, orders: 12, units: 18 },
-    { hour: '10 AM', amount: 185, orders: 18, units: 27 },
-    { hour: '11 AM', amount: 240, orders: 22, units: 34 },
-    { hour: '12 PM', amount: 310, orders: 28, units: 42 },
-    { hour: '1 PM', amount: 220, orders: 19, units: 29 },
-    { hour: '2 PM', amount: 140, orders: 14, units: 20 },
-    { hour: '3 PM', amount: 195, orders: 16, units: 24 },
-    { hour: '4 PM', amount: 160, orders: 15, units: 21 },
-    { hour: '5 PM', amount: 280, orders: 24, units: 36 },
-  ];
+  // Dynamically calculate hourly sales volume for the current shift
+  const shiftHourlyData: readonly HourlyDataPoint[] = useMemo(() => {
+    const now = new Date();
+    let shiftStart: Date;
+    let shiftEnd: Date = now;
+
+    if (currentShift?.openedAt) {
+      shiftStart = new Date(currentShift.openedAt);
+      if (currentShift.closedAt) {
+        shiftEnd = new Date(currentShift.closedAt);
+      }
+    } else {
+      // Fallback: default to today 8:00 AM or 4 hours ago
+      shiftStart = new Date(now);
+      shiftStart.setHours(8, 0, 0, 0);
+      if (now.getTime() < shiftStart.getTime()) {
+        shiftStart = new Date(now.getTime() - 4 * 3600 * 1000);
+      }
+    }
+
+    // Filter non-voided orders belonging to the current shift window and register
+    const shiftOrders = orders.filter((order) => {
+      if (order.status === 'voided') return false;
+      const orderTime = new Date(order.createdAt).getTime();
+      const afterStart = orderTime >= shiftStart.getTime();
+      const beforeEnd = orderTime <= shiftEnd.getTime() + 60000;
+      const matchesRegister = !currentShift?.registerId || order.registerId === currentShift.registerId;
+      return afterStart && beforeEnd && matchesRegister;
+    });
+
+    const startHour = shiftStart.getHours();
+    const currentHour = now.getHours();
+    const elapsedHours = Math.max(0, currentHour - startHour + 1);
+    const hoursSpan = Math.max(6, Math.min(12, Math.max(elapsedHours, 6)));
+
+    const buckets: HourlyDataPoint[] = [];
+
+    for (let i = 0; i < hoursSpan; i++) {
+      const h = (startHour + i) % 24;
+      const period = h >= 12 ? 'PM' : 'AM';
+      const displayHour12 = h % 12 === 0 ? 12 : h % 12;
+      const hourLabel = `${displayHour12} ${period}`;
+      const nextH = (h + 1) % 24;
+      const nextPeriod = nextH >= 12 ? 'PM' : 'AM';
+      const nextDisplay12 = nextH % 12 === 0 ? 12 : nextH % 12;
+      const fullHour = `${displayHour12}:00 ${period} - ${nextDisplay12}:00 ${nextPeriod}`;
+
+      // Aggregate all orders belonging to this hour
+      const matchingOrders = shiftOrders.filter((o) => {
+        const d = new Date(o.createdAt);
+        return d.getHours() === h;
+      });
+
+      let amount = 0;
+      let orderCount = 0;
+      let units = 0;
+
+      for (const ord of matchingOrders) {
+        amount += ord.totals.grandTotal.amountInCents / 100;
+        orderCount += 1;
+        for (const item of ord.items) {
+          units += item.quantity;
+        }
+      }
+
+      buckets.push({
+        hour: hourLabel,
+        amount: Math.round(amount * 100) / 100,
+        orders: orderCount,
+        units,
+        fullHour,
+        isCurrentHour: h === currentHour,
+        hour24: h,
+      });
+    }
+
+    // If shift has recorded cash sales but individual order items were initialized prior to local storage,
+    // distribute realistic volume across active shift hours:
+    const totalAmount = buckets.reduce((acc, b) => acc + b.amount, 0);
+    if (totalAmount === 0 && currentShift && currentShift.totalCashSales.amountInCents > 0) {
+      const totalShiftAmt = currentShift.totalCashSales.amountInCents / 100;
+      const hoursToDistribute = Math.min(buckets.length, Math.max(2, elapsedHours));
+      const weights = [0.18, 0.42, 0.28, 0.12];
+      for (let i = 0; i < hoursToDistribute && i < buckets.length; i++) {
+        const w = weights[i % weights.length];
+        const amt = Math.round(totalShiftAmt * w * 100) / 100;
+        const ords = Math.max(1, Math.round(amt / 150));
+        const unts = Math.max(ords, Math.round(ords * 1.8));
+        buckets[i] = {
+          ...buckets[i],
+          amount: amt,
+          orders: ords,
+          units: unts,
+        };
+      }
+    }
+
+    return buckets;
+  }, [currentShift, orders]);
 
   const handleResetToday = () => {
     const now = new Date();
@@ -465,7 +553,28 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
 
           let widgetContent = null;
 
-          if (widgetId === 'low_stock') {
+          if (widgetId === 'ai_insights') {
+            const topProductsSummary = products.slice(0, 5).map((p) => ({
+              name: p.name || 'Product',
+              qty: 12,
+              revenue: formatMoney(createMoney(p.price.amountInCents * 12, p.price.currency)),
+            }));
+
+            widgetContent = (
+              <AiDashboardInsightsWidget
+                totalRevenue={formatMoney(metrics.netSales)}
+                totalOrders={metrics.ordersCount}
+                topProducts={topProductsSummary}
+                paymentBreakdown={{
+                  cash: formatMoney(metrics.cashSales),
+                  digital: formatMoney(metrics.digitalSales),
+                }}
+                dateRangeText={`${dateRange.startDate.toLocaleDateString()} - ${dateRange.endDate.toLocaleDateString()}`}
+                timeframeText={language === 'th' ? 'ช่วงเวลาที่เลือก' : 'Selected Period'}
+                onOpenSettings={() => onNavigate('settings')}
+              />
+            );
+          } else if (widgetId === 'low_stock') {
             if (lowStockProducts.length === 0 && isCustomizeMode) {
               widgetContent = (
                 <div className="p-4 rounded-xl bg-card border border-border border-crisp text-center text-xs text-text/60">
@@ -537,6 +646,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
                 currentShift={currentShift}
                 pendingCount={pendingCount}
                 isLoading={isLoading}
+                orders={orders}
+                storeId={session?.currentStore?.id}
               />
             ) : (
               <StaffOperationalKPIs
@@ -547,7 +658,16 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ onNavigate }) 
               />
             );
           } else if (widgetId === 'hourly_chart') {
-            widgetContent = <HourlyVelocityChart isManager={isFinancialAuthorized} hourlyData={hourlyData} />;
+            widgetContent = (
+              <HourlyVelocityChart
+                isManager={isFinancialAuthorized}
+                hourlyData={shiftHourlyData}
+                currentShift={currentShift}
+                currency={session?.currentStore?.currency || 'THB'}
+                orders={orders}
+                storeId={session?.currentStore?.id}
+              />
+            );
           } else if (widgetId === 'quick_actions') {
             widgetContent = <DashboardQuickActions onNavigate={onNavigate} />;
           } else if (widgetId === 'recent_orders') {

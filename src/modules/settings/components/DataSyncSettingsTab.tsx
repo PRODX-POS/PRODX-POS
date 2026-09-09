@@ -41,6 +41,8 @@ export const DataSyncSettingsTab: React.FC = () => {
     clearOutbox,
     triggerSync,
     isSyncing,
+    syncLatencyMs,
+    measureSyncLatency,
   } = useOffline();
   const { addToast } = useToast();
 
@@ -84,6 +86,7 @@ export const DataSyncSettingsTab: React.FC = () => {
   const handleLatencyChange = (ms: number) => {
     mockState.setSimulatedLatency(ms);
     setSimulatedLatency(ms);
+    measureSyncLatency();
     addToast({
       title: language === 'th' ? 'ปรับความหน่วงเครือข่าย' : 'Network Latency Updated',
       message: `Simulated network delay: ${ms}ms`,

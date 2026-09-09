@@ -5,6 +5,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { triggerHaptic } from '../services/hapticService';
 
 interface SoundContextType {
   soundEnabled: boolean;
@@ -41,6 +42,7 @@ export const SoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Synthesize tactile crisp pop/click sound
   const playClick = () => {
+    triggerHaptic('tap');
     if (!soundEnabled) return;
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -65,6 +67,7 @@ export const SoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Synthesize high ascending professional double-tone success chime
   const playSuccess = () => {
+    triggerHaptic('success');
     if (!soundEnabled) return;
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -95,6 +98,7 @@ export const SoundProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   // Synthesize warn tone (low warm warning)
   const playWarning = () => {
+    triggerHaptic('warning');
     if (!soundEnabled) return;
     const ctx = getAudioContext();
     if (!ctx) return;

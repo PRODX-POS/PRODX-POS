@@ -142,6 +142,15 @@ export const ShortcutsOverlay: React.FC<ShortcutsOverlayProps> = ({
         descTh: 'เปิด/ปิดหน้าต่างแสดงทางลัดคีย์บอร์ดนี้',
       },
       {
+        id: 'Ctrl+Shift+D',
+        category: 'global',
+        keyDisplay: ['Ctrl', 'Shift', 'D'],
+        labelEn: 'Developer HUD Overlay',
+        labelTh: 'เปิดหน้าต่างนักพัฒนา (Developer HUD)',
+        descEn: 'Real-time FPS, IndexedDB / API latency, V8 memory heap, and benchmark tools (⌘⇧D on macOS)',
+        descTh: 'แสดงอัตราเฟรมเรต Real-time, ความเร็วการคิวรีฐานข้อมูล (Latency) และการใช้หน่วยความจำ RAM',
+      },
+      {
         id: 'Ctrl+K',
         category: 'global',
         keyDisplay: ['Ctrl', 'K'],

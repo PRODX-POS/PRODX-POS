@@ -6,7 +6,17 @@
  */
 
 import { User, SessionContext, Store } from '../domain/auth';
-import { Product, Category, InventoryLedgerEntry, StockMovementReason, BulkImportItem, BulkImportMode, BulkImportResult } from '../domain/catalog';
+import {
+  Product,
+  Category,
+  InventoryLedgerEntry,
+  StockMovementReason,
+  BulkImportItem,
+  BulkImportMode,
+  BulkImportResult,
+  BatchPriceAdjustmentParams,
+  BatchPriceAdjustmentResult,
+} from '../domain/catalog';
 import { Order, CartLineItem, CartTotals, TenderPayment } from '../domain/order';
 import { Shift, CashMovement, CashMovementType, TimeclockRecord } from '../domain/shift';
 import { AuditLogEntry, AuditAction, AuditSeverity } from '../domain/audit';
@@ -77,6 +87,9 @@ export interface ICatalogApi {
     value: number,
     userId: string
   ): Promise<readonly Product[]>;
+  batchPriceAdjustment(
+    params: BatchPriceAdjustmentParams
+  ): Promise<BatchPriceAdjustmentResult>;
   bulkImportProducts(
     storeId: string,
     items: readonly BulkImportItem[],
@@ -84,6 +97,11 @@ export interface ICatalogApi {
     userId: string,
     notes?: string
   ): Promise<BulkImportResult>;
+}
+
+export interface RefundItemRestock {
+  productId: string;
+  quantity: number;
 }
 
 export interface IOrderApi {
@@ -99,7 +117,8 @@ export interface IOrderApi {
     refundMethod: 'cash' | 'card' | 'qr_digital',
     restockItems: boolean,
     authorizedByUserId: string,
-    authorizedByName: string
+    authorizedByName: string,
+    itemsToRestock?: readonly RefundItemRestock[]
   ): Promise<Order>;
 }
 
@@ -134,4 +153,5 @@ export interface IAuditApi {
 
 export interface ISyncApi {
   syncOutboxItem(item: OutboxItem): Promise<{ confirmedOrder: Order; syncedAt: string }>;
+  ping(clientTimestamp?: number): Promise<{ serverTimestamp: string; roundTripLatencyMs: number; status: 'ok' | 'degraded' }>;
 }

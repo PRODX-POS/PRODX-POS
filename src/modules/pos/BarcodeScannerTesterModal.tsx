@@ -133,11 +133,11 @@ export const BarcodeScannerTesterModal: React.FC<BarcodeScannerTesterModalProps>
           </form>
         </div>
 
-        {/* Quick 1-Click Catalog Barcode Presets */}
+        {/* Quick 1-Click Catalog Barcode & SKU Presets */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-text/70">
-              {language === 'th' ? 'คลิกจำลองการสแกนสินค้าในแคตตาล็อก' : '1-Click Catalog Barcode Test Presets'}
+              {language === 'th' ? 'คลิกจำลองการสแกนด้วย Barcode หรือ SKU' : '1-Click Catalog Barcode & SKU Test Presets'}
             </span>
             <span className="text-[11px] text-text/50">
               <span className="font-mono">{products.length}</span> {language === 'th' ? 'รายการ' : 'items'}
@@ -148,54 +148,69 @@ export const BarcodeScannerTesterModal: React.FC<BarcodeScannerTesterModalProps>
             {products.map((p) => {
               const isOutOfStock = p.currentStock <= 0;
               return (
-                <button
+                <div
                   key={p.id}
-                  type="button"
-                  onClick={() => onSimulateScan(p.barcode)}
-                  className="flex items-center justify-between p-2.5 rounded-lg border-crisp border border-border bg-card hover:border-primary hover:bg-primary/5 transition-all text-left cursor-pointer group shadow-2xs"
+                  className="p-2.5 rounded-lg border-crisp border border-border bg-card hover:border-primary hover:bg-primary/5 transition-all text-left shadow-2xs group"
                 >
-                  <div className="min-w-0 pr-2">
-                    <div className="text-xs font-semibold text-text truncate group-hover:text-primary">
-                      {p.name}
+                  <div className="flex items-start justify-between gap-1">
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-text truncate group-hover:text-primary">
+                        {p.name}
+                      </div>
+                      <div className="text-[10px] text-text/60 mt-0.5 font-mono">
+                        {formatMoney(p.price)}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5 font-mono text-[10px] text-text/50">
-                      <span>{p.barcode}</span>
-                      <span>•</span>
-                      <span className="text-text font-semibold">{formatMoney(p.price)}</span>
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 flex items-center gap-1.5">
                     {isOutOfStock ? (
-                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 shrink-0">
                         {language === 'th' ? 'หมด' : 'Out'}
                       </span>
                     ) : (
-                      <span className="text-[9px] font-mono font-medium px-1.5 py-0.5 rounded-full bg-border text-text/70">
+                      <span className="text-[9px] font-mono font-medium px-1.5 py-0.5 rounded-full bg-border text-text/70 shrink-0">
                         {p.currentStock}
                       </span>
                     )}
-                    <ArrowRight className="h-3.5 w-3.5 text-text/50 group-hover:text-primary transition-transform group-hover:translate-x-0.5" />
                   </div>
-                </button>
+
+                  <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border/50">
+                    <button
+                      type="button"
+                      onClick={() => onSimulateScan(p.barcode)}
+                      className="flex-1 py-1 px-2 rounded bg-background hover:bg-primary/10 hover:text-primary border border-border/60 text-[10px] font-mono font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                      title={language === 'th' ? 'สแกนด้วยบาร์โค้ด' : 'Scan via Barcode'}
+                    >
+                      <Barcode className="h-3 w-3" />
+                      <span className="truncate">{p.barcode}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onSimulateScan(p.sku)}
+                      className="py-1 px-2 rounded bg-background hover:bg-primary/10 hover:text-primary border border-border/60 text-[10px] font-mono font-semibold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
+                      title={language === 'th' ? 'สแกนด้วย SKU' : 'Scan via SKU'}
+                    >
+                      <Zap className="h-3 w-3 text-amber-500" />
+                      <span>{p.sku}</span>
+                    </button>
+                  </div>
+                </div>
               );
             })}
 
-            {/* Invalid Barcode Test Case */}
+            {/* Invalid SKU/Barcode Test Case */}
             <button
               type="button"
               onClick={() => onSimulateScan('999999999999')}
-              className="flex items-center justify-between p-2.5 rounded-lg border-crisp border border-rose-500/30 bg-rose-500/5 hover:bg-rose-500/10 transition-all text-left cursor-pointer group shadow-2xs"
+              className="p-2.5 rounded-lg border-crisp border border-rose-500/30 bg-rose-500/5 hover:bg-rose-500/10 transition-all text-left cursor-pointer group shadow-2xs flex items-center justify-between col-span-1 sm:col-span-2"
             >
               <div>
                 <div className="text-xs font-semibold text-rose-700 dark:text-rose-400">
-                  {language === 'th' ? 'ทดสอบ: บาร์โค้ดที่ไม่มีในระบบ' : 'Test: Unregistered Barcode'}
+                  {language === 'th' ? 'ทดสอบ: บาร์โค้ดหรือ SKU ที่ไม่มีในระบบ' : 'Test: Unregistered Barcode / Invalid SKU'}
                 </div>
                 <div className="font-mono text-[10px] text-rose-500/80 mt-0.5">
-                  999999999999
+                  SKU-UNKNOWN-999 (999999999999)
                 </div>
               </div>
-              <AlertCircle className="h-4 w-4 text-rose-500" />
+              <AlertCircle className="h-4 w-4 text-rose-500 shrink-0" />
             </button>
           </div>
         </div>

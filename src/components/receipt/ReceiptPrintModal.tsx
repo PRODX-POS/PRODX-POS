@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Copy,
+  Zap,
 } from 'lucide-react';
 
 interface ReceiptPrintModalProps {
@@ -45,6 +46,7 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
     activeTemplate,
     setActiveTemplateId,
     printerConfig,
+    updatePrinterConfig,
     printReceipt,
     kickCashDrawer,
     isPrinting,
@@ -187,6 +189,32 @@ export const ReceiptPrintModal: React.FC<ReceiptPrintModalProps> = ({
                 </button>
               </div>
             </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={printerConfig.quickPrint}
+              onClick={() => {
+                const next = !printerConfig.quickPrint;
+                updatePrinterConfig({ quickPrint: next });
+                addToast({
+                  title: language === 'th' ? 'พิมพ์ด่วน' : 'Quick Print',
+                  message: next
+                    ? (language === 'th' ? 'เปิดพิมพ์ด่วน: รายการต่อไปจะข้ามหน้าต่างนี้และพิมพ์ทันที' : 'Quick Print enabled: Future receipts will bypass this preview modal.')
+                    : (language === 'th' ? 'ปิดพิมพ์ด่วน' : 'Quick Print disabled.'),
+                  type: 'info',
+                });
+              }}
+              title={language === 'th' ? 'เปิด/ปิด พิมพ์ด่วนข้าม Preview' : 'Toggle Quick Print (Bypass Preview)'}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-semibold cursor-pointer transition-colors ${
+                printerConfig.quickPrint
+                  ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                  : 'bg-card text-text/60 border-border hover:text-text'
+              }`}
+            >
+              <Zap className={`h-3.5 w-3.5 ${printerConfig.quickPrint ? 'text-amber-500' : 'text-text/40'}`} />
+              <span>{language === 'th' ? 'พิมพ์ด่วน (ข้าม Preview)' : 'Quick Print'}</span>
+            </button>
 
             <Badge variant="success" size="sm" dot>
               {printerConfig.printerName}

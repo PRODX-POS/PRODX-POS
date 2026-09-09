@@ -1,5 +1,5 @@
 import React from 'react';
-import { Store, Globe, MapPin, Phone, Clock, FileText, Check, DollarSign, Building2 } from 'lucide-react';
+import { Store, Globe, MapPin, Phone, Clock, FileText, Check, DollarSign, Building2, Printer } from 'lucide-react';
 import { Card, CardHeader, CardBody } from '../../../components/common/Card';
 import { Badge } from '../../../components/common/Badge';
 import { useLanguage } from '../../../context/LanguageContext';
@@ -26,7 +26,7 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Store Identity & Profile Card */}
+      {/* Store Identity & Profile Card with Live Receipt Mockup */}
       <Card className="border border-border/80 shadow-sm rounded-lg overflow-hidden">
         <CardHeader className="bg-card/50 border-b border-border/60 py-3.5 px-5">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -47,110 +47,216 @@ export const GeneralSettingsTab: React.FC<GeneralSettingsTabProps> = ({
           </Badge>
         </CardHeader>
 
-        <CardBody className="p-5 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Store Name */}
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
-                {language === 'th' ? 'ชื่อร้านค้า / แบรนด์ (Store Name)' : 'Store Name'} <span className="text-rose-500">*</span>
-              </label>
-              <div className="relative">
+        <CardBody className="p-5">
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+            {/* Form Inputs (7 Cols) */}
+            <div className="xl:col-span-7 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Store Name */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
+                    {language === 'th' ? 'ชื่อร้านค้า / แบรนด์ (Store Name)' : 'Store Name'} <span className="text-rose-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={formData.storeName}
+                      onChange={(e) => onChangeField('storeName', e.target.value)}
+                      placeholder="e.g. PRODX Flagship CentralWorld"
+                      className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Store Code */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
+                    {language === 'th' ? 'รหัสสาขา (Store / Branch Code)' : 'Store / Branch Code'} <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.storeCode}
+                    onChange={(e) => onChangeField('storeCode', e.target.value)}
+                    placeholder="e.g. BKK-01"
+                    className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-mono font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                    required
+                  />
+                </div>
+
+                {/* Branch Name / Sub-label */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
+                    {language === 'th' ? 'ชื่อสาขาย่อย (Branch Name)' : 'Branch Name'}
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.branchName}
+                    onChange={(e) => onChangeField('branchName', e.target.value)}
+                    placeholder="e.g. สาขาเซ็นทรัลเวิลด์ ชั้น 4"
+                    className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                  />
+                </div>
+
+                {/* Phone */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
+                    {language === 'th' ? 'เบอร์โทรศัพท์สาขา (Phone)' : 'Contact Phone'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={formData.storePhone}
+                      onChange={(e) => onChangeField('storePhone', e.target.value)}
+                      placeholder="e.g. 02-123-4567, 089-999-8888"
+                      className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Tax ID */}
+              <div className="space-y-1.5 pt-2 border-t border-border/60">
+                <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
+                  {language === 'th' ? 'เลขประจำตัวผู้เสียภาษี (Tax Identification Number)' : 'Tax Identification Number'}
+                </label>
                 <input
                   type="text"
-                  value={formData.storeName}
-                  onChange={(e) => onChangeField('storeName', e.target.value)}
-                  placeholder="e.g. PRODX Flagship CentralWorld"
-                  className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
-                  required
+                  value={formData.taxId}
+                  onChange={(e) => onChangeField('taxId', e.target.value)}
+                  placeholder="e.g. 0105559012345"
+                  className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-mono font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
                 />
+              </div>
+
+              {/* Store Address for Receipts */}
+              <div className="space-y-1.5 pt-2 border-t border-border/60">
+                <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
+                  {language === 'th' ? 'ที่อยู่สาขาสำหรับพิมพ์หัวใบเสร็จ (Receipt Header Address)' : 'Store Address (Printed on Receipts)'}
+                </label>
+                <textarea
+                  rows={2}
+                  value={formData.storeAddress}
+                  onChange={(e) => onChangeField('storeAddress', e.target.value)}
+                  placeholder="e.g. 999/9 ถนนพระราม 1 แขวงปทุมวัน เขตปทุมวัน กรุงเทพฯ 10330"
+                  className="w-full p-3 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition resize-none shadow-2xs"
+                />
+              </div>
+
+              {/* Receipt Custom Messages */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
+                    {language === 'th' ? 'ข้อความต้อนรับหัวบิล (Header Note)' : 'Header Welcome Note'}
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.receiptHeaderMsg}
+                    onChange={(e) => onChangeField('receiptHeaderMsg', e.target.value)}
+                    placeholder="e.g. ยินดีต้อนรับสู่ PRODX Flagship"
+                    className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
+                    {language === 'th' ? 'ข้อความขอบคุณท้ายบิล (Footer Note)' : 'Footer Thank You Note'}
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.receiptFooterMsg}
+                    onChange={(e) => onChangeField('receiptFooterMsg', e.target.value)}
+                    placeholder="e.g. ขอบคุณที่ใช้บริการ / สินค้าซื้อแล้วไม่รับเปลี่ยนคืน"
+                    className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Store Code */}
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
-                {language === 'th' ? 'รหัสสาขา (Store / Branch Code)' : 'Store / Branch Code'} <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={formData.storeCode}
-                onChange={(e) => onChangeField('storeCode', e.target.value)}
-                placeholder="e.g. BKK-01"
-                className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-mono font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
-                required
-              />
-            </div>
-
-            {/* Branch Name / Sub-label */}
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
-                {language === 'th' ? 'ชื่อสาขาย่อย (Branch Name)' : 'Branch Name'}
-              </label>
-              <input
-                type="text"
-                value={formData.branchName}
-                onChange={(e) => onChangeField('branchName', e.target.value)}
-                placeholder="e.g. สาขาเซ็นทรัลเวิลด์ ชั้น 4"
-                className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
-              />
-            </div>
-
-            {/* Phone */}
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
-                {language === 'th' ? 'เบอร์โทรศัพท์สาขา (Phone)' : 'Contact Phone'}
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={formData.storePhone}
-                  onChange={(e) => onChangeField('storePhone', e.target.value)}
-                  placeholder="e.g. 02-123-4567, 089-999-8888"
-                  className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs font-semibold text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
-                />
+            {/* Live Thermal Receipt Mockup Preview (5 Cols) */}
+            <div className="xl:col-span-5 bg-slate-900/5 dark:bg-black/30 p-4 rounded-2xl border border-border/80 flex flex-col items-center space-y-3">
+              <div className="w-full flex items-center justify-between px-1">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-text/80 uppercase tracking-wider">
+                  <Printer className="w-4 h-4 text-primary animate-pulse" />
+                  <span>{language === 'th' ? 'ตัวอย่างใบเสร็จจริง (Live Receipt Preview)' : 'Live Receipt Preview'}</span>
+                </div>
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                  REAL-TIME
+                </span>
               </div>
-            </div>
-          </div>
 
-          {/* Store Address for Receipts */}
-          <div className="space-y-1.5 pt-2 border-t border-border/60">
-            <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
-              {language === 'th' ? 'ที่อยู่สาขาสำหรับพิมพ์หัวใบเสร็จ (Receipt Header Address)' : 'Store Address (Printed on Receipts)'}
-            </label>
-            <textarea
-              rows={2}
-              value={formData.storeAddress}
-              onChange={(e) => onChangeField('storeAddress', e.target.value)}
-              placeholder="e.g. 999/9 ถนนพระราม 1 แขวงปทุมวัน เขตปทุมวัน กรุงเทพฯ 10330"
-              className="w-full p-3 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition resize-none shadow-2xs"
-            />
-          </div>
+              {/* Thermal Paper Container */}
+              <div className="w-full max-w-[320px] bg-white text-slate-900 p-5 rounded-sm shadow-xl font-mono text-[11px] leading-snug space-y-3 border-t-4 border-primary border-b-2 border-dashed border-slate-300">
+                {/* Store Header */}
+                <div className="text-center space-y-1 pb-3 border-b border-dashed border-slate-300">
+                  <div className="text-sm font-black uppercase tracking-wider text-slate-900">
+                    {formData.storeName || 'PRODX POS STORE'}
+                  </div>
+                  {formData.branchName && (
+                    <div className="text-[10px] font-bold text-slate-600">
+                      {formData.branchName} ({formData.storeCode || 'BKK-01'})
+                    </div>
+                  )}
+                  {formData.storeAddress && (
+                    <div className="text-[9px] text-slate-600 px-2 line-clamp-2">
+                      {formData.storeAddress}
+                    </div>
+                  )}
+                  <div className="text-[9px] text-slate-500 flex items-center justify-center gap-2 pt-0.5">
+                    {formData.storePhone && <span>Tel: {formData.storePhone}</span>}
+                    {formData.taxId && <span>TAX ID: {formData.taxId}</span>}
+                  </div>
+                  {formData.receiptHeaderMsg && (
+                    <div className="text-[10px] font-bold text-primary pt-1 border-t border-slate-100">
+                      *** {formData.receiptHeaderMsg} ***
+                    </div>
+                  )}
+                </div>
 
-          {/* Receipt Custom Messages */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
-                {language === 'th' ? 'ข้อความต้อนรับหัวบิล (Header Note)' : 'Header Welcome Note'}
-              </label>
-              <input
-                type="text"
-                value={formData.receiptHeaderMsg}
-                onChange={(e) => onChangeField('receiptHeaderMsg', e.target.value)}
-                placeholder="e.g. ยินดีต้อนรับสู่ PRODX Flagship"
-                className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="block text-[11px] font-bold text-text/80 uppercase tracking-wide">
-                {language === 'th' ? 'ข้อความขอบคุณท้ายบิล (Footer Note)' : 'Footer Thank You Note'}
-              </label>
-              <input
-                type="text"
-                value={formData.receiptFooterMsg}
-                onChange={(e) => onChangeField('receiptFooterMsg', e.target.value)}
-                placeholder="e.g. ขอบคุณที่ใช้บริการ / สินค้าซื้อแล้วไม่รับเปลี่ยนคืน"
-                className="w-full h-10 px-3.5 rounded-xl border border-border bg-background text-xs text-text focus:outline-hidden focus:ring-2 focus:ring-primary/20 transition shadow-2xs"
-              />
+                {/* Sample Items Table */}
+                <div className="space-y-1.5 text-[10px] py-1 border-b border-dashed border-slate-300">
+                  <div className="flex justify-between font-bold text-slate-500 border-b border-slate-200 pb-1">
+                    <span>ITEM</span>
+                    <span>QTY x PRICE</span>
+                    <span>AMT</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>1. Iced Matcha Latte (L)</span>
+                    <span>1 x 120.00</span>
+                    <span className="font-bold">120.00</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>2. Butter Croissant</span>
+                    <span>2 x 85.00</span>
+                    <span className="font-bold">170.00</span>
+                  </div>
+                </div>
+
+                {/* Totals */}
+                <div className="space-y-1 text-[10px] pt-1">
+                  <div className="flex justify-between text-slate-600">
+                    <span>SUBTOTAL:</span>
+                    <span>290.00</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>VAT 7% (INCLUDED):</span>
+                    <span>18.97</span>
+                  </div>
+                  <div className="flex justify-between text-xs font-black text-slate-900 pt-1 border-t border-slate-800">
+                    <span>TOTAL THB:</span>
+                    <span className="text-sm">290.00</span>
+                  </div>
+                </div>
+
+                {/* Footer Note */}
+                <div className="text-center pt-3 border-t border-dashed border-slate-300 space-y-1">
+                  <p className="text-[9px] text-slate-600 font-bold">
+                    {formData.receiptFooterMsg || 'ขอบคุณที่ใช้บริการ / THANK YOU'}
+                  </p>
+                  <div className="text-[8px] text-slate-400 font-mono pt-1">
+                    Receipt #INV-20260908-0042 • Cashier: Admin
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </CardBody>

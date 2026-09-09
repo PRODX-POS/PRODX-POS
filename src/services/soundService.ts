@@ -4,6 +4,8 @@
  * payment successes, and security supervisor alerts without external audio files.
  */
 
+import { triggerHaptic, HapticFeedbackType } from './hapticService';
+
 let audioCtx: AudioContext | null = null;
 
 function getAudioContext(): AudioContext | null {
@@ -31,10 +33,29 @@ export type ScannerSoundType =
   | 'payment_success'
   | 'supervisor_authorized';
 
+const SOUND_TO_HAPTIC_MAP: Record<ScannerSoundType, HapticFeedbackType> = {
+  click: 'tap',
+  success: 'success',
+  error: 'error',
+  warning: 'warning',
+  cash_drawer: 'cash_drawer',
+  payment_success: 'payment_success',
+  supervisor_authorized: 'medium',
+};
+
 /**
- * Play a synthesized sound effect for barcode scanner and POS operations.
+ * Play a synthesized sound effect for barcode scanner and POS operations,
+ * accompanied by subtle haptic vibration feedback.
  */
 export function playScannerSound(type: ScannerSoundType = 'success'): void {
+  // Always trigger synchronized tactile haptic feedback
+  try {
+    const hapticType = SOUND_TO_HAPTIC_MAP[type] || 'tap';
+    triggerHaptic(hapticType);
+  } catch (err) {
+    console.debug('[playScannerSound] Haptic feedback error:', err);
+  }
+
   try {
     // Check if sounds are enabled in localStorage
     if (typeof window !== 'undefined') {

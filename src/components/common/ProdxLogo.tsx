@@ -89,20 +89,20 @@ export const ProdxLogo: React.FC<ProdxLogoProps> = ({
 
   // Fallback to text only if no custom logo is configured
   return (
-    <div className={`flex items-center gap-2 select-none ${className}`}>
+    <div className={`flex items-center gap-2.5 select-none ${className}`}>
       <div 
-        className="flex items-center justify-center bg-primary/10 text-primary font-bold rounded-lg shrink-0"
+        className="flex items-center justify-center bg-primary/10 text-primary font-bold rounded-lg shrink-0 shadow-2xs"
         style={{ width: currentSize.icon, height: currentSize.icon, fontSize: currentSize.icon * 0.5 }}
       >
         {storeName.charAt(0)}
       </div>
       {variant !== 'mark' && (
         <div className="flex flex-col justify-center min-w-0">
-          <span className={`${currentSize.title} text-text uppercase font-bold tracking-tight truncate max-w-[150px]`}>
+          <span className={`${currentSize.title} text-text uppercase font-black tracking-tight leading-tight whitespace-nowrap`}>
             {storeName}
           </span>
           {showTagline && (
-             <span className="text-[9px] font-sans text-text/50 font-semibold tracking-wider uppercase">
+             <span className="text-[9px] font-sans text-text/50 font-bold tracking-wider uppercase">
                POS SYSTEM
              </span>
           )}

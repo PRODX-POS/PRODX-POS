@@ -430,6 +430,94 @@
 }
 
 /* ========================================================================= */
+/* Barcode Scan Line Item Flash & Cart Total Pulse Animations               */
+/* ========================================================================= */
+@keyframes scan-item-flash {
+  0% {
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.45), 0 0 24px rgba(16, 185, 129, 0.35);
+    background-color: rgba(16, 185, 129, 0.18);
+    transform: scale(1.025);
+  }
+  35% {
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.35), 0 0 16px rgba(16, 185, 129, 0.2);
+    background-color: rgba(16, 185, 129, 0.12);
+    transform: scale(1.01);
+  }
+  70% {
+    box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.2), 0 0 8px rgba(16, 185, 129, 0.1);
+    background-color: rgba(16, 185, 129, 0.05);
+    transform: scale(1);
+  }
+  100% {
+    box-shadow: none;
+    transform: scale(1);
+  }
+}
+
+@keyframes total-pulse-glow {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+  30% {
+    transform: scale(1.03);
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.35), 0 0 16px rgba(16, 185, 129, 0.25);
+  }
+  60% {
+    transform: scale(1.015);
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+@keyframes total-text-highlight {
+  0% {
+    transform: scale(1);
+    color: inherit;
+  }
+  30% {
+    transform: scale(1.14);
+    color: #10b981;
+    filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.6));
+  }
+  65% {
+    transform: scale(1.05);
+    color: #059669;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes bounce-short {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-scan-flash {
+  animation: scan-item-flash 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-total-pulse {
+  animation: total-pulse-glow 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-total-text {
+  animation: total-text-highlight 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-bounce-short {
+  animation: bounce-short 0.4s ease-out 2;
+}
+
+/* ========================================================================= */
 /* Visual Inspector Mode (1px dashed outlines for flex & absolute elements)  */
 /* ========================================================================= */
 body.prodx-visual-inspector-active .flex,

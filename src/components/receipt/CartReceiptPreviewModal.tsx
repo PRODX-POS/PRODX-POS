@@ -653,3 +653,5 @@ export const CartReceiptPreviewModal: React.FC<CartReceiptPreviewModalProps> = (
     </Modal>
   );
 };
+
+export { ThermalReceiptSlideOver } from './ThermalReceiptSlideOver';

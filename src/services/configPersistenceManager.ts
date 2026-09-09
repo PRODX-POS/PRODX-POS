@@ -7,6 +7,9 @@ export interface AppConfiguration {
     mode: 'light' | 'dark' | 'system';
     presetId: string;
   };
+  hardware: {
+    keyboardFocusCapture: boolean;
+  };
 }
 
 const DEFAULT_CONFIG: AppConfiguration = {
@@ -18,6 +21,9 @@ const DEFAULT_CONFIG: AppConfiguration = {
     mode: 'system',
     presetId: 'enterprise_obsidian',
   },
+  hardware: {
+    keyboardFocusCapture: true,
+  }
 };
 
 class ConfigPersistenceManager {
@@ -49,6 +55,7 @@ class ConfigPersistenceManager {
         return {
           branding: { ...DEFAULT_CONFIG.branding, ...parsed.branding },
           theme: { ...DEFAULT_CONFIG.theme, ...parsed.theme },
+          hardware: { ...DEFAULT_CONFIG.hardware, ...parsed.hardware },
         };
       }
     } catch (e) {
@@ -63,11 +70,13 @@ class ConfigPersistenceManager {
   static updateConfig(updates: {
     branding?: Partial<AppConfiguration['branding']>;
     theme?: Partial<AppConfiguration['theme']>;
+    hardware?: Partial<AppConfiguration['hardware']>;
   }) {
     const current = this.getConfig();
     const nextConfig: AppConfiguration = {
       branding: { ...current.branding, ...updates.branding },
       theme: { ...current.theme, ...updates.theme },
+      hardware: { ...current.hardware, ...updates.hardware },
     };
     localStorage.setItem(this.STORAGE_KEY, JSON.stringify(nextConfig));
     return nextConfig;

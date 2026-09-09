@@ -1,13 +1,18 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardBody } from '../../../components/common/Card';
 import { Badge } from '../../../components/common/Badge';
 import { Skeleton } from '../../../components/common/Skeleton';
 import { formatMoney } from '../../../domain/money';
 import { Shift } from '../../../domain/shift';
+import { Order } from '../../../domain/order';
 import { useLanguage } from '../../../context/LanguageContext';
 import { DashboardMetrics } from '../types';
+import { calculateMonthOverMonthMetrics } from '../utils/momAnalytics';
 import {
   TrendingUp,
+  TrendingDown,
+  ArrowUp,
+  ArrowDown,
   Receipt,
   DollarSign,
   AlertTriangle,
@@ -22,6 +27,8 @@ interface ManagerFinancialKPIsProps {
   currentShift: Shift | null;
   pendingCount: number;
   isLoading: boolean;
+  orders?: readonly Order[];
+  storeId?: string;
 }
 
 export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
@@ -29,8 +36,14 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
   currentShift,
   pendingCount,
   isLoading,
+  orders = [],
+  storeId = 'default',
 }) => {
   const { t, language } = useLanguage();
+
+  const { metrics: momMetrics } = useMemo(() => {
+    return calculateMonthOverMonthMetrics(orders, storeId, language as any);
+  }, [orders, storeId, language]);
 
   return (
     <div id="dashboard-manager-kpi-container" className="space-y-4 sm:space-y-5">
@@ -55,11 +68,24 @@ export const ManagerFinancialKPIs: React.FC<ManagerFinancialKPIsProps> = ({
               )}
             </div>
             <div className="mt-3 pt-3 border-t border-border text-[11px] text-text/70 font-medium flex items-center justify-between">
-              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
-                <TrendingUp className="h-3.5 w-3.5" />
-                <span>+14.2%</span>
+              <span
+                className={`flex items-center gap-1 font-semibold ${
+                  momMetrics.isGrowth
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-rose-600 dark:text-rose-400'
+                }`}
+              >
+                {momMetrics.isGrowth ? (
+                  <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
+                ) : (
+                  <ArrowDown className="h-3.5 w-3.5 stroke-[2.5]" />
+                )}
+                <span>
+                  {momMetrics.variancePercentage > 0 ? '+' : ''}
+                  {momMetrics.variancePercentage}% MoM
+                </span>
               </span>
-              <span className="truncate">{language === 'th' ? 'คำนวณตามรอบที่เลือก' : 'based on range'}</span>
+              <span className="truncate">{language === 'th' ? 'เทียบเดือนก่อน' : 'vs prior month'}</span>
             </div>
           </CardBody>
         </Card>

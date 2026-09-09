@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../../context/LanguageContext';
 import { useSound } from '../../context/SoundContext';
+import { triggerHaptic } from '../../services/hapticService';
 import { Money, createMoney, formatMoney } from '../../domain/money';
 import { Coins, Banknote, RotateCcw, Trash2, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -75,6 +76,7 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
   }, [totalDueCents]);
 
   const handleAddDenomination = (denom: Denomination) => {
+    triggerHaptic('numpad');
     playClick();
     
     const currentCount = accumulatedBills[denom.value] || 0;
@@ -91,12 +93,14 @@ export const QuickCashCalculator: React.FC<QuickCashCalculatorProps> = ({
   };
 
   const handleClearAccumulated = () => {
+    triggerHaptic('tap');
     playClick();
     setAccumulatedBills({});
     onTenderedChange(totalDueCents);
   };
 
   const handleSetExact = () => {
+    triggerHaptic('medium');
     playClick();
     setAccumulatedBills({});
     onTenderedChange(totalDueCents);

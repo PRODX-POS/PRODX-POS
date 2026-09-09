@@ -32,14 +32,24 @@ import {
   PackageX,
   Package,
   QrCode,
+  Barcode,
   Printer,
   Sparkles,
   RefreshCw,
   UploadCloud,
+  FileSpreadsheet,
+  ClipboardList,
 } from 'lucide-react';
 import { ShelfLabelPrintModal } from '../../components/inventory/ShelfLabelPrintModal';
 import { BulkInventoryUploadModal } from '../../components/inventory/BulkInventoryUploadModal';
+import { LowStockThresholdModal } from '../../components/inventory/LowStockThresholdModal';
+import { InventoryAiOptimizationModal } from './InventoryAiOptimizationModal';
+import { InventoryBarcodeLookupModal } from './InventoryBarcodeLookupModal';
+import { RestockNeededReportModal } from './RestockNeededReportModal';
 import { BulkImportResult } from '../../domain/catalog';
+import { generateInventoryCsv, downloadCsvFile } from '../../utils/csvExport';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { playScannerSound } from '../../services/soundService';
 
 export const InventoryScreen: React.FC = () => {
   const { session, can } = useAuth();
@@ -57,6 +67,47 @@ export const InventoryScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'catalog' | 'ledger' | 'restock'>('catalog');
   const [isShelfLabelModalOpen, setIsShelfLabelModalOpen] = useState(false);
   const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
+  const [isAiOptimizationModalOpen, setIsAiOptimizationModalOpen] = useState(false);
+  const [isBarcodeLookupModalOpen, setIsBarcodeLookupModalOpen] = useState(false);
+  const [isRestockReportModalOpen, setIsRestockReportModalOpen] = useState(false);
+  const [lastScannedBarcode, setLastScannedBarcode] = useState<string>('');
+  const [scannedProduct, setScannedProduct] = useState<Product | null>(null);
+  const [isScannerEnabled, setIsScannerEnabled] = useState<boolean>(true);
+
+  // Centralized Barcode Scanner Lookup Handler for Inventory
+  const handleInventoryBarcodeScan = (barcode: string) => {
+    const cleanCode = barcode.trim();
+    if (!cleanCode) return;
+
+    setLastScannedBarcode(cleanCode);
+
+    // Look for matching product by barcode or SKU
+    const found = products.find(
+      (p) =>
+        p.barcode.toLowerCase() === cleanCode.toLowerCase() ||
+        p.sku.toLowerCase() === cleanCode.toLowerCase()
+    );
+
+    if (found) {
+      playScannerSound('success');
+      setScannedProduct(found);
+      setIsBarcodeLookupModalOpen(true);
+      addToast({
+        title: language === 'th' ? 'สแกนตรวจสอบสต็อกสำเร็จ' : 'Inventory Barcode Scanned',
+        message: `${found.name} (คงเหลือ: ${found.currentStock} ${found.unitOfMeasure})`,
+        type: 'info',
+      });
+    } else {
+      playScannerSound('error');
+      setScannedProduct(null);
+      setIsBarcodeLookupModalOpen(true);
+      addToast({
+        title: language === 'th' ? 'ไม่พบบาร์โค้ดในระบบคลัง' : 'Barcode Not in Inventory',
+        message: language === 'th' ? `ไม่พบสินค้าตรงกับบาร์โค้ด "${cleanCode}"` : `No item matching barcode "${cleanCode}"`,
+        type: 'warning',
+      });
+    }
+  };
 
   // Synchronize Inventory navigation depth with global breadcrumbs
   useEffect(() => {
@@ -140,16 +191,32 @@ export const InventoryScreen: React.FC = () => {
     return cached !== null ? cached === 'true' : true;
   });
 
+  const [isThresholdModalOpen, setIsThresholdModalOpen] = useState<boolean>(false);
+
   const handleThresholdChange = (val: number) => {
-    setLowStockThreshold(val);
-    localStorage.setItem('prodx_low_stock_threshold', val.toString());
+    const clamped = Math.max(0, val);
+    setLowStockThreshold(clamped);
+    localStorage.setItem('prodx_low_stock_threshold', clamped.toString());
+    addToast({
+      title: language === 'th' ? 'ปรับเกณฑ์แจ้งเตือนสต็อกต่ำแล้ว' : 'Low Stock Threshold Updated',
+      message:
+        language === 'th'
+          ? `อัปเดตเกณฑ์แจ้งเตือนสต็อกต่ำเป็น ≤ ${clamped} ชิ้นแล้ว`
+          : `Updated low stock alert threshold to ≤ ${clamped} units`,
+      type: 'info',
+    });
   };
 
   const handleToggleHighlightLowStock = () => {
-    setIsHighlightLowStockActive((prev) => {
-      const next = !prev;
-      localStorage.setItem('prodx_highlight_low_stock', String(next));
-      return next;
+    const next = !isHighlightLowStockActive;
+    setIsHighlightLowStockActive(next);
+    localStorage.setItem('prodx_highlight_low_stock', String(next));
+    addToast({
+      title: language === 'th' ? 'การแจ้งเตือนสต็อกต่ำ' : 'Low Stock Highlighting',
+      message: next
+        ? (language === 'th' ? 'เปิดการไฮไลต์และป้ายเตือนสต็อกต่ำแล้ว' : 'Low stock warning badges enabled')
+        : (language === 'th' ? 'ปิดการไฮไลต์และป้ายเตือนสต็อกต่ำแล้ว' : 'Low stock warning badges disabled'),
+      type: 'info',
     });
   };
 
@@ -165,11 +232,76 @@ export const InventoryScreen: React.FC = () => {
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [isBulkAdjustModalOpen, setIsBulkAdjustModalOpen] = useState(false);
   const [isBulkPricingModalOpen, setIsBulkPricingModalOpen] = useState(false);
+  const [bulkPricingStep, setBulkPricingStep] = useState<'configure' | 'summary'>('configure');
   const [bulkQuantityDelta, setBulkQuantityDelta] = useState<number>(10);
   const [bulkAdjustReason, setBulkAdjustReason] = useState<StockMovementReason>('purchase_received');
   const [bulkAdjustNotes, setBulkAdjustNotes] = useState('');
   const [bulkPriceChangeType, setBulkPriceChangeType] = useState<'set_amount' | 'percent_markup' | 'percent_discount'>('percent_markup');
   const [bulkPriceValue, setBulkPriceValue] = useState<number>(10);
+
+  const affectedProductsForPricing = React.useMemo(() => {
+    return selectedProductIds
+      .map((id) => products.find((p) => p.id === id))
+      .filter(Boolean) as Product[];
+  }, [selectedProductIds, products]);
+
+  const pricingSummaryReport = React.useMemo(() => {
+    let totalOldCents = 0;
+    let totalNewCents = 0;
+    let totalPercentageShift = 0;
+
+    const itemResults = affectedProductsForPricing.map((prod) => {
+      const oldCents = prod.price.amountInCents;
+      totalOldCents += oldCents;
+
+      let newCents = oldCents;
+      if (bulkPriceChangeType === 'set_amount') {
+        newCents = Math.round(bulkPriceValue * 100);
+      } else if (bulkPriceChangeType === 'percent_markup') {
+        newCents = Math.round(oldCents * (1 + bulkPriceValue / 100));
+      } else if (bulkPriceChangeType === 'percent_discount') {
+        newCents = Math.round(oldCents * (1 - bulkPriceValue / 100));
+      }
+      newCents = Math.max(0, newCents);
+      totalNewCents += newCents;
+
+      const deltaCents = newCents - oldCents;
+      const pctShift = oldCents > 0 ? (deltaCents / oldCents) * 100 : 0;
+      totalPercentageShift += pctShift;
+
+      return {
+        product: prod,
+        oldCents,
+        newCents,
+        deltaCents,
+        pctShift,
+      };
+    });
+
+    const count = affectedProductsForPricing.length;
+    const avgPctShift = count > 0 ? totalPercentageShift / count : 0;
+    const avgDeltaCents = count > 0 ? Math.round((totalNewCents - totalOldCents) / count) : 0;
+    const currency = affectedProductsForPricing[0]?.price.currency || 'THB';
+
+    return {
+      count,
+      totalOldCents,
+      totalNewCents,
+      totalDeltaCents: totalNewCents - totalOldCents,
+      avgPctShift,
+      avgDeltaCents,
+      currency,
+      itemResults,
+    };
+  }, [affectedProductsForPricing, bulkPriceChangeType, bulkPriceValue]);
+
+  // Hardware Scanner Hook for Inventory Screen
+  const { isScanning: isHardwareScanning, simulateScan: simulateInventoryScan } = useBarcodeScanner({
+    enabled: isScannerEnabled && !isAdjustModalOpen && !isBulkAdjustModalOpen && !isBulkUploadModalOpen && !isShelfLabelModalOpen,
+    onScan: (barcode) => {
+      handleInventoryBarcodeScan(barcode);
+    },
+  });
 
   const handleToggleSelectAll = () => {
     if (selectedProductIds.length === filteredProducts.length) {
@@ -247,6 +379,7 @@ export const InventoryScreen: React.FC = () => {
         type: 'success',
       });
       setIsBulkPricingModalOpen(false);
+      setBulkPricingStep('configure');
       setSelectedProductIds([]);
     } catch (err: any) {
       addToast({
@@ -259,24 +392,36 @@ export const InventoryScreen: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    async function loadData() {
-      if (!session) return;
-      try {
-        const [prods, cats, ledger] = await Promise.all([
-          catalogApi.getProducts(session.currentStore.id),
-          catalogApi.getCategories(session.currentStore.id),
-          catalogApi.getInventoryLedger(session.currentStore.id),
-        ]);
-        setProducts([...prods]);
-        setCategories(cats);
-        setLedgerEntries(ledger);
-      } catch (err) {
-        console.error('[InventoryScreen] Error:', err);
-      }
+  const reloadInventoryData = React.useCallback(async () => {
+    if (!session) return;
+    try {
+      const [prods, cats, ledger] = await Promise.all([
+        catalogApi.getProducts(session.currentStore.id),
+        catalogApi.getCategories(session.currentStore.id),
+        catalogApi.getInventoryLedger(session.currentStore.id),
+      ]);
+      setProducts([...prods]);
+      setCategories(cats);
+      setLedgerEntries(ledger);
+    } catch (err) {
+      console.error('[InventoryScreen] Error:', err);
     }
-    loadData();
   }, [session]);
+
+  useEffect(() => {
+    reloadInventoryData();
+
+    const handleInventoryEvent = () => {
+      reloadInventoryData();
+    };
+
+    window.addEventListener('prodx:inventory-updated', handleInventoryEvent);
+    window.addEventListener('prodx:order-completed', handleInventoryEvent);
+    return () => {
+      window.removeEventListener('prodx:inventory-updated', handleInventoryEvent);
+      window.removeEventListener('prodx:order-completed', handleInventoryEvent);
+    };
+  }, [session, reloadInventoryData]);
 
   // Inventory KPI Metrics
   const inventoryMetrics = React.useMemo(() => {
@@ -530,6 +675,20 @@ export const InventoryScreen: React.FC = () => {
     }
   };
 
+  const handleExportInventoryCsv = () => {
+    const csvContent = generateInventoryCsv(products, categories);
+    const dateStr = new Date().toISOString().split('T')[0];
+    downloadCsvFile(`PRODX_Inventory_Export_${dateStr}`, csvContent);
+    addToast({
+      title: language === 'th' ? 'ส่งออกสต็อกสินค้าสำเร็จ' : 'Inventory Exported',
+      message:
+        language === 'th'
+          ? `ส่งออกข้อมูลสินค้า ${products.length} รายการเป็นไฟล์ CSV เรียบร้อยแล้ว`
+          : `Exported ${products.length} inventory items to CSV file.`,
+      type: 'success',
+    });
+  };
+
   const filteredProducts = products.filter((p) => {
     const q = searchQuery.toLowerCase().trim();
     const matchesSearch =
@@ -571,15 +730,58 @@ export const InventoryScreen: React.FC = () => {
 
         <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 shrink-0">
           <Button
+            id="btn-restock-needed-report-trigger"
+            variant="secondary"
+            size="sm"
+            onClick={() => setIsRestockReportModalOpen(true)}
+            leftIcon={<ClipboardList className="h-4 w-4 text-amber-500" />}
+            className={`font-bold relative cursor-pointer ${
+              inventoryMetrics.lowStockCount + inventoryMetrics.outOfStockCount > 0
+                ? 'border-amber-400 bg-amber-500/10 text-amber-900 dark:text-amber-200 hover:bg-amber-500/20'
+                : ''
+            }`}
+          >
+            <span>{language === 'th' ? 'รายงานสินค้าต้องสั่งเติม' : 'Restock Needed Report'}</span>
+            {inventoryMetrics.lowStockCount + inventoryMetrics.outOfStockCount > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black bg-amber-500 text-white shadow-2xs">
+                {inventoryMetrics.lowStockCount + inventoryMetrics.outOfStockCount}
+              </span>
+            )}
+          </Button>
+
+          <Button
+            id="btn-inventory-ai-optimization-trigger"
+            variant="primary"
+            size="sm"
+            onClick={() => setIsAiOptimizationModalOpen(true)}
+            leftIcon={<Sparkles className="h-4 w-4 text-yellow-300 animate-pulse" />}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+          >
+            {language === 'th' ? 'KKU AI วางแผนสต็อก' : 'AI Stock Optimizer'}
+          </Button>
+
+          <Button
+            id="btn-export-inventory-csv"
+            variant="secondary"
+            size="sm"
+            onClick={handleExportInventoryCsv}
+            leftIcon={<FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />}
+          >
+            {language === 'th' ? 'ส่งออก CSV' : 'Export CSV'}
+          </Button>
+
+          <Button
+            id="btn-bulk-upload-modal-trigger"
             variant="secondary"
             size="sm"
             onClick={() => setIsBulkUploadModalOpen(true)}
             leftIcon={<UploadCloud className="h-4 w-4 text-primary" />}
           >
-            {language === 'th' ? 'นำเข้าข้อมูลสินค้า (Bulk Upload)' : 'Bulk Upload'}
+            {language === 'th' ? 'นำเข้า/อัปเดตสต็อก (Bulk CSV)' : 'Bulk Import (CSV)'}
           </Button>
 
           <Button
+            id="btn-shelf-label-modal-trigger"
             variant="secondary"
             size="sm"
             onClick={() => setIsShelfLabelModalOpen(true)}
@@ -647,18 +849,52 @@ export const InventoryScreen: React.FC = () => {
         </div>
 
         {/* Metric 3: Low Stock Warning */}
-        <div className="p-4 rounded-2xl border border-border border-crisp bg-card shadow-2xs flex flex-col justify-between">
+        <div
+          id="inventory-kpi-low-stock"
+          onClick={() => setSelectedStockFilter(selectedStockFilter === 'low_stock' ? 'all' : 'low_stock')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-2xs flex flex-col justify-between group ${
+            selectedStockFilter === 'low_stock'
+              ? 'border-amber-500 bg-amber-500/10 ring-2 ring-amber-400/40'
+              : 'border-border border-crisp bg-card hover:border-amber-400/60'
+          }`}
+          title={language === 'th' ? 'คลิกเพื่อกรองเฉพาะสินค้าสต็อกต่ำ' : 'Click to filter low stock items'}
+        >
           <div className="flex items-center justify-between text-xs font-semibold text-text/60 uppercase tracking-wider">
-            <span>{t.inventory.lowStock}</span>
-            <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500">
-              <AlertTriangle className="h-4 w-4" />
+            <span className="group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors font-bold">
+              {t.inventory.lowStock}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsThresholdModalOpen(true);
+                }}
+                className="p-1 rounded-lg text-text/40 hover:text-amber-600 hover:bg-amber-500/10 transition-colors cursor-pointer"
+                title={language === 'th' ? 'ตั้งค่าเกณฑ์แจ้งเตือนสต็อกต่ำ' : 'Configure Alert Threshold'}
+              >
+                <SlidersHorizontal className="h-3.5 w-3.5" />
+              </button>
+              <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
             </div>
           </div>
-          <div className="mt-2 text-2xl font-black font-mono tracking-tight text-amber-500">
-            {inventoryMetrics.lowStockCount}
+          <div className="mt-2 flex items-baseline justify-between">
+            <div className="text-2xl font-black font-mono tracking-tight text-amber-500">
+              {inventoryMetrics.lowStockCount}
+            </div>
+            <span className="text-[10.5px] font-bold font-mono px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60">
+              ≤ {lowStockThreshold} {language === 'th' ? 'ชิ้น' : 'units'}
+            </span>
           </div>
-          <div className="mt-2 text-[11px] text-text/60">
-            {language === 'th' ? 'ถึงจุดเตือนสั่งซื้อ' : 'Needs replenishment'}
+          <div className="mt-2 text-[11px] text-text/60 flex items-center justify-between">
+            <span>{language === 'th' ? 'ถึงจุดเตือนสั่งซื้อ' : 'Needs replenishment'}</span>
+            <span className="text-amber-600 dark:text-amber-400 font-semibold group-hover:underline">
+              {selectedStockFilter === 'low_stock'
+                ? (language === 'th' ? 'กำลังกรอง' : 'Filtering')
+                : (language === 'th' ? 'คลิกเพื่อกรอง' : 'Click to view')}
+            </span>
           </div>
         </div>
 
@@ -709,7 +945,7 @@ export const InventoryScreen: React.FC = () => {
               <div className="text-left">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h4 className="font-bold text-sm text-text">
-                    {language === 'th' ? 'กำหนดเกณฑ์แจ้งเตือนสต็อกต่ำ' : 'Custom Low Stock Alert Threshold'}
+                    {language === 'th' ? 'กำหนดเกณฑ์แจ้งเตือนสต็อกต่ำ' : 'Configurable Low Stock Alert Threshold'}
                   </h4>
                   {inventoryMetrics.lowStockCount > 0 && (
                     <button
@@ -726,8 +962,28 @@ export const InventoryScreen: React.FC = () => {
                 <p className="text-[11px] text-text/60 mt-0.5 leading-relaxed">
                   {language === 'th'
                     ? `สินค้าใดที่มีสต็อกคงเหลือ ≤ ${lowStockThreshold} ชิ้น จะถูกทำเครื่องหมายและไฮไลต์ด้วยป้ายเตือนสต็อกต่ำสีส้มเด่นชัด`
-                    : `Any item with stock ≤ ${lowStockThreshold} units is visually highlighted with an amber warning badge across grid and table views.`}
+                    : `Any item with stock ≤ ${lowStockThreshold} units is visually flagged with a warning badge and amber color indicator.`}
                 </p>
+                {/* Preset Chips */}
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  <span className="text-[10.5px] font-semibold text-text/50 mr-1">
+                    {language === 'th' ? 'ทางลัด:' : 'Presets:'}
+                  </span>
+                  {[5, 10, 15, 20, 25, 30, 50].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => handleThresholdChange(preset)}
+                      className={`px-2 py-0.5 rounded-lg text-[10.5px] font-mono font-bold transition-all cursor-pointer ${
+                        lowStockThreshold === preset
+                          ? 'bg-amber-500 text-white shadow-2xs'
+                          : 'bg-muted hover:bg-amber-500/10 text-text/70 hover:text-amber-600 border border-border border-crisp'
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -784,9 +1040,85 @@ export const InventoryScreen: React.FC = () => {
                   </button>
                 </div>
                 <span className="text-xs text-text/60 font-semibold">{language === 'th' ? 'ชิ้น' : 'units'}</span>
+
+                <button
+                  type="button"
+                  onClick={() => setIsThresholdModalOpen(true)}
+                  className="p-2 rounded-xl bg-muted hover:bg-amber-500/10 text-text/60 hover:text-amber-600 transition-colors border border-border border-crisp cursor-pointer"
+                  title={language === 'th' ? 'เปิดหน้าต่างตั้งค่าละเอียด' : 'Open advanced threshold settings'}
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                </button>
               </div>
             </div>
           </div>
+
+          {/* Dedicated Low Stock Alert Hero Banner */}
+          {inventoryMetrics.lowStockCount > 0 && (
+            <div
+              id="low-stock-alert-hero-banner"
+              className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-amber-500/5 dark:from-amber-950/40 dark:via-amber-950/20 dark:to-card border-2 border-amber-400 dark:border-amber-600/70 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-950 dark:text-amber-100 shadow-sm shadow-amber-500/5"
+            >
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-amber-500 text-white shrink-0 shadow-xs ring-4 ring-amber-500/20">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500 text-white shadow-2xs">
+                      {language === 'th' ? 'สัญญาณเตือนสต็อกต่ำ' : 'Low Stock Warning'}
+                    </span>
+                    <h4 className="font-black text-sm text-amber-950 dark:text-amber-100">
+                      {language === 'th'
+                        ? `พบสินค้าสต็อกต่ำแตะเกณฑ์เตือน ${inventoryMetrics.lowStockCount} รายการ (≤ ${lowStockThreshold} ชิ้น)`
+                        : `Low Stock Alert: ${inventoryMetrics.lowStockCount} items below threshold (≤ ${lowStockThreshold} units)`}
+                    </h4>
+                  </div>
+                  <p className="text-[11.5px] text-text/70 mt-1 leading-relaxed">
+                    {language === 'th'
+                      ? `สินค้าเหล่านี้มีปริมาณคงเหลือน้อยกว่าเกณฑ์ที่กำหนด จึงได้รับการติดป้ายเตือนสีส้มเด่นชัดเพื่อแจ้งเตือนให้ทำการสั่งซื้อหรือเติมสินค้า`
+                      : `Items flagged with warning badges and amber color indicators require replenishment to prevent operational stockouts.`}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto flex-wrap">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => setIsRestockReportModalOpen(true)}
+                  className="text-xs bg-amber-600 hover:bg-amber-700 text-white font-bold shrink-0 cursor-pointer shadow-xs border-amber-700 flex items-center gap-1.5"
+                >
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  <span>{language === 'th' ? 'สร้างรายงานสั่งเติมสินค้า' : 'Generate Restock Report'}</span>
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setIsThresholdModalOpen(true)}
+                  className="text-xs bg-card hover:bg-muted text-text/80 border-border border-crisp font-semibold shrink-0 cursor-pointer flex items-center gap-1.5"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5 text-amber-500" />
+                  <span>{language === 'th' ? 'ปรับเกณฑ์เตือน' : 'Set Threshold'}</span>
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSelectedStockFilter(selectedStockFilter === 'low_stock' ? 'all' : 'low_stock')}
+                  className="text-xs font-bold shrink-0 cursor-pointer bg-card/60 flex items-center gap-1.5"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                  <span>
+                    {selectedStockFilter === 'low_stock'
+                      ? (language === 'th' ? 'แสดงสินค้าทั้งหมด' : 'Show All Items')
+                      : (language === 'th' ? `กรอง ${inventoryMetrics.lowStockCount} รายการสต็อกต่ำ` : `Filter ${inventoryMetrics.lowStockCount} Low Stock`)}
+                  </span>
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Velocity Stockout Alert Banner */}
           {velocityRiskCount > 0 && (
@@ -820,13 +1152,43 @@ export const InventoryScreen: React.FC = () => {
           {/* 3. Search, Filter Bar & View Switcher */}
           <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             {/* Search Input */}
-            <div className="flex-1">
-              <SearchInput
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onClear={() => setSearchQuery('')}
-                placeholder={t.inventory.searchPlaceholder}
-              />
+            <div className="flex-1 flex items-center gap-2">
+              <div className="flex-1">
+                <SearchInput
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onClear={() => setSearchQuery('')}
+                  placeholder={t.inventory.searchPlaceholder}
+                />
+              </div>
+
+              {/* Hardware Barcode Scanner Quick Lookup Button */}
+              <button
+                type="button"
+                id="btn-inventory-barcode-lookup-trigger"
+                onClick={() => {
+                  playScannerSound('click');
+                  setIsBarcodeLookupModalOpen(true);
+                }}
+                title={language === 'th' ? 'ตรวจสอบระดับสต็อกด้วยเครื่องสแกนบาร์โค้ด' : 'Hardware Barcode Stock Lookup'}
+                className="h-10 px-3 rounded-xl border border-border border-crisp bg-card hover:bg-muted text-text/80 hover:text-primary transition-all flex items-center gap-2 text-xs font-bold shrink-0 cursor-pointer shadow-2xs"
+              >
+                <div className="relative flex items-center justify-center">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      isHardwareScanning
+                        ? 'bg-primary animate-ping'
+                        : isScannerEnabled
+                        ? 'bg-emerald-500'
+                        : 'bg-muted'
+                    }`}
+                  />
+                </div>
+                <Barcode className="h-4 w-4 text-primary" />
+                <span className="hidden sm:inline">
+                  {language === 'th' ? 'ยิงเช็คสต็อก' : 'Scan & Lookup'}
+                </span>
+              </button>
             </div>
 
             {/* Stock Status Filter Buttons */}
@@ -997,7 +1359,10 @@ export const InventoryScreen: React.FC = () => {
                 <Button
                   size="sm"
                   variant="secondary"
-                  onClick={() => setIsBulkPricingModalOpen(true)}
+                  onClick={() => {
+                    setBulkPricingStep('configure');
+                    setIsBulkPricingModalOpen(true);
+                  }}
                   leftIcon={<DollarSign className="h-3.5 w-3.5" />}
                   className="text-xs"
                 >
@@ -1060,7 +1425,7 @@ export const InventoryScreen: React.FC = () => {
                     key={p.id}
                     className={`p-4 rounded-2xl border transition-all group relative flex flex-col justify-between ${
                       isHighlighted
-                        ? 'border-amber-400/90 dark:border-amber-500/70 bg-gradient-to-b from-amber-50/60 via-amber-50/15 to-white dark:from-amber-950/25 dark:via-card dark:to-card shadow-sm shadow-amber-500/10 ring-1 ring-amber-400/40 dark:ring-amber-500/30'
+                        ? 'border-2 border-amber-500 bg-gradient-to-b from-amber-500/15 via-amber-500/5 to-card dark:from-amber-950/35 dark:via-card dark:to-card shadow-sm shadow-amber-500/15 ring-2 ring-amber-400/40 dark:ring-amber-500/30'
                         : isOutOfStock
                         ? 'border-rose-200 dark:border-rose-900/30 bg-card shadow-2xs hover:border-rose-300 dark:hover:border-rose-800'
                         : 'border-border border-crisp bg-card shadow-2xs hover:border-primary/40'
@@ -1099,11 +1464,10 @@ export const InventoryScreen: React.FC = () => {
                           <Badge
                             variant="warning"
                             size="sm"
-                            dot
-                            className={isHighlighted ? "bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700/80 font-bold shadow-xs" : ""}
+                            className="bg-amber-500 text-white dark:bg-amber-500 dark:text-white border-amber-600 font-black shadow-2xs px-2 py-0.5"
                           >
-                            <AlertTriangle className="h-3 w-3 inline mr-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                            <span>{t.inventory.lowStockAlert}</span>
+                            <AlertTriangle className="h-3 w-3 inline mr-1 text-white shrink-0" />
+                            <span>{t.inventory.lowStockAlert} (≤{lowStockThreshold})</span>
                           </Badge>
                         ) : (
                           <Badge variant="success" size="sm" dot>
@@ -1124,19 +1488,24 @@ export const InventoryScreen: React.FC = () => {
 
                       {/* Visual Warning Alert Callout Banner for Low-Stock Items */}
                       {isHighlighted && (
-                        <div className="mt-2.5 px-2.5 py-1.5 rounded-xl bg-amber-500/15 dark:bg-amber-500/20 border border-amber-400/50 dark:border-amber-500/40 flex items-center justify-between text-xs text-amber-900 dark:text-amber-200 shadow-2xs">
-                          <div className="flex items-center gap-1.5 font-bold text-[11px] min-w-0">
-                            <div className="p-1 rounded-md bg-amber-500 text-white shrink-0">
-                              <AlertTriangle className="h-3 w-3" />
+                        <div className="mt-2.5 px-3 py-2 rounded-xl bg-amber-500/15 dark:bg-amber-500/25 border-2 border-amber-400 dark:border-amber-500/50 flex items-center justify-between text-xs text-amber-900 dark:text-amber-100 shadow-2xs">
+                          <div className="flex items-center gap-2 font-bold text-[11px] min-w-0">
+                            <div className="p-1 rounded-md bg-amber-500 text-white shrink-0 shadow-2xs">
+                              <AlertTriangle className="h-3.5 w-3.5" />
                             </div>
-                            <span className="truncate">
-                              {language === 'th'
-                                ? `เตือนสต็อกต่ำ: เหลือ ${p.currentStock} ${p.unitOfMeasure}`
-                                : `Low Stock: Only ${p.currentStock} ${p.unitOfMeasure} left`}
-                            </span>
+                            <div className="min-w-0">
+                              <span className="truncate block font-black text-amber-900 dark:text-amber-200">
+                                {language === 'th' ? 'เตือนสต็อกต่ำ' : 'Low Stock Alert'}
+                              </span>
+                              <span className="text-[10px] text-amber-800/80 dark:text-amber-300/80 block">
+                                {language === 'th'
+                                  ? `เหลือเพียง ${p.currentStock} ${p.unitOfMeasure}`
+                                  : `Only ${p.currentStock} ${p.unitOfMeasure} left`}
+                              </span>
+                            </div>
                           </div>
-                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-200/80 dark:bg-amber-800/60 text-amber-900 dark:text-amber-100 shrink-0 ml-1">
-                            {language === 'th' ? `เกณฑ์ ≤${lowStockThreshold}` : `≤${lowStockThreshold}`}
+                          <span className="text-[10px] font-mono font-black px-2 py-0.5 rounded-md bg-amber-500 text-white shrink-0 ml-1 shadow-2xs">
+                            ≤ {lowStockThreshold}
                           </span>
                         </div>
                       )}
@@ -1151,10 +1520,11 @@ export const InventoryScreen: React.FC = () => {
                             isOutOfStock
                               ? 'text-rose-500'
                               : isLow
-                              ? 'text-amber-500'
+                              ? 'text-amber-600 dark:text-amber-400 font-black flex items-center gap-1'
                               : 'text-text'
                           }`}>
-                            {p.currentStock} <span className="text-xs font-sans font-normal text-text/60">{p.unitOfMeasure}</span>
+                            {isLow && <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+                            <span>{p.currentStock}</span> <span className="text-xs font-sans font-normal text-text/60">{p.unitOfMeasure}</span>
                           </span>
                         </div>
 
@@ -1265,7 +1635,7 @@ export const InventoryScreen: React.FC = () => {
                           key={p.id}
                           className={`transition-colors ${
                             isHighlighted
-                              ? 'bg-amber-50/70 dark:bg-amber-950/30 hover:bg-amber-100/70 dark:hover:bg-amber-900/40 border-l-4 border-l-amber-500'
+                              ? 'bg-amber-500/10 dark:bg-amber-950/40 hover:bg-amber-500/15 dark:hover:bg-amber-900/50 border-l-4 border-l-amber-500 shadow-2xs'
                               : selectedProductIds.includes(p.id)
                               ? 'bg-primary/10 hover:bg-muted'
                               : 'hover:bg-muted'
@@ -1294,8 +1664,8 @@ export const InventoryScreen: React.FC = () => {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span>{p.name}</span>
                               {isHighlighted && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200 border border-amber-300 dark:border-amber-700/60 shrink-0 shadow-2xs">
-                                  <AlertTriangle className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" />
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10.5px] font-black bg-amber-500 text-white shrink-0 shadow-2xs">
+                                  <AlertTriangle className="h-3 w-3 text-white shrink-0" />
                                   <span>{t.inventory.lowStockAlert} (≤{lowStockThreshold})</span>
                                 </span>
                               )}
@@ -1314,9 +1684,10 @@ export const InventoryScreen: React.FC = () => {
                           <td className="py-3.5 px-4">
                             <div className="flex items-center gap-2">
                               <span className={`font-mono font-bold text-sm ${
-                                isOutOfStock ? 'text-rose-500' : isLow ? 'text-amber-500' : 'text-text'
+                                isOutOfStock ? 'text-rose-500' : isLow ? 'text-amber-600 dark:text-amber-400 font-black flex items-center gap-1' : 'text-text'
                               }`}>
-                                {p.currentStock} {p.unitOfMeasure}
+                                {isLow && <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+                                <span>{p.currentStock} {p.unitOfMeasure}</span>
                               </span>
                               {isOutOfStock ? (
                                 <Badge variant="danger" size="sm" dot>
@@ -1326,10 +1697,9 @@ export const InventoryScreen: React.FC = () => {
                                 <Badge
                                   variant="warning"
                                   size="sm"
-                                  dot
-                                  className={isHighlighted ? "bg-amber-100 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 border-amber-300 dark:border-amber-700/80 font-bold shadow-xs" : ""}
+                                  className="bg-amber-500 text-white font-bold border-amber-600 shadow-2xs px-2 py-0.5"
                                 >
-                                  <AlertTriangle className="h-3 w-3 inline mr-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                                  <AlertTriangle className="h-3 w-3 text-white inline mr-1 shrink-0" />
                                   <span>{t.inventory.lowStockAlert}</span>
                                 </Badge>
                               ) : null}
@@ -1576,20 +1946,32 @@ export const InventoryScreen: React.FC = () => {
                   </p>
                 </div>
 
-                {selectedRestockIds.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
                   <Button
-                    variant="primary"
+                    variant="secondary"
                     size="sm"
-                    disabled={isSubmittingRestock}
-                    isLoading={isSubmittingRestock}
-                    onClick={handleExecuteRestock}
-                    leftIcon={<RefreshCw className="h-4 w-4" />}
+                    onClick={() => setIsRestockReportModalOpen(true)}
+                    leftIcon={<FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />}
+                    className="text-xs font-bold cursor-pointer"
                   >
-                    {language === 'th'
-                      ? `อนุมัติการเติมสต็อก (${selectedRestockIds.length} รายการ)`
-                      : `Approve Restock for ${selectedRestockIds.length} items`}
+                    {language === 'th' ? 'เปิดรายงาน Restock Report' : 'Open Restock Report'}
                   </Button>
-                )}
+
+                  {selectedRestockIds.length > 0 && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={isSubmittingRestock}
+                      isLoading={isSubmittingRestock}
+                      onClick={handleExecuteRestock}
+                      leftIcon={<RefreshCw className="h-4 w-4" />}
+                    >
+                      {language === 'th'
+                        ? `อนุมัติการเติมสต็อก (${selectedRestockIds.length} รายการ)`
+                        : `Approve Restock for ${selectedRestockIds.length} items`}
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardHeader>
 
@@ -1936,70 +2318,209 @@ export const InventoryScreen: React.FC = () => {
         </div>
       </Modal>
 
-      {/* 7. Bulk Pricing Update Modal */}
+      {/* 7. Bulk Pricing Update Modal with Summary Report Confirmation */}
       <Modal
         isOpen={isBulkPricingModalOpen}
-        onClose={() => setIsBulkPricingModalOpen(false)}
-        title={language === 'th' ? `ปรับราคาขายแบบกลุ่ม (${selectedProductIds.length} รายการ)` : `Bulk Pricing Update (${selectedProductIds.length} items)`}
-        maxWidth="md"
+        onClose={() => {
+          setIsBulkPricingModalOpen(false);
+          setBulkPricingStep('configure');
+        }}
+        title={
+          bulkPricingStep === 'configure'
+            ? (language === 'th' ? `ปรับราคาขายแบบกลุ่ม (${selectedProductIds.length} รายการ)` : `Bulk Pricing Update (${selectedProductIds.length} items)`)
+            : (language === 'th' ? 'รายงานสรุปการปรับราคาแบบกลุ่ม (Summary Report)' : 'Batch Price Update Summary Report')
+        }
+        maxWidth={bulkPricingStep === 'summary' ? '2xl' : 'md'}
         footer={
-          <div className="flex items-center justify-end gap-2 w-full">
-            <Button
-              variant="secondary"
-              size="md"
-              onClick={() => setIsBulkPricingModalOpen(false)}
-              disabled={isSubmitting}
-            >
-              {t.common.cancel}
-            </Button>
-            <Button
-              variant="primary"
-              size="md"
-              onClick={handleConfirmBulkPricing}
-              isLoading={isSubmitting}
-            >
-              {t.common.confirm}
-            </Button>
+          <div className="flex items-center justify-between gap-2 w-full">
+            {bulkPricingStep === 'summary' ? (
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => setBulkPricingStep('configure')}
+                disabled={isSubmitting}
+              >
+                {language === 'th' ? '← ย้อนกลับเพื่อแก้ไข' : '← Back to Edit'}
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => {
+                  setIsBulkPricingModalOpen(false);
+                  setBulkPricingStep('configure');
+                }}
+                disabled={isSubmitting}
+              >
+                {t.common.cancel}
+              </Button>
+            )}
+
+            {bulkPricingStep === 'configure' ? (
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => setBulkPricingStep('summary')}
+                disabled={selectedProductIds.length === 0}
+              >
+                {language === 'th' ? 'ดูรายงานสรุป (Review Summary) →' : 'Review Summary Report →'}
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="md"
+                onClick={handleConfirmBulkPricing}
+                isLoading={isSubmitting}
+                leftIcon={<CheckCircle2 className="h-4 w-4" />}
+              >
+                {language === 'th' ? 'ยืนยันและคอมมิตการเปลี่ยนแปลง (Commit Changes)' : 'Commit Changes & Apply'}
+              </Button>
+            )}
           </div>
         }
       >
-        <div className="space-y-4">
-          <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 text-xs text-purple-900 dark:text-purple-200">
-            {language === 'th'
-              ? `อัปเดตราคาขายปลีกสำหรับสินค้า ${selectedProductIds.length} รายการที่เลือกไว้ทันทีในครั้งเดียว`
-              : `Update retail pricing for all ${selectedProductIds.length} selected products in a single atomic transaction.`}
-          </div>
+        {bulkPricingStep === 'configure' ? (
+          <div className="space-y-4">
+            <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 text-xs text-purple-900 dark:text-purple-200">
+              {language === 'th'
+                ? `อัปเดตราคาขายปลีกสำหรับสินค้า ${selectedProductIds.length} รายการที่เลือกไว้ทันทีในครั้งเดียว`
+                : `Update retail pricing for all ${selectedProductIds.length} selected products in a single atomic transaction.`}
+            </div>
 
-          <div>
-            <label className="block text-xs font-bold text-text/80 mb-1.5">
-              {language === 'th' ? 'ประเภทการปรับราคา' : 'Pricing Adjustment Type'}
-            </label>
-            <select
-              value={bulkPriceChangeType}
-              onChange={(e) => setBulkPriceChangeType(e.target.value as any)}
-              className="w-full py-2.5 px-3 rounded-xl border border-border border-crisp bg-card text-xs font-semibold text-text focus:outline-none focus:border-primary"
-            >
-              <option value="percent_markup">{language === 'th' ? 'ปรับเพิ่มขึ้นตามเปอร์เซ็นต์ (%) Markup' : 'Percentage Markup (+%)'}</option>
-              <option value="percent_discount">{language === 'th' ? 'ปรับลดลงตามเปอร์เซ็นต์ (%) Discount' : 'Percentage Markdown (-%)'}</option>
-              <option value="set_amount">{language === 'th' ? 'กำหนดราคาขายเท่ากันทุกรายการ (Fixed Price)' : 'Set Fixed Exact Price'}</option>
-            </select>
-          </div>
+            <div>
+              <label className="block text-xs font-bold text-text/80 mb-1.5">
+                {language === 'th' ? 'ประเภทการปรับราคา' : 'Pricing Adjustment Type'}
+              </label>
+              <select
+                value={bulkPriceChangeType}
+                onChange={(e) => setBulkPriceChangeType(e.target.value as any)}
+                className="w-full py-2.5 px-3 rounded-xl border border-border border-crisp bg-card text-xs font-semibold text-text focus:outline-none focus:border-primary"
+              >
+                <option value="percent_markup">{language === 'th' ? 'ปรับเพิ่มขึ้นตามเปอร์เซ็นต์ (%) Markup' : 'Percentage Markup (+%)'}</option>
+                <option value="percent_discount">{language === 'th' ? 'ปรับลดลงตามเปอร์เซ็นต์ (%) Discount' : 'Percentage Markdown (-%)'}</option>
+                <option value="set_amount">{language === 'th' ? 'กำหนดราคาขายเท่ากันทุกรายการ (Fixed Price)' : 'Set Fixed Exact Price'}</option>
+              </select>
+            </div>
 
-          <div>
-            <label className="block text-xs font-bold text-text/80 mb-1.5">
-              {bulkPriceChangeType === 'set_amount'
-                ? (language === 'th' ? 'กำหนดราคาขาย ($)' : 'Exact Price Amount ($)')
-                : (language === 'th' ? 'อัตราเปอร์เซ็นต์ (%)' : 'Percentage Value (%)')}
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={bulkPriceValue}
-              onChange={(e) => setBulkPriceValue(parseFloat(e.target.value) || 0)}
-              className="w-full py-2.5 px-3 rounded-xl border border-border border-crisp bg-card text-sm font-mono font-bold text-text focus:outline-none focus:border-primary"
-            />
+            <div>
+              <label className="block text-xs font-bold text-text/80 mb-1.5">
+                {bulkPriceChangeType === 'set_amount'
+                  ? (language === 'th' ? 'กำหนดราคาขาย ($)' : 'Exact Price Amount ($)')
+                  : (language === 'th' ? 'อัตราเปอร์เซ็นต์ (%)' : 'Percentage Value (%)')}
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                value={bulkPriceValue}
+                onChange={(e) => setBulkPriceValue(parseFloat(e.target.value) || 0)}
+                className="w-full py-2.5 px-3 rounded-xl border border-border border-crisp bg-card text-sm font-mono font-bold text-text focus:outline-none focus:border-primary"
+              />
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-5">
+            {/* Top Summary Metric Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Card 1: Affected Items Count */}
+              <div className="p-3.5 rounded-2xl bg-card border border-border/80 shadow-2xs space-y-1">
+                <div className="text-[11px] font-semibold text-text/60">
+                  {language === 'th' ? 'สินค้าที่ได้รับผลกระทบ' : 'Affected Items'}
+                </div>
+                <div className="text-xl font-bold font-mono text-text flex items-baseline gap-1.5">
+                  <span>{pricingSummaryReport.count}</span>
+                  <span className="text-xs text-text/50 font-normal">{language === 'th' ? 'รายการ' : 'SKUs'}</span>
+                </div>
+              </div>
+
+              {/* Card 2: Projected Average Price Shift */}
+              <div className="p-3.5 rounded-2xl bg-card border border-border/80 shadow-2xs space-y-1">
+                <div className="text-[11px] font-semibold text-text/60">
+                  {language === 'th' ? 'การเปลี่ยนแปลงราคาเฉลี่ย' : 'Projected Avg Shift'}
+                </div>
+                <div className={`text-lg font-bold font-mono flex items-baseline gap-1.5 ${
+                  pricingSummaryReport.avgPctShift > 0
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : pricingSummaryReport.avgPctShift < 0
+                    ? 'text-rose-600 dark:text-rose-400'
+                    : 'text-text'
+                }`}>
+                  <span>
+                    {pricingSummaryReport.avgPctShift > 0 ? '+' : ''}
+                    {pricingSummaryReport.avgPctShift.toFixed(1)}%
+                  </span>
+                  <span className="text-xs font-mono font-medium opacity-80">
+                    ({pricingSummaryReport.avgDeltaCents >= 0 ? '+' : ''}{formatMoney(createMoney(pricingSummaryReport.avgDeltaCents, pricingSummaryReport.currency))})
+                  </span>
+                </div>
+              </div>
+
+              {/* Card 3: Total Portfolio Valuation */}
+              <div className="p-3.5 rounded-2xl bg-card border border-border/80 shadow-2xs space-y-1">
+                <div className="text-[11px] font-semibold text-text/60">
+                  {language === 'th' ? 'มูลค่ารวมก่อน / หลัง' : 'Total Value (Old ➔ New)'}
+                </div>
+                <div className="text-xs font-mono font-bold text-text flex items-center gap-1 truncate">
+                  <span>{formatMoney(createMoney(pricingSummaryReport.totalOldCents, pricingSummaryReport.currency))}</span>
+                  <span className="text-text/40">➔</span>
+                  <span className="text-primary">{formatMoney(createMoney(pricingSummaryReport.totalNewCents, pricingSummaryReport.currency))}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Affected Items Preview Table */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs font-bold text-text/80">
+                <span>{language === 'th' ? 'ตัวอย่างรายการที่จะได้รับการปรับราคา' : 'Affected Items Preview'}</span>
+                <span className="text-[11px] text-text/50 font-normal">
+                  {language === 'th' ? `แสดงทั้งหมด ${pricingSummaryReport.itemResults.length} รายการ` : `Showing all ${pricingSummaryReport.itemResults.length} items`}
+                </span>
+              </div>
+
+              <div className="max-h-64 overflow-y-auto rounded-xl border border-border/80 bg-background/50 divide-y divide-border/60">
+                {pricingSummaryReport.itemResults.map((res) => {
+                  const isUp = res.deltaCents > 0;
+                  const isDown = res.deltaCents < 0;
+                  return (
+                    <div key={res.product.id} className="p-2.5 flex items-center justify-between text-xs hover:bg-card/80 transition-colors">
+                      <div className="min-w-0 pr-3">
+                        <div className="font-bold text-text truncate">{res.product.name}</div>
+                        <div className="font-mono text-[10px] text-text/50">SKU: {res.product.sku}</div>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0 text-right">
+                        <div>
+                          <div className="font-mono text-text/60 line-through text-[11px]">
+                            {formatMoney(res.product.price)}
+                          </div>
+                          <div className="font-mono font-bold text-primary text-xs">
+                            {formatMoney(createMoney(res.newCents, res.product.price.currency))}
+                          </div>
+                        </div>
+                        <div className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono shrink-0 ${
+                          isUp
+                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20'
+                            : isDown
+                            ? 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20'
+                            : 'bg-muted text-text/70'
+                        }`}>
+                          {isUp ? '+' : ''}{res.pctShift.toFixed(1)}%
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/30 text-[11px] text-blue-900 dark:text-blue-200 flex items-start gap-2">
+              <CheckCircle2 className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+              <div>
+                {language === 'th'
+                  ? 'ตรวจสอบความถูกต้องของรายงานสรุปด้านบนแล้วกดปุ่ม "ยืนยันและคอมมิตการเปลี่ยนแปลง" เพื่อบันทึกราคาใหม่ลงในระบบพร้อมบันทึก Audit Ledger ทันที'
+                  : 'Review the summary metrics above and click "Commit Changes & Apply" to atomically update pricing and record audit logs.'}
+              </div>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* 5. Stock Adjustment Modal */}
@@ -2126,6 +2647,52 @@ export const InventoryScreen: React.FC = () => {
         existingProducts={products}
         categories={categories}
         onImportComplete={handleBulkImportComplete}
+      />
+
+      {/* 8. Configurable Low Stock Alert Threshold Modal */}
+      <LowStockThresholdModal
+        isOpen={isThresholdModalOpen}
+        onClose={() => setIsThresholdModalOpen(false)}
+        threshold={lowStockThreshold}
+        onSaveThreshold={handleThresholdChange}
+        isHighlightActive={isHighlightLowStockActive}
+        onToggleHighlight={handleToggleHighlightLowStock}
+        products={products}
+        language={language}
+        onOpenRestockReport={() => setIsRestockReportModalOpen(true)}
+      />
+
+      {/* 8.1 Proactive Restock Needed Report Modal */}
+      <RestockNeededReportModal
+        isOpen={isRestockReportModalOpen}
+        onClose={() => setIsRestockReportModalOpen(false)}
+        products={products}
+        categories={categories}
+        ledgerEntries={ledgerEntries}
+        lowStockThreshold={lowStockThreshold}
+        onOpenThresholdModal={() => setIsThresholdModalOpen(true)}
+        onRestockCompleted={reloadInventoryData}
+      />
+
+      {/* 9. AI Inventory Optimization & Replenishment Modal */}
+      <InventoryAiOptimizationModal
+        isOpen={isAiOptimizationModalOpen}
+        onClose={() => setIsAiOptimizationModalOpen(false)}
+        products={products}
+        categories={categories}
+      />
+
+      {/* 10. Hardware Barcode Scanner Stock Lookup Modal */}
+      <InventoryBarcodeLookupModal
+        isOpen={isBarcodeLookupModalOpen}
+        onClose={() => setIsBarcodeLookupModalOpen(false)}
+        product={scannedProduct}
+        scannedCode={lastScannedBarcode}
+        category={categories.find((c) => c.id === scannedProduct?.categoryId)}
+        lowStockThreshold={lowStockThreshold}
+        onAdjustStock={handleOpenAdjust}
+        onSimulateScan={handleInventoryBarcodeScan}
+        products={products}
       />
     </div>
   );

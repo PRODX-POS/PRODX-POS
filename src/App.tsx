@@ -7,6 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { ThemeProvider } from './context/ThemeContext';
 import { LanguageProvider } from './context/LanguageContext';
 import { SoundProvider } from './context/SoundContext';
+import { HapticProvider } from './context/HapticContext';
 import { ToastProvider } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { OfflineProvider } from './context/OfflineContext';
@@ -15,6 +16,7 @@ import { CartProvider } from './context/CartContext';
 import { ReceiptPrinterProvider } from './context/ReceiptPrinterContext';
 import { VisualInspectorProvider } from './context/VisualInspectorContext';
 import { BreadcrumbProvider } from './context/BreadcrumbContext';
+import { SettingsProvider } from './context/SettingsContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { GlobalErrorRecoveryProvider } from './context/GlobalErrorRecoveryProvider';
 import { AppShell } from './components/layout/AppShell';
@@ -31,6 +33,7 @@ import { AuditScreen } from './modules/audit/AuditScreen';
 import { SettingsScreen } from './modules/settings/SettingsScreen';
 import { ReceiptValidationPortal } from './components/receipt/ReceiptValidationPortal';
 import { ShortcutsOverlay } from './components/common/ShortcutsOverlay';
+import { DevPerformanceOverlay } from './components/dev/DevPerformanceOverlay';
 import { RbacGuard } from './components/auth/RbacGuard';
 
 const MainApplication: React.FC = () => {
@@ -125,7 +128,7 @@ const MainApplication: React.FC = () => {
         )}
         {currentRoute === 'orders' && (
           <ErrorBoundary moduleName="Orders & Receipts Management">
-            <OrdersScreen />
+            <OrdersScreen onNavigate={setCurrentRoute} />
           </ErrorBoundary>
         )}
         {currentRoute === 'inventory' && (
@@ -185,6 +188,9 @@ const MainApplication: React.FC = () => {
           setIsShortcutsOverlayOpen(false);
         }}
       />
+
+      {/* Hidden Developer HUD Overlay for Real-Time FPS, DB Latency & Memory (Ctrl+Shift+D) */}
+      <DevPerformanceOverlay />
     </>
   );
 };
@@ -233,29 +239,33 @@ export default function App() {
   return (
     <GlobalErrorRecoveryProvider>
       <ErrorBoundary isGlobal moduleName="PRODX POS Core Engine">
-        <ThemeProvider>
-          <LanguageProvider>
-            <SoundProvider>
-              <ToastProvider>
-                <AuthProvider>
-                  <OfflineProvider>
-                    <ShiftProvider>
-                      <CartProvider>
-                        <ReceiptPrinterProvider>
-                          <VisualInspectorProvider>
-                            <BreadcrumbProvider>
-                              <MainApplication />
-                            </BreadcrumbProvider>
-                          </VisualInspectorProvider>
-                        </ReceiptPrinterProvider>
-                      </CartProvider>
-                    </ShiftProvider>
-                  </OfflineProvider>
-                </AuthProvider>
-              </ToastProvider>
-            </SoundProvider>
-          </LanguageProvider>
-        </ThemeProvider>
+        <SettingsProvider>
+          <ThemeProvider>
+            <LanguageProvider>
+              <SoundProvider>
+                <HapticProvider>
+                  <ToastProvider>
+                    <AuthProvider>
+                      <OfflineProvider>
+                        <ShiftProvider>
+                          <CartProvider>
+                            <ReceiptPrinterProvider>
+                              <VisualInspectorProvider>
+                                <BreadcrumbProvider>
+                                  <MainApplication />
+                                </BreadcrumbProvider>
+                              </VisualInspectorProvider>
+                            </ReceiptPrinterProvider>
+                          </CartProvider>
+                        </ShiftProvider>
+                      </OfflineProvider>
+                    </AuthProvider>
+                  </ToastProvider>
+                </HapticProvider>
+              </SoundProvider>
+            </LanguageProvider>
+          </ThemeProvider>
+        </SettingsProvider>
       </ErrorBoundary>
     </GlobalErrorRecoveryProvider>
   );

@@ -18,7 +18,18 @@ import {
   CheckoutRequest,
   CheckoutResponse,
 } from './types';
-import { User, SessionContext, Store, Organization, ROLE_PERMISSIONS } from '../domain/auth';
+import {
+  User,
+  SessionContext,
+  Store,
+  Organization,
+  ROLE_PERMISSIONS,
+  getStoredStaffDirectory,
+  getStoredRolePermissions,
+  getStoredStaffPins,
+  getStoredStaffPasswords,
+  DEFAULT_STAFF_DIRECTORY,
+} from '../domain/auth';
 import {
   Product,
   Category,
@@ -27,6 +38,9 @@ import {
   BulkImportItem,
   BulkImportMode,
   BulkImportResult,
+  BatchPriceAdjustmentParams,
+  BatchPriceAdjustmentResult,
+  BatchPriceAdjustmentItemResult,
 } from '../domain/catalog';
 import { Order, CartLineItem, CartTotals, TenderPayment } from '../domain/order';
 import { Shift, CashMovement, CashMovementType, computeExpectedDrawerCash, TimeclockRecord } from '../domain/shift';
@@ -622,35 +636,89 @@ export class MockAuthApi implements IAuthApi {
     console.info(`${LOG_PREFIX} Login attempt:`, { org: req.organizationSlug, store: req.storeCode });
 
     const store = SEED_STORES.find((s) => s.code.toLowerCase() === req.storeCode.toLowerCase()) || SEED_STORES[0];
+    const staffList = typeof window !== 'undefined' ? getStoredStaffDirectory() : DEFAULT_STAFF_DIRECTORY;
+    const staffPins = typeof window !== 'undefined' ? getStoredStaffPins() : {};
+    const staffPasswords = typeof window !== 'undefined' ? getStoredStaffPasswords() : {};
+    const rolePerms = typeof window !== 'undefined' ? getStoredRolePermissions() : ROLE_PERMISSIONS;
+
+    const term = (req.emailOrPin || '').trim();
+    const passOrPin = (req.passwordOrPin || '').trim();
     
     // Find user by email or pin match, or construct Guest user
     let user: User;
-    if (req.emailOrPin.toLowerCase() === 'guest' || req.emailOrPin === 'GUEST-POS') {
+    if (term.toLowerCase() === 'guest' || term === 'GUEST-POS') {
       user = {
         id: 'usr-guest',
         name: 'Guest Staff',
         email: 'guest@prodx.io',
         role: 'cashier',
         employeeCode: 'GUEST-POS',
-        permissions: ['pos:checkout', 'inventory:read', 'customers:read'], // Restricted POS permissions
+        permissions: ['pos:checkout', 'inventory:read', 'customers:read'],
       };
     } else {
-      user =
-        SEED_USERS.find(
-          (u) =>
-            u.email.toLowerCase() === req.emailOrPin.toLowerCase() ||
-            (req.emailOrPin === '1234' && u.role === 'admin') ||
-            (req.emailOrPin === '5678' && u.role === 'manager') ||
-            (req.emailOrPin === '0000' && u.role === 'cashier')
-        ) || SEED_USERS[0];
+      // 1. Match by email
+      let matched = staffList.find((u) => u.email.toLowerCase() === term.toLowerCase());
+
+      // 2. Match by employeeCode
+      if (!matched) {
+        matched = staffList.find((u) => u.employeeCode.toLowerCase() === term.toLowerCase());
+      }
+
+      // 3. Match by ID
+      if (!matched) {
+        matched = staffList.find((u) => u.id === term);
+      }
+
+      // 4. Match by PIN if term is a 4-digit PIN
+      if (!matched) {
+        // Check stored pins
+        const userIdForPin = Object.keys(staffPins).find((uid) => staffPins[uid] === term);
+        if (userIdForPin) {
+          matched = staffList.find((u) => u.id === userIdForPin);
+        }
+      }
+
+      // 5. Fallback matching for default role PINs
+      if (!matched) {
+        if (term === '1234') matched = staffList.find((u) => u.role === 'admin');
+        else if (term === '5678') matched = staffList.find((u) => u.role === 'manager');
+        else if (term === '0000' || term === '1111') matched = staffList.find((u) => u.role === 'cashier');
+      }
+
+      // 6. Fallback if passOrPin is the PIN matching the user
+      if (!matched && passOrPin) {
+        const userIdForPin = Object.keys(staffPins).find((uid) => staffPins[uid] === passOrPin);
+        if (userIdForPin) {
+          matched = staffList.find((u) => u.id === userIdForPin);
+        }
+      }
+
+      // Validate credentials if authenticating via password
+      if (matched && passOrPin && !term.match(/^\d{4}$/)) {
+        const correctPassword = staffPasswords[matched.id] || 'password123';
+        const correctPin = staffPins[matched.id];
+        const isValid = passOrPin === correctPassword || (correctPin && passOrPin === correctPin) || passOrPin === 'password123';
+        if (!isValid) {
+          throw new Error('Invalid email or password. Please verify your credentials or use "Manage / Reset Password".');
+        }
+      }
+
+      user = matched || staffList[0] || SEED_USERS[0];
     }
+
+    // Ensure permissions are synchronized with current role permissions matrix
+    const currentPermissions = rolePerms[user.role] || user.permissions || ROLE_PERMISSIONS[user.role];
+    const resolvedUser: User = {
+      ...user,
+      permissions: currentPermissions,
+    };
 
     const session: SessionContext = {
       organization: SEED_ORG,
       currentStore: store,
       registerId: req.registerId || 'REG-01',
-      currentUser: user,
-      token: `mock-jwt-${user.id}-${Date.now()}`,
+      currentUser: resolvedUser,
+      token: `mock-jwt-${resolvedUser.id}-${Date.now()}`,
       expiresAt: new Date(Date.now() + 8 * 3600 * 1000).toISOString(),
     };
 
@@ -659,11 +727,11 @@ export class MockAuthApi implements IAuthApi {
       id: `aud-${Date.now()}`,
       storeId: store.id,
       registerId: session.registerId,
-      userId: user.id,
-      userName: user.name,
+      userId: resolvedUser.id,
+      userName: resolvedUser.name,
       action: 'user_login',
       severity: 'info',
-      details: { role: user.role, employeeCode: user.employeeCode },
+      details: { role: resolvedUser.role, employeeCode: resolvedUser.employeeCode },
       timestamp: new Date().toISOString(),
     });
 
@@ -678,11 +746,32 @@ export class MockAuthApi implements IAuthApi {
   async verifySession(token: string): Promise<SessionContext | null> {
     await delay(30);
     if (!token) return null;
+
+    const staffList = typeof window !== 'undefined' ? getStoredStaffDirectory() : DEFAULT_STAFF_DIRECTORY;
+    const rolePerms = typeof window !== 'undefined' ? getStoredRolePermissions() : ROLE_PERMISSIONS;
+
+    // Extract user id from token if possible (e.g. mock-jwt-usr-admin-alex-123456789)
+    let foundUser: User | undefined;
+    if (token.startsWith('mock-jwt-')) {
+      const parts = token.split('-');
+      // token format: mock-jwt-{id}-{timestamp}
+      if (parts.length >= 4) {
+        const potentialId = parts.slice(2, parts.length - 1).join('-');
+        foundUser = staffList.find((u) => u.id === potentialId);
+      }
+    }
+
+    const effectiveUser = foundUser || staffList[0] || SEED_USERS[0];
+    const currentPermissions = rolePerms[effectiveUser.role] || effectiveUser.permissions || ROLE_PERMISSIONS[effectiveUser.role];
+
     return {
       organization: SEED_ORG,
       currentStore: SEED_STORES[0],
       registerId: 'REG-01',
-      currentUser: SEED_USERS[0],
+      currentUser: {
+        ...effectiveUser,
+        permissions: currentPermissions,
+      },
       token,
       expiresAt: new Date(Date.now() + 8 * 3600 * 1000).toISOString(),
     };
@@ -868,6 +957,90 @@ export class MockCatalogApi implements ICatalogApi {
     saveProducts(mockState.products);
 
     return updatedProducts;
+  }
+
+  async batchPriceAdjustment(
+    params: BatchPriceAdjustmentParams
+  ): Promise<BatchPriceAdjustmentResult> {
+    await delay(120);
+    const {
+      storeId: _storeId,
+      productIds,
+      direction,
+      percentage,
+      roundingStrategy = 'exact_cents',
+      reasonNotes: _reasonNotes,
+      userId: _userId,
+      supervisorName: _supervisorName,
+    } = params;
+
+    const batchReference = `PRC-ADJ-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const timestamp = new Date().toISOString();
+    const items: BatchPriceAdjustmentItemResult[] = [];
+    const updatedProducts: Product[] = [];
+
+    let previousTotalRetailValueCents = 0;
+    let newTotalRetailValueCents = 0;
+
+    const factor = direction === 'increase' ? 1 + percentage / 100 : 1 - percentage / 100;
+
+    for (const productId of productIds) {
+      const prodIdx = mockState.products.findIndex((p) => p.id === productId);
+      if (prodIdx === -1) continue;
+
+      const prod = mockState.products[prodIdx];
+      const oldPriceCents = prod.price.amountInCents;
+      previousTotalRetailValueCents += oldPriceCents;
+
+      let calculatedCents = Math.round(oldPriceCents * factor);
+
+      if (roundingStrategy === 'round_whole') {
+        calculatedCents = Math.round(calculatedCents / 100) * 100;
+      } else if (roundingStrategy === 'charm_99') {
+        calculatedCents = Math.max(99, Math.floor(calculatedCents / 100) * 100 + 99);
+      } else if (roundingStrategy === 'charm_95') {
+        calculatedCents = Math.max(95, Math.floor(calculatedCents / 100) * 100 + 95);
+      }
+
+      const newPriceCents = Math.max(0, calculatedCents);
+      newTotalRetailValueCents += newPriceCents;
+
+      const deltaCents = newPriceCents - oldPriceCents;
+      const percentageEffective =
+        oldPriceCents > 0 ? ((newPriceCents - oldPriceCents) / oldPriceCents) * 100 : 0;
+
+      const itemResult: BatchPriceAdjustmentItemResult = {
+        productId: prod.id,
+        sku: prod.sku,
+        name: prod.name,
+        oldPriceCents,
+        newPriceCents,
+        deltaCents,
+        percentageEffective,
+      };
+      items.push(itemResult);
+
+      const updatedProd: Product = {
+        ...prod,
+        price: createMoney(newPriceCents, prod.price.currency),
+      };
+
+      mockState.products[prodIdx] = updatedProd;
+      updatedProducts.push(updatedProd);
+    }
+
+    saveProducts(mockState.products);
+
+    return {
+      batchReference,
+      updatedCount: items.length,
+      previousTotalRetailValueCents,
+      newTotalRetailValueCents,
+      deltaRetailValueCents: newTotalRetailValueCents - previousTotalRetailValueCents,
+      items,
+      updatedProducts,
+      timestamp,
+    };
   }
 
   async bulkImportProducts(
@@ -1314,7 +1487,8 @@ export class MockOrderApi implements IOrderApi {
     refundMethod: 'cash' | 'card' | 'qr_digital',
     restockItems: boolean,
     authorizedByUserId: string,
-    authorizedByName: string
+    authorizedByName: string,
+    itemsToRestock?: readonly { productId: string; quantity: number }[]
   ): Promise<Order> {
     await delay(100);
     const idx = mockState.orders.findIndex((o) => o.storeId === storeId && o.id === orderId);
@@ -1324,19 +1498,27 @@ export class MockOrderApi implements IOrderApi {
 
     const order = mockState.orders[idx];
     const now = new Date().toISOString();
+    const isPartialAmount = refundAmount.amountInCents < order.totals.grandTotal.amountInCents;
+    const isFullRefund = refundAmount.amountInCents >= order.totals.grandTotal.amountInCents;
+    
     const updated: Order = {
       ...order,
-      status: 'refunded',
+      status: isFullRefund ? 'refunded' : 'server_confirmed',
       notes: order.notes
-        ? `${order.notes} | [REFUND] ${reason} (${refundMethod.toUpperCase()}) by ${authorizedByName}`
-        : `[REFUND] ${reason} (${refundMethod.toUpperCase()}) by ${authorizedByName}`,
+        ? `${order.notes} | [REFUND ${isPartialAmount ? 'PARTIAL' : 'FULL'}] ${reason} (${refundMethod.toUpperCase()}) by ${authorizedByName}`
+        : `[REFUND ${isPartialAmount ? 'PARTIAL' : 'FULL'}] ${reason} (${refundMethod.toUpperCase()}) by ${authorizedByName}`,
     };
     mockState.orders[idx] = updated;
 
     // Restock items in inventory ledger if requested
     if (restockItems) {
-      for (const item of order.items) {
-        const prodIdx = mockState.products.findIndex((p) => p.id === item.product.id);
+      const restockList = itemsToRestock && itemsToRestock.length > 0
+        ? itemsToRestock
+        : order.items.map((i) => ({ productId: i.product.id, quantity: i.quantity }));
+
+      for (const item of restockList) {
+        if (item.quantity <= 0) continue;
+        const prodIdx = mockState.products.findIndex((p) => p.id === item.productId);
         if (prodIdx !== -1) {
           const currentStock = mockState.products[prodIdx].currentStock;
           const newStock = currentStock + item.quantity;
@@ -1346,19 +1528,20 @@ export class MockOrderApi implements IOrderApi {
           };
 
           mockState.inventoryLedger.unshift({
-            id: `ledg-refund-${Date.now()}-${item.lineId}`,
+            id: `ledg-refund-${Date.now()}-${item.productId}`,
             storeId,
-            productId: item.product.id,
+            productId: item.productId,
             quantityDelta: item.quantity,
             resultingStock: newStock,
             reason: 'refund_restock',
             referenceId: `REF-${order.orderNumber}`,
             performedByUserId: authorizedByUserId,
-            notes: `Customer return: ${reason}`,
+            notes: `Customer return / refund: ${reason}`,
             timestamp: now,
           });
         }
       }
+      saveProducts(mockState.products);
     }
 
     // Record cash movement if cash refund
@@ -1403,9 +1586,17 @@ export class MockOrderApi implements IOrderApi {
         reason,
         refundMethod,
         restockItems,
+        itemsRestockedCount: itemsToRestock ? itemsToRestock.length : order.items.length,
       },
       timestamp: now,
     });
+
+    saveSingleOrder(updated);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('prodx:inventory-updated', { detail: { orderId, orderNumber: order.orderNumber } }));
+      window.dispatchEvent(new CustomEvent('prodx:order-completed'));
+    }
 
     return updated;
   }
@@ -1425,6 +1616,13 @@ export class MockShiftApi implements IShiftApi {
 
   async openShift(storeId: string, registerId: string, openingFloat: Money, cashier: User): Promise<Shift> {
     await delay(80);
+    const existingActiveShift = mockState.shifts.find(
+      (s) => s.storeId === storeId && s.registerId === registerId && s.status === 'open'
+    );
+    if (existingActiveShift) {
+      throw new Error(`Register ${registerId} already has an active shift (${existingActiveShift.id}). Please close it before opening a new one.`);
+    }
+
     const now = new Date().toISOString();
     const newShift: Shift = {
       id: `shf-${Date.now()}`,
@@ -1632,8 +1830,29 @@ export class MockAuditApi implements IAuditApi {
 // Mock Sync API (Offline Outbox synchronizer)
 // ---------------------------------------------------------------------------
 export class MockSyncApi implements ISyncApi {
+  async ping(clientTimestamp = Date.now()): Promise<{ serverTimestamp: string; roundTripLatencyMs: number; status: 'ok' | 'degraded' }> {
+    if (mockState.isSimulatedOffline) {
+      throw new Error('Cloud database unreachable: Offline mode active');
+    }
+    const start = performance.now();
+    // Base cloud DB RTT overhead + simulated artificial latency + slight natural jitter
+    const jitter = Math.floor(Math.random() * 8) - 4;
+    const baseWait = Math.max(10, mockState.simulatedLatencyMs + jitter);
+    await delay(baseWait);
+    const elapsed = Math.max(1, Math.round(performance.now() - start));
+    return {
+      serverTimestamp: new Date().toISOString(),
+      roundTripLatencyMs: elapsed,
+      status: elapsed > 800 ? 'degraded' : 'ok',
+    };
+  }
+
   async syncOutboxItem(item: OutboxItem): Promise<{ confirmedOrder: Order; syncedAt: string }> {
-    await delay(350);
+    if (mockState.isSimulatedOffline) {
+      throw new Error('Cloud database unreachable: Offline mode active');
+    }
+    const syncDelay = mockState.simulatedLatencyMs > 0 ? mockState.simulatedLatencyMs + 50 : 150;
+    await delay(syncDelay);
     console.info(`${LOG_PREFIX} Synchronizing outbox item:`, item.idempotencyKey);
 
     const payload = item.payload as CheckoutRequest;

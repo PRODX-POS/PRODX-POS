@@ -20,6 +20,7 @@ import { ReceiptPrintModal } from '../../components/receipt/ReceiptPrintModal';
 import { FullTaxInvoiceModal } from '../../components/receipt/FullTaxInvoiceModal';
 import { QuickCashCalculator } from './QuickCashCalculator';
 import { playScannerSound } from '../../services/soundService';
+import { triggerHaptic } from '../../services/hapticService';
 import { customerDisplayService } from '../../services/customerDisplayChannel';
 import {
   PaymentMethod,
@@ -557,6 +558,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   };
 
   const handleNextSale = () => {
+    triggerHaptic('medium');
     setCompletedOrder(null);
     clearCart();
     setIsSplitMode(false);
@@ -564,6 +566,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   };
 
   const handlePrintReceiptDirect = () => {
+    triggerHaptic('tap');
     if (completedOrder) {
       printReceipt(completedOrder);
     }
@@ -582,7 +585,10 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         {/* Secondary Dual Action: Cancel / Back */}
         <button
           type="button"
-          onClick={onClose}
+          onClick={() => {
+            triggerHaptic('tap');
+            onClose();
+          }}
           disabled={isProcessing}
           className="min-h-[48px] h-12 w-full px-4 rounded-xl border border-border bg-card hover:bg-background text-text/80 hover:text-text font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all theme-btn-radius active-scale cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-2xs hover:border-rose-500/40 hover:text-rose-600 dark:hover:text-rose-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/30"
         >
@@ -598,7 +604,10 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         {/* Primary Dual Action: Confirm & Finalize Payment */}
         <button
           type="button"
-          onClick={handleConfirmPayment}
+          onClick={() => {
+            triggerHaptic('heavy');
+            handleConfirmPayment();
+          }}
           disabled={isConfirmDisabled}
           className={`min-h-[48px] h-12 w-full px-4 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-between gap-3 transition-all theme-btn-radius active-scale shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 ${
             isConfirmDisabled
@@ -712,15 +721,47 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                 <span className="font-semibold text-text">
                   {activeTemplate.name} ({activeTemplate.paperWidth})
                 </span>
+                {printerConfig.quickPrint && (
+                  <Badge variant="success" size="sm" className="font-mono text-[10px]">
+                    ⚡ {language === 'th' ? 'พิมพ์ด่วน (Quick Print)' : 'Quick Print'}
+                  </Badge>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={() => setIsReceiptModalOpen(true)}
-                className="text-primary font-bold hover:underline flex items-center gap-1 cursor-pointer active-scale"
-              >
-                <Eye className="h-3.5 w-3.5" />
-                <span>{language === 'th' ? 'ดูตัวอย่าง / ปรับแต่งใบเสร็จ' : 'Preview / Customize'}</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {printerConfig.quickPrint ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerHaptic('tap');
+                        handlePrintReceiptDirect();
+                      }}
+                      className="text-primary font-bold hover:underline flex items-center gap-1 cursor-pointer active-scale"
+                    >
+                      <Zap className="h-3.5 w-3.5 text-amber-500" />
+                      <span>{language === 'th' ? 'พิมพ์ตรงทันที' : 'Print Direct'}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsReceiptModalOpen(true)}
+                      title={language === 'th' ? 'ดูตัวอย่างใบเสร็จ' : 'Preview receipt layout'}
+                      className="text-text/50 hover:text-text p-1 hover:bg-background rounded border border-border/50 text-[11px] flex items-center gap-1 cursor-pointer"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      <span>{language === 'th' ? 'ดูตัวอย่าง' : 'Preview'}</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsReceiptModalOpen(true)}
+                    className="text-primary font-bold hover:underline flex items-center gap-1 cursor-pointer active-scale"
+                  >
+                    <Eye className="h-3.5 w-3.5" />
+                    <span>{language === 'th' ? 'ดูตัวอย่าง / ปรับแต่งใบเสร็จ' : 'Preview / Customize'}</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Receipt Breakdown Card */}
@@ -790,11 +831,13 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
                 variant="outline"
                 size="md"
                 className="w-full text-xs rounded-xl border-border theme-btn-radius active-scale"
-                leftIcon={<Printer className="h-4 w-4 text-emerald-600" />}
+                leftIcon={printerConfig.quickPrint ? <Zap className="h-4 w-4 text-amber-500" /> : <Printer className="h-4 w-4 text-emerald-600" />}
                 onClick={handlePrintReceiptDirect}
                 isLoading={isPrinting}
               >
-                {language === 'th' ? 'พิมพ์สลิปซ้ำ' : 'Print Slip'}
+                {printerConfig.quickPrint
+                  ? (language === 'th' ? 'พิมพ์สลิปด่วน' : 'Quick Print Slip')
+                  : (language === 'th' ? 'พิมพ์สลิปซ้ำ' : 'Print Slip')}
               </Button>
               <Button
                 variant="primary"

@@ -1,379 +1,803 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardHeader, CardBody } from '../../../components/common/Card';
 import { Badge } from '../../../components/common/Badge';
 import { useLanguage } from '../../../context/LanguageContext';
 import { HourlyDataPoint } from '../types';
-import { Activity, Clock } from 'lucide-react';
+import { Shift } from '../../../domain/shift';
+import { Order } from '../../../domain/order';
+import {
+  Activity,
+  Clock,
+  TrendingUp,
+  TrendingDown,
+  ArrowUp,
+  ArrowDown,
+  Zap,
+  UserCheck,
+  Calendar,
+  Sparkles,
+  Lightbulb,
+  AlertCircle,
+  HelpCircle,
+  BarChart3,
+} from 'lucide-react';
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ReferenceLine,
+  Legend,
+} from 'recharts';
+import {
+  calculateMonthOverMonthMetrics,
+  MonthOverMonthMetrics,
+  MonthlyTrendDataPoint,
+} from '../utils/momAnalytics';
+import { MomInsightsModal } from './MomInsightsModal';
 
-interface HourlyVelocityChartProps {
+export interface HourlyVelocityChartProps {
   isManager: boolean;
   hourlyData: readonly HourlyDataPoint[];
+  currentShift?: Shift | null;
+  currency?: string;
+  orders?: readonly Order[];
+  storeId?: string;
 }
 
 export const HourlyVelocityChart: React.FC<HourlyVelocityChartProps> = ({
   isManager,
   hourlyData,
+  currentShift,
+  currency = 'THB',
+  orders = [],
+  storeId = 'default',
 }) => {
   const { language } = useLanguage();
 
+  // Chart view mode: 'hourly' (today's shift) vs 'mom_trend' (30-day Month-over-Month comparison)
+  const [chartViewMode, setChartViewMode] = useState<'hourly' | 'mom_trend'>('hourly');
+  const [isMomModalOpen, setIsMomModalOpen] = useState(false);
+  const [simulationMode, setSimulationMode] = useState<'actual' | 'growth' | 'decline'>('actual');
+
+  // Metric toggles:
   // For manager: 'sales' | 'orders'
   // For staff: 'orders' | 'units'
   const [activeMetric, setActiveMetric] = useState<'sales' | 'orders' | 'units'>(
     isManager ? 'sales' : 'orders'
   );
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  const maxAmount = Math.max(...hourlyData.map((d) => d.amount));
-  const maxOrders = Math.max(...hourlyData.map((d) => d.orders));
-  const maxUnits = Math.max(...hourlyData.map((d) => d.units));
+  const currencySymbol = currency === 'THB' ? '฿' : '$';
 
-  const getCurrentVal = (d: HourlyDataPoint): number => {
-    if (activeMetric === 'sales' && isManager) return d.amount;
-    if (activeMetric === 'units') return d.units;
-    return d.orders;
+  // Calculate Month-over-Month analytics
+  const { metrics: momMetrics, trendData: momTrendData } = useMemo(() => {
+    return calculateMonthOverMonthMetrics(orders, storeId, language as any, simulationMode);
+  }, [orders, storeId, language, simulationMode]);
+
+  // Prepare chart data array for Recharts (Hourly View)
+  const chartData = useMemo(() => {
+    return hourlyData.map((d) => ({
+      hour: d.hour,
+      sales: d.amount,
+      orders: d.orders,
+      units: d.units,
+      fullHour: d.fullHour || d.hour,
+      isCurrentHour: d.isCurrentHour,
+    }));
+  }, [hourlyData]);
+
+  // Find peak hour and peak values
+  const peakPoint = useMemo(() => {
+    if (chartData.length === 0) return null;
+    let maxItem = chartData[0];
+    for (const item of chartData) {
+      const val =
+        activeMetric === 'sales'
+          ? item.sales
+          : activeMetric === 'units'
+          ? item.units
+          : item.orders;
+      const currentMax =
+        activeMetric === 'sales'
+          ? maxItem.sales
+          : activeMetric === 'units'
+          ? maxItem.units
+          : maxItem.orders;
+      if (val > currentMax) {
+        maxItem = item;
+      }
+    }
+    return maxItem;
+  }, [chartData, activeMetric]);
+
+  const totalShiftSales = useMemo(() => {
+    return chartData.reduce((acc, curr) => acc + curr.sales, 0);
+  }, [chartData]);
+
+  const totalShiftOrders = useMemo(() => {
+    return chartData.reduce((acc, curr) => acc + curr.orders, 0);
+  }, [chartData]);
+
+  const totalShiftUnits = useMemo(() => {
+    return chartData.reduce((acc, curr) => acc + curr.units, 0);
+  }, [chartData]);
+
+  const activeMetricKey =
+    activeMetric === 'sales' ? 'sales' : activeMetric === 'units' ? 'units' : 'orders';
+
+  const activeMetricLabel =
+    activeMetric === 'sales'
+      ? language === 'th'
+        ? 'ยอดขาย'
+        : 'Sales Volume'
+      : activeMetric === 'units'
+      ? language === 'th'
+        ? 'จำนวนชิ้นที่ขาย'
+        : 'Units Sold'
+      : language === 'th'
+      ? 'จำนวนบิล'
+      : 'Orders Completed';
+
+  // Shift opening time formatting
+  const shiftOpenTimeFormatted = useMemo(() => {
+    if (!currentShift?.openedAt) return null;
+    try {
+      const d = new Date(currentShift.openedAt);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return null;
+    }
+  }, [currentShift]);
+
+  // Custom Recharts Tooltip for Hourly View
+  const CustomHourlyTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const item = payload[0].payload;
+      return (
+        <div className="bg-card/95 backdrop-blur-md px-3.5 py-2.5 rounded-xl border border-border border-crisp shadow-lg text-xs font-sans min-w-[170px] pointer-events-none">
+          <div className="flex items-center justify-between gap-2 border-b border-border/50 pb-1.5 mb-2">
+            <span className="font-mono font-bold text-text text-[11px] flex items-center gap-1">
+              <Clock className="h-3 w-3 text-primary shrink-0" />
+              {item.fullHour || item.hour}
+            </span>
+            {item.isCurrentHour && (
+              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                {language === 'th' ? 'ชั่วโมงปัจจุบัน' : 'Now'}
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-text/70">{language === 'th' ? 'ยอดขาย:' : 'Sales Volume:'}</span>
+              <span className="font-mono font-bold text-primary">
+                {currencySymbol}
+                {item.sales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-text/70">{language === 'th' ? 'จำนวนบิล:' : 'Order Bills:'}</span>
+              <span className="font-mono font-semibold text-text">
+                {item.orders} {language === 'th' ? 'บิล' : 'bills'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-text/70">{language === 'th' ? 'จำนวนชิ้น:' : 'Items Sold:'}</span>
+              <span className="font-mono font-semibold text-text/80">
+                {item.units} {language === 'th' ? 'ชิ้น' : 'units'}
+              </span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
   };
 
-  const maxVal = Math.max(
-    1,
-    activeMetric === 'sales' && isManager
-      ? maxAmount
-      : activeMetric === 'units'
-      ? maxUnits
-      : maxOrders
-  );
+  // Custom Recharts Tooltip for Month-over-Month Trend View
+  const CustomMomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const item = payload[0].payload as MonthlyTrendDataPoint;
+      const hasCurrent = item.day <= momMetrics.currentDay;
+      const variance = item.dailyVariancePercent;
+      const isDayGrowth = variance >= 0;
+
+      return (
+        <div className="bg-card/95 backdrop-blur-md px-3.5 py-2.5 rounded-xl border border-border border-crisp shadow-lg text-xs font-sans min-w-[210px] pointer-events-none">
+          <div className="flex items-center justify-between gap-2 border-b border-border/50 pb-1.5 mb-2">
+            <span className="font-mono font-bold text-text text-[11px] flex items-center gap-1">
+              <Calendar className="h-3 w-3 text-primary shrink-0" />
+              {item.dayLabel}
+            </span>
+            {hasCurrent && (
+              <span
+                className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold border ${
+                  isDayGrowth
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                    : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'
+                }`}
+              >
+                {isDayGrowth ? (
+                  <ArrowUp className="h-2.5 w-2.5 stroke-[2.5]" />
+                ) : (
+                  <ArrowDown className="h-2.5 w-2.5 stroke-[2.5]" />
+                )}
+                <span>{variance > 0 ? '+' : ''}{variance}%</span>
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-text/70 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-500" />
+                <span>{language === 'th' ? 'เดือนปัจจุบัน:' : 'Current Month:'}</span>
+              </span>
+              <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                {hasCurrent
+                  ? `${currencySymbol}${item.currentMonthSales.toLocaleString()}`
+                  : language === 'th' ? 'กำลังจะถึง' : 'Upcoming'}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-text/70 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-purple-500" />
+                <span>{language === 'th' ? 'เดือนก่อนหน้า:' : 'Prior Month:'}</span>
+              </span>
+              <span className="font-mono font-medium text-purple-600 dark:text-purple-400">
+                {currencySymbol}{item.priorMonthSales.toLocaleString()}
+              </span>
+            </div>
+
+            {hasCurrent && (
+              <div className="pt-1 mt-1 border-t border-border/40 flex items-center justify-between text-[11px]">
+                <span className="text-text/60">{language === 'th' ? 'ส่วนต่างรายวัน:' : 'Daily Delta:'}</span>
+                <span className={`font-mono font-bold ${isDayGrowth ? 'text-emerald-500' : 'text-rose-500'}`}>
+                  {item.currentMonthSales - item.priorMonthSales >= 0 ? '+' : ''}
+                  {currencySymbol}{(item.currentMonthSales - item.priorMonthSales).toLocaleString()}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const isGrowth = momMetrics.isGrowth;
+  const momVarianceLabel = `${momMetrics.variancePercentage > 0 ? '+' : ''}${momMetrics.variancePercentage}%`;
 
   return (
-    <Card id="dashboard-hourly-velocity-card" className="w-full lg:w-1/2 shadow-2xs">
-      <CardHeader>
-        <div className="flex items-center justify-between w-full">
-          <div>
-            <h3 className="text-sm sm:text-base font-bold text-text flex items-center gap-2">
-              <Activity className="h-4 w-4 text-primary" />
-              <span>
-                {isManager
-                  ? language === 'th'
-                    ? 'ปริมาณยอดขายรายชั่วโมง'
-                    : 'Hourly Sales Volume'
-                  : language === 'th'
-                  ? 'ความเร็วรอบการขาย & ช่วงเวลาพีค'
-                  : 'Operational Rush Hours'}
-              </span>
-            </h3>
-            <p className="text-xs text-text/70 mt-0.5">
-              {isManager
-                ? language === 'th'
-                  ? 'แนวโน้มยอดขายและปริมาณคำสั่งซื้อประจำชั่วโมง'
-                  : 'Peak operational volume and hourly velocity'
-                : language === 'th'
-                ? 'สถิติจำนวนคำสั่งซื้อและจำนวนชิ้นสินค้าที่คิดเงินในแต่ละช่วงเวลา'
-                : 'Order dispatch volume and checkout lane velocity'}
-            </p>
-          </div>
+    <>
+      <Card id="dashboard-hourly-velocity-card" className="w-full shadow-2xs">
+        <CardHeader>
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 w-full">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-bold text-text flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-primary" />
+                  <span>
+                    {chartViewMode === 'mom_trend'
+                      ? language === 'th'
+                        ? 'แนวโน้มยอดขายเปรียบเทียบเดือนต่อเดือน (MoM Trend)'
+                        : 'Month-over-Month Sales Velocity & Trend'
+                      : isManager
+                      ? language === 'th'
+                        ? 'ปริมาณยอดขายรายชั่วโมง (กะปัจจุบัน)'
+                        : 'Current Shift Hourly Sales Volume'
+                      : language === 'th'
+                      ? 'ความเร็วรอบการขายรายชั่วโมง (กะปัจจุบัน)'
+                      : 'Current Shift Hourly Sales Velocity'}
+                  </span>
+                </h3>
 
-          {/* Metric Toggle Buttons */}
-          <div className="flex items-center gap-1 p-1 bg-background rounded-lg border-border border-crisp">
-            {isManager ? (
-              <>
-                <button
-                  type="button"
-                  id="chart-toggle-sales"
-                  onClick={() => setActiveMetric('sales')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    activeMetric === 'sales'
-                      ? 'bg-card text-primary shadow-2xs'
-                      : 'text-text/70 hover:text-text'
-                  }`}
-                >
-                  {language === 'th' ? 'ยอดขาย ($)' : 'Sales ($)'}
-                </button>
-                <button
-                  type="button"
-                  id="chart-toggle-orders"
-                  onClick={() => setActiveMetric('orders')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    activeMetric === 'orders'
-                      ? 'bg-card text-primary shadow-2xs'
-                      : 'text-text/70 hover:text-text'
-                  }`}
-                >
-                  {language === 'th' ? 'จำนวนบิล' : 'Orders'}
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  id="chart-toggle-orders-staff"
-                  onClick={() => setActiveMetric('orders')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    activeMetric === 'orders'
-                      ? 'bg-card text-primary shadow-2xs'
-                      : 'text-text/70 hover:text-text'
-                  }`}
-                >
-                  {language === 'th' ? 'จำนวนบิล' : 'Orders'}
-                </button>
-                <button
-                  type="button"
-                  id="chart-toggle-units-staff"
-                  onClick={() => setActiveMetric('units')}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    activeMetric === 'units'
-                      ? 'bg-card text-primary shadow-2xs'
-                      : 'text-text/70 hover:text-text'
-                  }`}
-                >
-                  {language === 'th' ? 'จำนวนชิ้น' : 'Units'}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </CardHeader>
+                {/* Status Indicator */}
+                {chartViewMode === 'hourly' && currentShift && (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>
+                      {currentShift.registerId || 'REG-01'} ·{' '}
+                      {currentShift.status === 'open'
+                        ? language === 'th' ? 'กะกำลังเปิด' : 'Active Shift'
+                        : language === 'th' ? 'ปิดกะแล้ว' : 'Shift Closed'}
+                    </span>
+                  </span>
+                )}
 
-      <CardBody className="p-4 sm:p-6">
-        {/* Custom High-Fidelity SVG Curve Chart */}
-        <div className="relative w-full select-none">
-          <svg viewBox="0 0 500 220" className="w-full h-auto overflow-visible">
-            <defs>
-              <linearGradient id="chartGlowGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--primary-color)" stopOpacity="0.25" />
-                <stop offset="100%" stopColor="var(--primary-color)" stopOpacity="0.00" />
-              </linearGradient>
-            </defs>
+                {/* PROMINENT MONTH-OVER-MONTH (MoM) VARIANCE INDICATOR */}
+                {isManager && (
+                  <button
+                    type="button"
+                    id="chart-mom-variance-badge"
+                    onClick={() => setIsMomModalOpen(true)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-xs active:scale-95 group ${
+                      isGrowth
+                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20 hover:border-emerald-500/50'
+                        : 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/30 hover:bg-rose-500/20 hover:border-rose-500/50'
+                    }`}
+                    title={
+                      language === 'th'
+                        ? 'คลิกเพื่อดูบทวิเคราะห์ MoM และข้อเสนอแนะเชิงปฏิบัติการสำหรับผู้จัดการร้าน'
+                        : 'Click to view MoM variance analysis and actionable manager recommendations'
+                    }
+                  >
+                    <span
+                      className={`flex items-center justify-center w-4 h-4 rounded-full ${
+                        isGrowth
+                          ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-rose-500/20 text-rose-600 dark:text-rose-400'
+                      }`}
+                    >
+                      {isGrowth ? (
+                        <ArrowUp className="h-2.5 w-2.5 stroke-[3]" />
+                      ) : (
+                        <ArrowDown className="h-2.5 w-2.5 stroke-[3]" />
+                      )}
+                    </span>
+                    <span className="font-mono font-black">{momVarianceLabel}</span>
+                    <span className="text-[10px] font-semibold opacity-80 uppercase tracking-tight">
+                      MoM {isGrowth ? (language === 'th' ? 'เติบโต' : 'Growth') : (language === 'th' ? 'ชะลอตัว' : 'Decline')}
+                    </span>
+                    <Lightbulb className="h-3 w-3 opacity-60 group-hover:opacity-100 text-amber-500 transition-opacity" />
+                  </button>
+                )}
+              </div>
 
-            {/* Horizontal Dotted Gridlines for Depth */}
-            <line
-              x1="35"
-              y1="30"
-              x2="480"
-              y2="30"
-              stroke="var(--border-color)"
-              strokeWidth="1"
-              strokeDasharray="3 3"
-              opacity="0.4"
-            />
-            <line
-              x1="35"
-              y1="75"
-              x2="480"
-              y2="75"
-              stroke="var(--border-color)"
-              strokeWidth="1"
-              strokeDasharray="3 3"
-              opacity="0.4"
-            />
-            <line
-              x1="35"
-              y1="120"
-              x2="480"
-              y2="120"
-              stroke="var(--border-color)"
-              strokeWidth="1"
-              strokeDasharray="3 3"
-              opacity="0.4"
-            />
-            <line
-              x1="35"
-              y1="165"
-              x2="480"
-              y2="165"
-              stroke="var(--border-color)"
-              strokeWidth="1"
-              strokeDasharray="3 3"
-              opacity="0.4"
-            />
+              <p className="text-xs text-text/70 mt-0.5 flex items-center gap-2 flex-wrap">
+                <span>
+                  {chartViewMode === 'mom_trend'
+                    ? language === 'th'
+                      ? `เปรียบเทียบยอดขายรายวันสะสมระหว่าง ${momMetrics.currentMonthName} กับ ${momMetrics.priorMonthName}`
+                      : `Comparing cumulative daily velocity between ${momMetrics.currentMonthName} and ${momMetrics.priorMonthName}`
+                    : isManager
+                    ? language === 'th'
+                      ? 'กราฟวิเคราะห์แนวโน้มยอดขายและปริมาณคำสั่งซื้อประจำชั่วโมงของกะทำงานปัจจุบัน'
+                      : 'Interactive hourly sales and ticket volume tracking for the active shift'
+                    : language === 'th'
+                    ? 'สถิติจำนวนคำสั่งซื้อและจำนวนชิ้นสินค้าที่แคชเชียร์สแกนขายในแต่ละชั่วโมง'
+                    : 'Order dispatch volume and item checkout velocity throughout the shift'}
+                </span>
+                {chartViewMode === 'hourly' && shiftOpenTimeFormatted && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-mono text-text/60">
+                    <UserCheck className="h-3 w-3 text-primary/70" />
+                    <span>
+                      {currentShift?.cashierName || 'Cashier'} · {language === 'th' ? 'เปิดเมื่อ' : 'Opened'} {shiftOpenTimeFormatted}
+                    </span>
+                  </span>
+                )}
+              </p>
+            </div>
 
-            {/* Render the curve and points */}
-            {(() => {
-              const svgWidth = 500;
-              const svgHeight = 220;
-              const paddingLeft = 35;
-              const paddingRight = 20;
-              const paddingTop = 30;
-              const paddingBottom = 40;
-              const chartWidth = svgWidth - paddingLeft - paddingRight;
-              const chartHeight = svgHeight - paddingTop - paddingBottom;
+            {/* Controls Bar: View Switcher (Hourly vs MoM) + Metric Toggle */}
+            <div className="flex items-center gap-2 flex-wrap shrink-0 self-start lg:self-auto">
+              {/* Store Manager View Switcher */}
+              {isManager && (
+                <div className="flex items-center gap-1 p-1 bg-background rounded-lg border border-border shrink-0">
+                  <button
+                    type="button"
+                    id="chart-view-hourly"
+                    onClick={() => setChartViewMode('hourly')}
+                    className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      chartViewMode === 'hourly'
+                        ? 'bg-card text-primary shadow-2xs border border-border/50'
+                        : 'text-text/70 hover:text-text'
+                    }`}
+                  >
+                    <Clock className="h-3 w-3" />
+                    <span>{language === 'th' ? 'รายชั่วโมง' : 'Hourly'}</span>
+                  </button>
 
-              const points = hourlyData.map((d, index) => {
-                const x = paddingLeft + (index / (hourlyData.length - 1)) * chartWidth;
-                const currentVal = getCurrentVal(d);
-                const y = svgHeight - paddingBottom - (currentVal / maxVal) * chartHeight;
-                return { x, y };
-              });
-
-              // Cubic bezier interpolation for smooth curve
-              const buildBezierPath = (pts: { x: number; y: number }[]) => {
-                if (pts.length === 0) return '';
-                let d = `M ${pts[0].x} ${pts[0].y}`;
-                for (let i = 0; i < pts.length - 1; i++) {
-                  const p0 = pts[i];
-                  const p1 = pts[i + 1];
-                  const cpX1 = p0.x + (p1.x - p0.x) / 3;
-                  const cpY1 = p0.y;
-                  const cpX2 = p0.x + (2 * (p1.x - p0.x)) / 3;
-                  const cpY2 = p1.y;
-                  d += ` C ${cpX1} ${cpY1}, ${cpX2} ${cpY2}, ${p1.x} ${p1.y}`;
-                }
-                return d;
-              };
-
-              const linePath = buildBezierPath(points);
-              const areaPath =
-                points.length > 0
-                  ? `${linePath} L ${points[points.length - 1].x} ${
-                      svgHeight - paddingBottom
-                    } L ${points[0].x} ${svgHeight - paddingBottom} Z`
-                  : '';
-
-              return (
-                <>
-                  {/* Fading area */}
-                  {areaPath && <path d={areaPath} fill="url(#chartGlowGradient)" />}
-
-                  {/* Main elegant curved trendline */}
-                  {linePath && (
-                    <path
-                      d={linePath}
-                      fill="none"
-                      stroke="var(--primary-color)"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      className="transition-all duration-300"
+                  <button
+                    type="button"
+                    id="chart-view-mom"
+                    onClick={() => setChartViewMode('mom_trend')}
+                    className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      chartViewMode === 'mom_trend'
+                        ? 'bg-card text-primary shadow-2xs border border-border/50'
+                        : 'text-text/70 hover:text-text'
+                    }`}
+                  >
+                    <Calendar className="h-3 w-3" />
+                    <span>{language === 'th' ? 'เทียบรายเดือน (MoM)' : 'MoM Trend'}</span>
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        isGrowth ? 'bg-emerald-500' : 'bg-rose-500'
+                      }`}
                     />
-                  )}
+                  </button>
+                </div>
+              )}
 
-                  {/* Vertical tracking cursor line on hover */}
-                  {hoveredIndex !== null && points[hoveredIndex] && (
-                    <line
-                      x1={points[hoveredIndex].x}
-                      y1={paddingTop}
-                      x2={points[hoveredIndex].x}
-                      y2={svgHeight - paddingBottom}
-                      stroke="var(--primary-color)"
-                      strokeWidth="1"
-                      strokeDasharray="2 2"
-                      opacity="0.8"
-                    />
-                  )}
-
-                  {/* Hover detector bars */}
-                  {points.map((pt, i) => {
-                    const stepHalf = chartWidth / (hourlyData.length - 1) / 2;
-                    return (
-                      <rect
-                        key={`hover-${i}`}
-                        x={pt.x - stepHalf}
-                        y={paddingTop}
-                        width={stepHalf * 2}
-                        height={chartHeight}
-                        fill="transparent"
-                        className="cursor-pointer"
-                        onMouseEnter={() => setHoveredIndex(i)}
-                        onMouseLeave={() => setHoveredIndex(null)}
-                      />
-                    );
-                  })}
-
-                  {/* Data Dots */}
-                  {points.map((pt, i) => {
-                    const isSelected = hoveredIndex === i;
-                    const val = getCurrentVal(hourlyData[i]);
-                    const isPeak = val === maxVal;
-
-                    return (
-                      <g key={i}>
-                        {(isSelected || isPeak) && (
-                          <circle
-                            cx={pt.x}
-                            cy={pt.y}
-                            r={isSelected ? '9' : '6'}
-                            fill="var(--primary-color)"
-                            opacity="0.25"
-                            className="pointer-events-none transition-all duration-150"
-                          />
-                        )}
-                        <circle
-                          cx={pt.x}
-                          cy={pt.y}
-                          r={isSelected ? '4.5' : '3.5'}
-                          fill="var(--card-color)"
-                          stroke="var(--primary-color)"
-                          strokeWidth={isSelected ? '2.5' : '2'}
-                          className="pointer-events-none transition-all duration-150"
-                        />
-                      </g>
-                    );
-                  })}
-
-                  {/* Horizontal hour label ticks */}
-                  {points.map((pt, i) => {
-                    const isSelected = hoveredIndex === i;
-                    return (
-                      <text
-                        key={i}
-                        x={pt.x}
-                        y={svgHeight - 15}
-                        textAnchor="middle"
-                        className={`text-[9px] font-bold transition-all duration-150 pointer-events-none ${
-                          isSelected ? 'fill-primary' : 'fill-text/50'
+              {/* Metric Toggle Buttons (When in Hourly View) */}
+              {chartViewMode === 'hourly' && (
+                <div className="flex items-center gap-1 p-1 bg-background rounded-lg border border-border shrink-0">
+                  {isManager ? (
+                    <>
+                      <button
+                        type="button"
+                        id="chart-toggle-sales"
+                        onClick={() => setActiveMetric('sales')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          activeMetric === 'sales'
+                            ? 'bg-card text-primary shadow-2xs border border-border/50'
+                            : 'text-text/70 hover:text-text'
                         }`}
                       >
-                        {hourlyData[i].hour}
-                      </text>
-                    );
-                  })}
-                </>
-              );
-            })()}
-          </svg>
-
-          {/* Overlaid Tooltip */}
-          <div className="absolute top-2 right-2 min-h-[36px] bg-card/90 backdrop-blur-md px-3 py-1.5 rounded-lg border border-border border-crisp shadow-md flex flex-col pointer-events-none transition-all duration-200">
-            {hoveredIndex !== null ? (
-              <>
-                <span className="text-[10px] uppercase font-bold text-text/50 tracking-wider font-mono">
-                  {hourlyData[hoveredIndex].hour}
-                </span>
-                <span className="text-xs font-black font-mono text-primary leading-tight">
-                  {isManager && activeMetric === 'sales'
-                    ? `$${hourlyData[hoveredIndex].amount} USD`
-                    : activeMetric === 'units'
-                    ? `${hourlyData[hoveredIndex].units} ${language === 'th' ? 'ชิ้น' : 'units'}`
-                    : `${hourlyData[hoveredIndex].orders} ${language === 'th' ? 'บิลสำเร็จ' : 'bills'}`}
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="text-[10px] uppercase font-bold text-text/50 tracking-wider font-mono">
-                  {language === 'th' ? 'ช่วงเวลาพีคสูงสุด' : 'PEAK RUSH'} (12 PM)
-                </span>
-                <span className="text-xs font-black font-mono text-emerald-600 dark:text-emerald-400 leading-tight">
-                  {isManager && activeMetric === 'sales'
-                    ? `$310 USD`
-                    : activeMetric === 'units'
-                    ? `42 units`
-                    : `28 bills`}
-                </span>
-              </>
-            )}
+                        {language === 'th' ? `ยอดขาย (${currencySymbol})` : `Sales (${currencySymbol})`}
+                      </button>
+                      <button
+                        type="button"
+                        id="chart-toggle-orders"
+                        onClick={() => setActiveMetric('orders')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          activeMetric === 'orders'
+                            ? 'bg-card text-primary shadow-2xs border border-border/50'
+                            : 'text-text/70 hover:text-text'
+                        }`}
+                      >
+                        {language === 'th' ? 'จำนวนบิล' : 'Orders'}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        id="chart-toggle-orders-staff"
+                        onClick={() => setActiveMetric('orders')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          activeMetric === 'orders'
+                            ? 'bg-card text-primary shadow-2xs border border-border/50'
+                            : 'text-text/70 hover:text-text'
+                        }`}
+                      >
+                        {language === 'th' ? 'จำนวนบิล' : 'Orders'}
+                      </button>
+                      <button
+                        type="button"
+                        id="chart-toggle-units-staff"
+                        onClick={() => setActiveMetric('units')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          activeMetric === 'units'
+                            ? 'bg-card text-primary shadow-2xs border border-border/50'
+                            : 'text-text/70 hover:text-text'
+                        }`}
+                      >
+                        {language === 'th' ? 'จำนวนชิ้น' : 'Units'}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </CardHeader>
 
-        <div className="mt-4 pt-3 border-t border-border flex items-center justify-between text-xs text-text/70">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-primary" />
-            <span>
-              {language === 'th'
-                ? 'ช่วงเวลาขายดีที่สุด: 12:00 PM (ช่วงมื้อเที่ยง)'
-                : 'Peak Trading Velocity: 12:00 PM (Lunch Rush)'}
-            </span>
+        <CardBody className="p-4 sm:p-6">
+          {/* MOM COMPARISON BANNER: Displayed in MoM Trend View */}
+          {chartViewMode === 'mom_trend' && (
+            <div className="mb-4 p-3 rounded-xl bg-background border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-0.5 bg-blue-500 rounded-full" />
+                  <span className="font-semibold text-text">
+                    {momMetrics.currentMonthName} (MTD):
+                  </span>
+                  <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                    {currencySymbol}{momMetrics.currentMonthSales.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-0.5 border-b-2 border-dashed border-purple-500" />
+                  <span className="font-medium text-text/70">
+                    {momMetrics.priorMonthName}:
+                  </span>
+                  <span className="font-mono font-semibold text-purple-600 dark:text-purple-400">
+                    {currencySymbol}{momMetrics.priorMonthSales.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+
+                {/* Variance callout */}
+                <div className="flex items-center gap-1.5 pl-2 border-l border-border/80">
+                  <span
+                    className={`inline-flex items-center gap-1 font-mono font-bold ${
+                      isGrowth ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                    }`}
+                  >
+                    {isGrowth ? (
+                      <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
+                    ) : (
+                      <ArrowDown className="h-3.5 w-3.5 stroke-[2.5]" />
+                    )}
+                    <span>{momVarianceLabel} MoM</span>
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsMomModalOpen(true)}
+                className="text-primary font-bold hover:underline flex items-center gap-1 cursor-pointer shrink-0 self-start sm:self-auto"
+              >
+                <Lightbulb className="h-3.5 w-3.5 text-amber-500" />
+                <span>{language === 'th' ? 'ดูคำแนะนำเชิงปฏิบัติการ' : 'View Manager Playbook'}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Recharts Chart Container */}
+          <div id="recharts-shift-line-chart-wrapper" className="w-full h-[260px] select-none">
+            <ResponsiveContainer width="100%" height="100%">
+              {chartViewMode === 'hourly' ? (
+                /* --- Hourly Shift View --- */
+                <LineChart
+                  data={chartData}
+                  margin={{ top: 15, right: 20, left: -5, bottom: 5 }}
+                >
+                  <defs>
+                    <linearGradient id="chartLineGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#3B82F6" stopOpacity={0.25} />
+                      <stop offset="100%" stopColor="#3B82F6" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="currentColor"
+                    className="text-border/60"
+                    vertical={false}
+                  />
+
+                  <XAxis
+                    dataKey="hour"
+                    stroke="currentColor"
+                    className="text-text/60"
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={{ stroke: 'currentColor', opacity: 0.2 }}
+                    dy={6}
+                  />
+
+                  <YAxis
+                    stroke="currentColor"
+                    className="text-text/60"
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(val: number) => {
+                      if (activeMetric === 'sales') {
+                        return val >= 1000 ? `${(val / 1000).toFixed(1)}k` : `${val}`;
+                      }
+                      return `${val}`;
+                    }}
+                    dx={-2}
+                  />
+
+                  <Tooltip content={<CustomHourlyTooltip />} />
+
+                  {/* Optional peak indicator reference line */}
+                  {peakPoint && (activeMetric === 'sales' ? peakPoint.sales > 0 : peakPoint.orders > 0) && (
+                    <ReferenceLine
+                      y={
+                        activeMetric === 'sales'
+                          ? peakPoint.sales
+                          : activeMetric === 'units'
+                          ? peakPoint.units
+                          : peakPoint.orders
+                      }
+                      stroke="#10B981"
+                      strokeDasharray="4 4"
+                      strokeOpacity={0.4}
+                    />
+                  )}
+
+                  <Line
+                    type="monotone"
+                    dataKey={activeMetricKey}
+                    name={activeMetricLabel}
+                    stroke="#3B82F6"
+                    strokeWidth={2.5}
+                    dot={{
+                      r: 4,
+                      fill: 'var(--card-color, #0F172A)',
+                      stroke: '#3B82F6',
+                      strokeWidth: 2,
+                    }}
+                    activeDot={{
+                      r: 6,
+                      fill: '#3B82F6',
+                      stroke: '#FFFFFF',
+                      strokeWidth: 2,
+                    }}
+                    animationDuration={600}
+                    isAnimationActive={true}
+                  />
+                </LineChart>
+              ) : (
+                /* --- Month-over-Month (MoM) Trend Comparison View --- */
+                <LineChart
+                  data={momTrendData as any}
+                  margin={{ top: 15, right: 20, left: -5, bottom: 5 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="currentColor"
+                    className="text-border/60"
+                    vertical={false}
+                  />
+
+                  <XAxis
+                    dataKey="day"
+                    stroke="currentColor"
+                    className="text-text/60"
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={{ stroke: 'currentColor', opacity: 0.2 }}
+                    tickFormatter={(day) => `${day}`}
+                    dy={6}
+                  />
+
+                  <YAxis
+                    stroke="currentColor"
+                    className="text-text/60"
+                    tick={{ fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(val: number) => (val >= 1000 ? `${(val / 1000).toFixed(0)}k` : `${val}`)}
+                    dx={-2}
+                  />
+
+                  <Tooltip content={<CustomMomTooltip />} />
+
+                  {/* Prior Month Line (Dashed) */}
+                  <Line
+                    type="monotone"
+                    dataKey="priorMonthSales"
+                    name={momMetrics.priorMonthName}
+                    stroke="#8B5CF6"
+                    strokeWidth={2}
+                    strokeDasharray="4 4"
+                    dot={false}
+                    activeDot={{ r: 5, fill: '#8B5CF6' }}
+                    animationDuration={600}
+                  />
+
+                  {/* Current Month Line (Solid Primary Blue) */}
+                  <Line
+                    type="monotone"
+                    dataKey="currentMonthSales"
+                    name={momMetrics.currentMonthName}
+                    stroke="#3B82F6"
+                    strokeWidth={2.5}
+                    dot={{
+                      r: 3.5,
+                      fill: 'var(--card-color, #0F172A)',
+                      stroke: '#3B82F6',
+                      strokeWidth: 2,
+                    }}
+                    activeDot={{
+                      r: 6,
+                      fill: '#3B82F6',
+                      stroke: '#FFFFFF',
+                      strokeWidth: 2,
+                    }}
+                    animationDuration={600}
+                  />
+                </LineChart>
+              )}
+            </ResponsiveContainer>
           </div>
-          <Badge variant="neutral" size="sm">
-            {language === 'th' ? 'รวม 10 ชั่วโมง' : '10 Hours Logged'}
-          </Badge>
-        </div>
-      </CardBody>
-    </Card>
+
+          {/* Summary Footer & Actionable Indicators */}
+          <div className="mt-4 pt-3 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-text/70">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="w-2 h-2 rounded-full bg-primary shrink-0" />
+              <span className="font-medium">
+                {chartViewMode === 'mom_trend' ? (
+                  <span>
+                    <span className="text-text font-bold">
+                      {language === 'th' ? 'สถานะความเร็ว MoM:' : 'MoM Velocity Pace:'}{' '}
+                    </span>
+                    <span
+                      className={`font-mono font-bold ${
+                        isGrowth ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+                      }`}
+                    >
+                      {momVarianceLabel} {isGrowth ? (language === 'th' ? 'โตขึ้น' : 'Ahead') : (language === 'th' ? 'ชะลอลง' : 'Behind')}
+                    </span>
+                    <span className="text-text/60">
+                      {' '}· {language === 'th' ? 'ความต่างสุทธิ' : 'Net Diff'} {momMetrics.varianceAmount >= 0 ? '+' : ''}
+                      {currencySymbol}{Math.abs(momMetrics.varianceAmount).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                  </span>
+                ) : peakPoint && (activeMetric === 'sales' ? peakPoint.sales > 0 : peakPoint.orders > 0) ? (
+                  <>
+                    <span className="text-text font-bold">
+                      {language === 'th' ? 'ช่วงเวลาขายดีที่สุดในกะ:' : 'Current Shift Peak:'}{' '}
+                    </span>
+                    <span className="text-primary font-mono font-bold">
+                      {peakPoint.fullHour || peakPoint.hour}
+                    </span>
+                    <span className="text-text/60">
+                      {' '}(
+                      {activeMetric === 'sales'
+                        ? `${currencySymbol}${peakPoint.sales.toLocaleString()} · ${peakPoint.orders} ${language === 'th' ? 'บิล' : 'bills'}`
+                        : `${peakPoint.orders} ${language === 'th' ? 'บิล' : 'bills'} · ${peakPoint.units} ${language === 'th' ? 'ชิ้น' : 'units'}`}
+                      )
+                    </span>
+                  </>
+                ) : (
+                  <span>
+                    {language === 'th'
+                      ? 'กำลังบันทึกยอดขายกะปัจจุบันแบบเรียลไทม์'
+                      : 'Logging real-time sales transactions for current shift'}
+                  </span>
+                )}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* MoM Variance Indicator Badge */}
+              {isManager && (
+                <button
+                  type="button"
+                  onClick={() => setIsMomModalOpen(true)}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border transition-colors cursor-pointer ${
+                    isGrowth
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                      : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
+                  }`}
+                  title={language === 'th' ? 'คลิกดูข้อเสนอแนะเชิงปฏิบัติการ' : 'Click to view manager playbook'}
+                >
+                  {isGrowth ? (
+                    <ArrowUp className="h-3 w-3 stroke-[2.5]" />
+                  ) : (
+                    <ArrowDown className="h-3 w-3 stroke-[2.5]" />
+                  )}
+                  <span>MoM: {momVarianceLabel}</span>
+                </button>
+              )}
+
+              <Badge variant="neutral" size="sm" className="font-mono text-[11px]">
+                {chartViewMode === 'mom_trend'
+                  ? (language === 'th' ? 'บันทึกแล้ว:' : 'Tracked:')
+                  : (language === 'th' ? 'ยอดรวมในกะ:' : 'Shift Total:')}{' '}
+                <strong className="text-text font-bold">
+                  {chartViewMode === 'mom_trend'
+                    ? `${momMetrics.currentDay} ${language === 'th' ? 'วัน' : 'days'}`
+                    : `${currencySymbol}${totalShiftSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                </strong>
+                {chartViewMode === 'hourly' && ` (${totalShiftOrders} ${language === 'th' ? 'บิล' : 'bills'})`}
+              </Badge>
+
+              <Badge variant="neutral" size="sm" className="font-mono text-[11px]">
+                {chartViewMode === 'mom_trend'
+                  ? (language === 'th' ? 'รอบ 30 วัน' : '30-Day Window')
+                  : `${hourlyData.length} ${language === 'th' ? 'ช่วงเวลา' : 'Hours Logged'}`}
+              </Badge>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
+      {/* Actionable Manager Insights Modal */}
+      {isMomModalOpen && (
+        <MomInsightsModal
+          isOpen={isMomModalOpen}
+          onClose={() => setIsMomModalOpen(false)}
+          metrics={momMetrics}
+          currencySymbol={currencySymbol}
+          onSwitchToMomView={() => setChartViewMode('mom_trend')}
+          onSimulate={(mode) => setSimulationMode(mode)}
+          simulationMode={simulationMode}
+        />
+      )}
+    </>
   );
 };
+

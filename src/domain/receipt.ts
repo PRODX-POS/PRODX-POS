@@ -92,6 +92,7 @@ export interface PrinterHardwareConfig {
   readonly autoPrintOnCheckout: boolean;
   readonly autoKickDrawerOnCash: boolean;
   readonly copies: number;
+  readonly quickPrint: boolean; // Bypasses the receipt preview modal for faster transactions, enabling direct-to-printer output
 }
 
 export interface PrintJob {
