@@ -177,13 +177,12 @@ export const QuickPayDrawer: React.FC<QuickPayDrawerProps> = ({
       return;
     }
 
-    // Check admin (1234), manager (5678), or stored manager staff pins
-    const isMasterMatch = trimmed === '5678' || trimmed === '1234';
+    // Only persisted, role-scoped manager credentials are accepted.
     const isStaffManagerMatch = staffUsers?.some(
       (u) => (u.role === 'manager' || u.role === 'admin') && getStaffPin(u.id) === trimmed
     );
 
-    if (isMasterMatch || isStaffManagerMatch) {
+    if (isStaffManagerMatch) {
       triggerHaptic('medium');
       playScannerSound('click');
       setIsAuthorized(true);
@@ -200,8 +199,8 @@ export const QuickPayDrawer: React.FC<QuickPayDrawerProps> = ({
       triggerHaptic('heavy');
       setPinError(
         language === 'th'
-          ? 'รหัส PIN ผู้จัดการไม่ถูกต้อง (ทดสอบ: 5678)'
-          : 'Invalid Manager PIN (Demo hint: 5678)'
+          ? 'รหัส PIN ผู้จัดการไม่ถูกต้อง'
+          : 'Invalid Manager PIN'
       );
     }
   };
@@ -574,8 +573,8 @@ export const QuickPayDrawer: React.FC<QuickPayDrawerProps> = ({
                         </span>
                         <span className="text-[10px] text-amber-800/70 dark:text-amber-300/70">
                           {language === 'th'
-                            ? 'กรอก PIN ผู้จัดการเพื่อปลดล็อกการชำระเงินด่วน (ทดสอบ: 5678)'
-                            : 'Enter supervisor PIN to unlock single-tap checkout (Demo: 5678)'}
+                            ? 'กรอก PIN ผู้จัดการเพื่อปลดล็อกการชำระเงินด่วน'
+                            : 'Enter supervisor PIN to unlock single-tap checkout'}
                         </span>
                       </div>
                     </div>
