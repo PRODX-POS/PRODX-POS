@@ -2,9 +2,6 @@
 -- Gate C slice: store-scoped devices and server-side session state.
 -- Tokens/secrets are never stored in plaintext; only hashes belong here.
 
-ALTER TABLE prodx_devices
-  ADD CONSTRAINT prodx_devices_id_organization_unique UNIQUE (id, organization_id);
-
 CREATE TABLE IF NOT EXISTS prodx_devices (
   id UUID PRIMARY KEY,
   organization_id UUID NOT NULL REFERENCES prodx_organizations(id) ON DELETE RESTRICT,
