@@ -10,6 +10,8 @@ export { AI_AUTHORITY_RULE } from './capability-contract';
 export type { AIAuthoritativeDomain } from './capability-contract';
 export { OKMDProvider } from './okmdProvider';
 export type { OKMDProviderConfig } from './okmdProvider';
+export { OpenAIProvider } from './openaiProvider';
+export type { OpenAIProviderConfig } from './openaiProvider';
 export type {
   AIChatRequest,
   AIChatResponse,
