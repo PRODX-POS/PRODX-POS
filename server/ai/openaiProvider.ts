@@ -21,6 +21,34 @@ function normalizeBaseUrl(value: string): string {
   return url.toString().replace(/\/$/, '');
 }
 
+function normalizeChoices(raw: Record<string, unknown>): readonly unknown[] | undefined {
+  if (!Array.isArray(raw.output)) return undefined;
+
+  const choices = raw.output
+    .filter((item): item is Record<string, unknown> => {
+      return typeof item === 'object' && item !== null && (item as Record<string, unknown>).type === 'message';
+    })
+    .map((item) => {
+      const content = Array.isArray(item.content) ? item.content : [];
+      const text = content
+        .filter((part): part is Record<string, unknown> => typeof part === 'object' && part !== null)
+        .filter((part) => part.type === 'output_text' && typeof part.text === 'string')
+        .map((part) => part.text as string)
+        .join('');
+
+      return {
+        index: 0,
+        message: {
+          role: typeof item.role === 'string' ? item.role : 'assistant',
+          content: text,
+        },
+        finish_reason: 'stop',
+      };
+    });
+
+  return choices.length > 0 ? choices : undefined;
+}
+
 export class OpenAIProvider implements AIProvider {
   readonly name = 'openai';
 
@@ -85,7 +113,7 @@ export class OpenAIProvider implements AIProvider {
       return {
         id: typeof raw.id === 'string' ? raw.id : undefined,
         model: typeof raw.model === 'string' ? raw.model : request.model ?? this.defaultModel,
-        choices: undefined,
+        choices: normalizeChoices(raw),
         usage: usage
           ? {
               prompt_tokens:
