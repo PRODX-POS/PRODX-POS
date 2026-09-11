@@ -21,7 +21,7 @@ test('gateway requires matching capability permission and tenant/store scope', a
   const gateway = new AIGatewayService(
     { get: () => providerSpy(captured) },
     { authorize: (requestedScope, permission) => requestedScope.storeId === scope.storeId && permission === 'ai:analytics' },
-    { record: (event) => audit.push(event) },
+    { record: (event) => { audit.push(event); } },
     { permission: 'ai:analytics' },
   );
 
@@ -69,7 +69,7 @@ test('gateway caps output tokens and records successful usage without content lo
   const gateway = new AIGatewayService(
     { get: () => providerSpy(captured) },
     { authorize: () => true },
-    { record: (event) => audit.push(event) },
+    { record: (event) => { audit.push(event); } },
     { permission: 'ai:analytics', maxOutputTokens: 50 },
   );
 
