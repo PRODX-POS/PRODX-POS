@@ -3,13 +3,23 @@
 -- and explicitly scoped user-role assignments.
 -- No sessions, devices, business transactions, or authentication secrets belong here.
 
--- Composite uniqueness keys let foreign keys enforce organization tenancy across joins.
--- Organization.id is already a primary key and needs no redundant unique constraint.
-ALTER TABLE prodx_users
-  ADD CONSTRAINT prodx_users_id_organization_unique UNIQUE (id, organization_id);
-
-ALTER TABLE prodx_stores
-  ADD CONSTRAINT prodx_stores_id_organization_unique UNIQUE (id, organization_id);
+-- Organization.id is already a primary key. Add only the composite keys required
+-- for PostgreSQL to enforce organization tenancy across joins, and do so idempotently.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'prodx_users_id_organization_unique'
+  ) THEN
+    ALTER TABLE prodx_users
+      ADD CONSTRAINT prodx_users_id_organization_unique UNIQUE (id, organization_id);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'prodx_stores_id_organization_unique'
+  ) THEN
+    ALTER TABLE prodx_stores
+      ADD CONSTRAINT prodx_stores_id_organization_unique UNIQUE (id, organization_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS prodx_permissions (
   id UUID PRIMARY KEY,
