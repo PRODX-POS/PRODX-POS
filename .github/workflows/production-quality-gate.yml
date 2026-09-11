@@ -71,18 +71,21 @@ jobs:
           done
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0001_m0_foundation';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0002_m1_organization_store_foundation';
           SELECT 1 FROM prodx_migration_lock WHERE lock_id = 1;
           SELECT current_setting('TimeZone') AS session_timezone;
           SELECT (TIMESTAMPTZ '2026-01-01 00:00:00+00' AT TIME ZONE 'UTC') = TIMESTAMP '2026-01-01 00:00:00';
           SELECT (CAST(1234.56 AS NUMERIC(12,2)) = 1234.56);
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_stores_org_code_unique';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_stores_timezone_not_blank';
           SQL
-          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version = '0001_m0_foundation';")
+          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation');")
           for migration in "${migrations[@]}"; do
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
           done
-          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version = '0001_m0_foundation';")
+          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation');")
           test "$before" = "$after"
-          test "$after" = "1"
+          test "$after" = "2"
 
       - name: Theme validation
         run: bun run theme:validate
