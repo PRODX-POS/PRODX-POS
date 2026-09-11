@@ -1,5 +1,15 @@
 export { AICoreService, createAIProviderRegistry } from './core';
 export type { AICorePolicy, AICoreRequest, AIProviderRegistry } from './core';
+export { AIGatewayService, redactSensitiveContent } from './gateway';
+export type {
+  AIAuthorizer,
+  AIAuditEvent,
+  AIAuditor,
+  AIGatewayPolicy,
+  AIGatewayRequest,
+  AIProviderRegistry as AIGatewayProviderRegistry,
+  AIScope,
+} from './gateway';
 export { AIBackendBoundary, AIAuthorizationError } from './backend-boundary';
 export type { AIBackendPrincipal, AIBackendRequest, AIBackendPolicy } from './backend-boundary';
 export { createAIHttpAdapter } from './http-contract';
