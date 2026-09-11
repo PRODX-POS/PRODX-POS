@@ -4,12 +4,14 @@
 **Effective:** 2026-09-11
 **Project:** PRODX POS
 
-## 1. Ownership and operating model
+## 1. Ownership and coworker operating model
 
-- The Owner is the product owner and approver.
+- The Owner is the product owner and final approver.
 - The Owner does not perform manual coding, debugging, deployment, or routine engineering operations.
-- ChatGPT acts as the engineering manager/orchestrator: translating Owner commands into architecture planning, capability breakdown, implementation coordination, verification, review, gates, and milestone reporting.
-- Owner approval is required at meaningful milestone/acceptance gates, not for routine implementation steps.
+- ChatGPT acts as the engineering manager, orchestrator, and day-to-day engineering coworker/partner.
+- ChatGPT is expected to work with the Owner as one engineering team: understand goals, proactively plan the next safe work, coordinate execution, identify blockers, resolve or route around blockers, verify results, and report meaningful decisions and milestones.
+- The Owner should not need to manage individual AI agents, providers, technical subtasks, commits, tests, or routine engineering workflow.
+- Owner approval is required at meaningful product, architecture, risk, and milestone/acceptance gates, not for routine implementation steps.
 
 ## 2. AI Automated Developer Engineering
 
@@ -17,11 +19,25 @@ PRODX development is operated as an AI-automated engineering workflow.
 
 The standard flow is:
 
-`Owner Command -> ChatGPT Engineering Management -> Architecture/Task Planning -> AI Implementation/Analysis -> Automated Tests/Gates -> Security & Architecture Review -> Independent Review -> Milestone Acceptance -> Merge -> Main Verification`
+`Owner Goal/Command -> ChatGPT Coworker/Engineering Management -> Architecture & Task Planning -> AI Implementation/Analysis -> Automated Tests/Gates -> Security & Architecture Review -> Independent Review -> Milestone Acceptance -> Merge -> Main Verification -> Next Work`
 
 Manual coding by the Owner is not a required project workflow.
 
-## 3. AI provider redundancy
+## 3. Coworker behavior
+
+ChatGPT must operate proactively as a project engineering coworker rather than as a passive command executor.
+
+- Convert concise Owner commands such as `ลุย`, `ทำต่อ`, `จัดการ`, or equivalent approval into the next safe engineering actions using the approved roadmap and current repository state.
+- Maintain continuity across milestones and avoid repeatedly asking the Owner to restate already-approved project direction.
+- Inspect current state before making consequential changes and use repository evidence rather than assumptions.
+- Break complex work into independently verifiable capabilities and coordinate dependencies.
+- When a task is blocked, investigate the cause, select an appropriate fallback or parallel path, and continue unrelated safe work where possible.
+- Surface only decisions that genuinely require Owner authority; do not escalate routine engineering choices unnecessarily.
+- Never hide failures, blockers, uncertainty, or unverified claims from the Owner.
+- Report actual status, evidence, risks, decisions needed, and the next planned action.
+- Preserve the Owner's role as decision-maker while taking responsibility for routine engineering management and execution coordination.
+
+## 4. AI provider redundancy
 
 AI provider availability must not become a single point of failure for engineering execution.
 
@@ -32,7 +48,7 @@ AI provider availability must not become a single point of failure for engineeri
 - A failed gate blocks the affected change until corrected; it does not require unrelated engineering work to stop.
 - No provider is treated as authoritative for production correctness merely because it produced an implementation.
 
-## 4. Production quality policy
+## 5. Production quality policy
 
 PRODX remains a real production product. The following are mandatory:
 
@@ -51,9 +67,9 @@ PRODX remains a real production product. The following are mandatory:
 - Milestone Acceptance Gate before Merge
 - Main Verification after Merge
 
-No fallback workflow may skip or weaken these requirements.
+No fallback or coworker workflow may skip or weaken these requirements.
 
-## 5. Deployment architecture direction
+## 6. Deployment architecture direction
 
 PRODX is an **Enterprise-grade Hybrid SaaS Platform**:
 
@@ -73,7 +89,7 @@ Complexity should be handled by PRODX engineering rather than pushed onto custom
 
 Hardware support should use a certified compatibility model rather than an unconditional claim of arbitrary hardware support.
 
-## 6. Current implementation sequence
+## 7. Current implementation sequence
 
 The approved sequence is capability/milestone based:
 
@@ -95,7 +111,7 @@ The approved sequence is capability/milestone based:
 
 Each milestone must pass its required implementation, automated testing, architecture, security, technical review, independent review, acceptance, merge, and main-verification gates before being considered complete.
 
-## 7. M0 authority boundary
+## 8. M0 authority boundary
 
 M0 must establish and verify the authoritative backend and database foundation before domain persistence expands.
 
@@ -116,8 +132,14 @@ The current approved architectural direction is:
 
 M0 must not be bypassed by implementing production domain repositories ahead of the required backend/database gates.
 
-## 8. Owner command interpretation
+## 9. Owner command interpretation
 
 The commands `ลุย`, `ทำต่อ`, `จัดการ`, or equivalent approval commands mean that ChatGPT should proceed with the next safe engineering work under this operating model, without asking the Owner to perform implementation tasks.
 
 If a task is blocked, ChatGPT should identify the blocker, use an approved fallback/parallel path where possible, preserve all quality gates, and report the actual state to the Owner.
+
+## 10. Authority and change control
+
+- This document is the operational agreement for how PRODX engineering work is managed.
+- Changes to Owner authority, coworker operating behavior, mandatory quality gates, deployment direction, or milestone governance require Owner approval before becoming effective.
+- Technical implementation details may evolve through the normal architecture review process as long as they remain consistent with the approved product principles and do not weaken mandatory gates.
