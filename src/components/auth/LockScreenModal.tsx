@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { Lock, ShieldAlert, Delete, LogOut, ArrowRight, UserCheck } from 'lucide-react';
+import { Lock, ShieldAlert, Delete, LogOut, ArrowRight } from 'lucide-react';
 import { ProdxLogo } from '../common/ProdxLogo';
 import { getZIndexClass } from '../../utils/ZIndexManager';
 
@@ -53,8 +53,8 @@ export const LockScreenModal: React.FC = () => {
       } else {
         setErrorMsg(
           language === 'th'
-            ? 'รหัสไม่ถูกต้อง (ลองใช้ PIN เริ่มต้น: 1234 หรือ EMP-108)'
-            : 'Invalid PIN or Code (Try default PIN: 1234 or EMP-108)'
+            ? 'รหัสไม่ถูกต้อง กรุณาตรวจสอบข้อมูลรับรองของผู้ใช้งาน'
+            : 'Invalid credentials. Please verify your user credentials.'
         );
       }
     } catch {
@@ -67,12 +67,10 @@ export const LockScreenModal: React.FC = () => {
   return createPortal(
     <div className={`fixed inset-0 ${getZIndexClass('modal')} flex items-center justify-center p-4 select-none animate-in fade-in duration-200 bg-slate-950/70 backdrop-blur-sm`}>
       <div className="relative z-10 w-full max-w-md rounded-lg bg-card border border-border border-crisp shadow-xl p-6 sm:p-7 flex flex-col items-center text-center">
-        {/* Top Lock Badge */}
         <div className="w-12 h-12 rounded-lg bg-blue-50 dark:bg-blue-950/60 border border-blue-200/60 dark:border-blue-800/60 text-blue-600 dark:text-blue-400 flex items-center justify-center shadow-xs mb-3.5">
           <Lock className="h-6 w-6" />
         </div>
 
-        {/* Brand & Title */}
         <div className="mb-2">
           <ProdxLogo variant="horizontal" size="sm" showTagline={false} />
         </div>
@@ -81,11 +79,10 @@ export const LockScreenModal: React.FC = () => {
         </h2>
         <p className="text-xs text-text/60 mt-1 max-w-xs leading-relaxed">
           {language === 'th'
-            ? 'เนื่องจากไม่มีการใช้งานระบบตามเวลาที่กำหนด กรุณากรอกรหัสเพื่อปลดล็อก'
-            : 'Terminal locked due to inactivity timeout. Enter your PIN or Employee Code to resume.'}
+            ? 'เนื่องจากไม่มีการใช้งานระบบตามเวลาที่กำหนด กรุณายืนยันตัวตนเพื่อปลดล็อก'
+            : 'Terminal locked due to inactivity timeout. Verify your credentials to resume.'}
         </p>
 
-        {/* Current User Info */}
         <div className="my-4 w-full p-3 rounded-lg bg-slate-50/80 dark:bg-slate-900/60 border border-border border-crisp flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-blue-100/60 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold text-sm shrink-0 border border-blue-200/50 dark:border-blue-800/50">
             {session.currentUser.name.charAt(0)}
@@ -106,10 +103,9 @@ export const LockScreenModal: React.FC = () => {
           </div>
         </div>
 
-        {/* PIN Input Indicator */}
         <div className="w-full mb-3.5">
           <div className="flex items-center justify-center gap-3 h-11 rounded-lg bg-background/80 border border-border border-crisp px-4 font-mono text-xl tracking-widest text-text">
-            {pinInput ? pinInput.replace(/./g, '•') : <span className="text-xs text-text/50 tracking-normal font-sans">{language === 'th' ? 'กรอกรหัส PIN (เช่น 1234)' : 'Enter PIN (e.g. 1234)'}</span>}
+            {pinInput ? pinInput.replace(/./g, '•') : <span className="text-xs text-text/50 tracking-normal font-sans">{language === 'th' ? 'กรอกรหัสเพื่อปลดล็อก' : 'Enter credentials to unlock'}</span>}
           </div>
           {errorMsg && (
             <div className="mt-2 text-xs font-medium text-rose-500 dark:text-rose-400 flex items-center justify-center gap-1">
@@ -119,7 +115,6 @@ export const LockScreenModal: React.FC = () => {
           )}
         </div>
 
-        {/* PIN Keypad */}
         <div className="grid grid-cols-3 gap-2 w-full mb-4">
           {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', 'DEL'].map((btn) => (
             <button
@@ -137,7 +132,6 @@ export const LockScreenModal: React.FC = () => {
           ))}
         </div>
 
-        {/* Unlock Action Button */}
         <div className="w-full flex flex-col gap-2">
           <button
             type="button"
