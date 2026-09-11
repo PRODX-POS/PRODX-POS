@@ -9,14 +9,22 @@ const context: RequestContext = {
 };
 
 const snapshot = {
+  userId: 'user-1',
   organizationId: 'org-1',
   storeId: 'store-1',
   permissions: new Set(['catalog:read']),
 };
 
-test('allows only an exact scoped permission', () => {
+test('allows only an exact user and tenant scoped permission', () => {
   assert.deepEqual(decidePermission(context, 'catalog:read', snapshot), { allowed: true });
   assert.equal(hasPermission(context, 'catalog:read', snapshot), true);
+});
+
+test('denies permissions belonging to another user', () => {
+  assert.deepEqual(
+    decidePermission(context, 'catalog:read', { ...snapshot, userId: 'user-2' }),
+    { allowed: false, reason: 'user_scope_mismatch' },
+  );
 });
 
 test('denies permissions outside the organization scope', () => {
@@ -33,8 +41,12 @@ test('denies permissions outside the store scope', () => {
   );
 });
 
-test('denies missing permissions and does not use wildcard grants', () => {
+test('denies missing, blank, and wildcard permissions', () => {
   assert.deepEqual(decidePermission(context, 'catalog:write', snapshot), {
+    allowed: false,
+    reason: 'permission_missing',
+  });
+  assert.deepEqual(decidePermission(context, '   ', snapshot), {
     allowed: false,
     reason: 'permission_missing',
   });
