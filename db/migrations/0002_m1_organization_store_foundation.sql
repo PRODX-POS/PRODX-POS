@@ -31,3 +31,7 @@ CREATE INDEX IF NOT EXISTS prodx_stores_organization_id_idx
 
 CREATE INDEX IF NOT EXISTS prodx_stores_organization_active_idx
   ON prodx_stores (organization_id, active);
+
+INSERT INTO prodx_schema_migrations (version)
+VALUES ('0002_m1_organization_store_foundation')
+ON CONFLICT (version) DO NOTHING;
