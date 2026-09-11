@@ -41,9 +41,13 @@ test('rejects requests when backend authentication does not produce a verified p
 });
 
 test('attaches verified principal and correlation id before application routes', async () => {
-  const app = createApp({ authenticateRequest: () => principal });
-  app.get('/api/v1/context', (request, response) => {
-    response.json(request.prodxContext);
+  const app = createApp({
+    authenticateRequest: () => principal,
+    configureRoutes: (configuredApp) => {
+      configuredApp.get('/api/v1/context', (request, response) => {
+        response.json(request.prodxContext);
+      });
+    },
   });
   const server = await start(app);
 
@@ -72,9 +76,11 @@ test('authorization is explicit and evaluated after authentication', async () =>
       seenPermission = permission;
       return permission === 'catalog:read';
     },
-  });
-  app.get('/api/v1/protected', requirePermission('catalog:read'), (_request, response) => {
-    response.json({ ok: true });
+    configureRoutes: (configuredApp) => {
+      configuredApp.get('/api/v1/protected', requirePermission('catalog:read'), (_request, response) => {
+        response.json({ ok: true });
+      });
+    },
   });
   const server = await start(app);
 
@@ -90,9 +96,11 @@ test('authorization is explicit and evaluated after authentication', async () =>
     const deniedApp = createApp({
       authenticateRequest: () => principal,
       authorizeRequest: () => false,
-    });
-    deniedApp.get('/api/v1/protected', requirePermission('catalog:write'), (_request, response) => {
-      response.json({ ok: true });
+      configureRoutes: (configuredApp) => {
+        configuredApp.get('/api/v1/protected', requirePermission('catalog:write'), (_request, response) => {
+          response.json({ ok: true });
+        });
+      },
     });
     const deniedServer = await start(deniedApp);
     try {
