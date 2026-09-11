@@ -20,7 +20,13 @@ test('OpenAI provider calls Responses API without exposing the API key', async (
     return jsonResponse({
       id: 'resp_test',
       model: 'gpt-5.6-luna',
-      output: [],
+      output: [
+        {
+          type: 'message',
+          role: 'assistant',
+          content: [{ type: 'output_text', text: 'Sales are up 12%.' }],
+        },
+      ],
       usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 },
     });
   };
@@ -45,6 +51,13 @@ test('OpenAI provider calls Responses API without exposing the API key', async (
       completion_tokens: 4,
       total_tokens: 14,
     });
+    assert.deepEqual(result.choices, [
+      {
+        index: 0,
+        message: { role: 'assistant', content: 'Sales are up 12%.' },
+        finish_reason: 'stop',
+      },
+    ]);
 
     const headers = capturedInit?.headers as Record<string, string>;
     assert.equal(headers.Authorization, 'Bearer test-secret');
