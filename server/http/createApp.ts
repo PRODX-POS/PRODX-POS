@@ -20,6 +20,7 @@ declare global {
 export type BackendBoundaryOptions = {
   authenticateRequest: AuthenticateRequest;
   authorizeRequest?: AuthorizeRequest;
+  configureRoutes?: (app: express.Express) => void;
 };
 
 const sendError = (
@@ -102,6 +103,8 @@ export const createApp = (options: BackendBoundaryOptions) => {
   app.get('/api/v1/health', (_request, response) => {
     response.json({ status: 'ok' });
   });
+
+  options.configureRoutes?.(app);
 
   app.use((_request, response) => {
     sendError(response, 404, 'NOT_FOUND', 'Route not found.', response.getHeader('x-request-id')?.toString() ?? 'unknown');
