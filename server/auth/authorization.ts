@@ -1,6 +1,7 @@
 import type { RequestContext } from '../http/types';
 
 export type AuthorizationSnapshot = {
+  userId: string;
   organizationId: string;
   storeId: string;
   permissions: ReadonlySet<string>;
@@ -8,7 +9,14 @@ export type AuthorizationSnapshot = {
 
 export type AuthorizationDecision =
   | { allowed: true }
-  | { allowed: false; reason: 'organization_scope_mismatch' | 'store_scope_mismatch' | 'permission_missing' };
+  | {
+      allowed: false;
+      reason:
+        | 'user_scope_mismatch'
+        | 'organization_scope_mismatch'
+        | 'store_scope_mismatch'
+        | 'permission_missing';
+    };
 
 /**
  * Deterministic authorization policy. Persistence is deliberately supplied by the caller;
@@ -19,6 +27,10 @@ export const decidePermission = (
   permission: string,
   snapshot: AuthorizationSnapshot,
 ): AuthorizationDecision => {
+  if (snapshot.userId !== context.principal.userId) {
+    return { allowed: false, reason: 'user_scope_mismatch' };
+  }
+
   if (snapshot.organizationId !== context.principal.organizationId) {
     return { allowed: false, reason: 'organization_scope_mismatch' };
   }
@@ -27,7 +39,7 @@ export const decidePermission = (
     return { allowed: false, reason: 'store_scope_mismatch' };
   }
 
-  if (!snapshot.permissions.has(permission)) {
+  if (!permission.trim() || !snapshot.permissions.has(permission)) {
     return { allowed: false, reason: 'permission_missing' };
   }
 
