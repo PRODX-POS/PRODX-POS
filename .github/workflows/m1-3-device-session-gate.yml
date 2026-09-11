@@ -50,7 +50,7 @@ jobs:
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_sessions_user_org_fk';
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_sessions_device_org_fk';
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_sessions_expiry_after_issue';
-          SELECT indexrelname FROM pg_indexes WHERE indexname = 'prodx_sessions_token_hash_unique';
+          SELECT indexname FROM pg_indexes WHERE indexname = 'prodx_sessions_token_hash_unique';
           INSERT INTO prodx_organizations (id, code, name) VALUES
             ('00000000-0000-0000-0000-000000000101', 'm13-a', 'M13 A'),
             ('00000000-0000-0000-0000-000000000102', 'm13-b', 'M13 B');
