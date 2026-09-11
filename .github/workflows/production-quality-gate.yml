@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   quality-gate:
-    name: Typecheck, build & theme validation
+    name: Typecheck, server tests, build & theme validation
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -31,8 +31,14 @@ jobs:
       - name: Install dependencies from lockfile
         run: bun install --frozen-lockfile
 
-      - name: Type check
+      - name: Type check frontend
         run: bun run lint
+
+      - name: Type check backend
+        run: bun run server:check
+
+      - name: Backend boundary tests
+        run: bun run server:test
 
       - name: Theme validation
         run: bun run theme:validate
