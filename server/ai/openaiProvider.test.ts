@@ -33,7 +33,7 @@ test('OpenAI provider calls Responses API without exposing the API key', async (
     });
 
     const result = await provider.chat({
-      messages: [{ role: 'user', content: 'Summarize today's sales.' }],
+      messages: [{ role: 'user', content: "Summarize today's sales." }],
       max_tokens: 200,
     });
 
