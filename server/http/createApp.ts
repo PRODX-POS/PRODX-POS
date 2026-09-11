@@ -11,6 +11,7 @@ import type {
 declare global {
   namespace Express {
     interface Request {
+      id: string;
       prodxContext?: RequestContext;
     }
   }
@@ -107,8 +108,10 @@ export const createApp = (options: BackendBoundaryOptions) => {
   });
 
   app.use((error: unknown, request: Request, response: Response, _next: NextFunction) => {
-    const id = request.id;
-    sendError(response, 500, 'INTERNAL_ERROR', 'An unexpected server error occurred.', id, process.env.NODE_ENV === 'production' ? undefined : error instanceof Error ? error.message : error);
+    const details = process.env.NODE_ENV === 'production'
+      ? undefined
+      : error instanceof Error ? error.message : error;
+    sendError(response, 500, 'INTERNAL_ERROR', 'An unexpected server error occurred.', request.id, details);
   });
 
   return app;
