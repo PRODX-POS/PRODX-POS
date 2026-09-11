@@ -1,9 +1,10 @@
 # ADR-001 — Database & Backend Foundation Decision Gate
 
-- **Status:** Proposed
+- **Status:** Accepted by Owner
 - **Date:** 2026-09-09
+- **Accepted:** 2026-09-11
 - **Scope:** Production backend and persistence foundation for PRODX POS
-- **Gate:** Database Decision Gate (must be accepted before persistence implementation)
+- **Gate:** Database Decision Gate (accepted before persistence implementation)
 
 ## Context
 
@@ -13,7 +14,7 @@ The repository does not currently contain a verified PostgreSQL persistence laye
 
 ## Decision
 
-The production foundation is defined as follows, subject to acceptance of this ADR:
+The production foundation is defined as follows:
 
 1. **Authoritative backend:** Node.js + TypeScript backend, using NestJS or an equivalent modular HTTP framework that preserves strict domain/application/infrastructure boundaries.
 2. **Primary database:** PostgreSQL for authoritative transactional state.
@@ -56,9 +57,11 @@ Must establish PostgreSQL connectivity, migration tooling, transaction boundary,
 
 Only after A and B pass may repositories and transactional use cases for catalog, inventory, sales, payments, shifts, voids, and refunds be implemented capability-by-capability.
 
-## Acceptance criteria
+## Acceptance record
 
-This decision gate is accepted only when reviewers agree that:
+Owner accepted this architectural direction on 2026-09-11. Acceptance authorizes implementation of M0 Gate A and Gate B only. It does not pre-approve domain persistence, authentication/RBAC, concrete business schemas beyond the M0 foundation, Redis, deployment, or hardware integration.
+
+Acceptance criteria for the decision gate:
 
 - the backend is the sole authoritative API boundary;
 - PostgreSQL is the authoritative transactional store;
@@ -73,7 +76,7 @@ This decision gate is accepted only when reviewers agree that:
 
 ## Rejection / rollback condition
 
-If implementation begins before this ADR is accepted, the database/backend work must be stopped and returned to the decision gate. Passing frontend or AI checks does not authorize persistence implementation.
+If implementation violates the approved boundaries or begins domain persistence before Gate A and Gate B are verified, the affected work must be stopped and returned to the relevant gate. Passing frontend or AI checks does not authorize persistence implementation.
 
 ## Evidence from current repository
 
