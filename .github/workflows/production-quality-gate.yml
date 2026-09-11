@@ -73,6 +73,7 @@ jobs:
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0001_m0_foundation';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0002_m1_organization_store_foundation';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0003_m1_1_auth_identity';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0004_m1_2_rbac';
           SELECT 1 FROM prodx_migration_lock WHERE lock_id = 1;
           SELECT current_setting('TimeZone') AS session_timezone;
           SELECT (TIMESTAMPTZ '2026-01-01 00:00:00+00' AT TIME ZONE 'UTC') = TIMESTAMP '2026-01-01 00:00:00';
@@ -81,21 +82,43 @@ jobs:
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_stores_timezone_not_blank';
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_users_org_username_unique';
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_user_credentials_hash_not_blank';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_roles_id_organization_unique';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_store_memberships_store_org_fk';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_user_roles_store_membership_fk';
+          SELECT count(*) = 15 FROM prodx_permissions;
           SQL
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
           INSERT INTO prodx_organizations (id, code, name)
-          VALUES ('00000000-0000-0000-0000-000000000001', 'ci-org', 'CI Organization');
+          VALUES
+            ('00000000-0000-0000-0000-000000000001', 'ci-org', 'CI Organization'),
+            ('00000000-0000-0000-0000-000000000002', 'ci-org-2', 'CI Organization 2');
+          INSERT INTO prodx_stores (id, organization_id, code, name, business_timezone)
+          VALUES
+            ('00000000-0000-0000-0000-000000000021', '00000000-0000-0000-0000-000000000001', 'ci-store', 'CI Store', 'Asia/Bangkok'),
+            ('00000000-0000-0000-0000-000000000022', '00000000-0000-0000-0000-000000000002', 'ci-store-2', 'CI Store 2', 'Asia/Bangkok');
           INSERT INTO prodx_users (id, organization_id, username, display_name)
-          VALUES ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000001', 'ci-user', 'CI User');
+          VALUES
+            ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000001', 'ci-user', 'CI User'),
+            ('00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-000000000002', 'ci-user-2', 'CI User 2');
           INSERT INTO prodx_user_credentials (user_id, credential_type, secret_hash)
           VALUES ('00000000-0000-0000-0000-000000000011', 'password', 'test-hash');
+          INSERT INTO prodx_roles (id, organization_id, role_key, name)
+          VALUES
+            ('00000000-0000-0000-0000-000000000031', '00000000-0000-0000-0000-000000000001', 'cashier', 'Cashier'),
+            ('00000000-0000-0000-0000-000000000032', '00000000-0000-0000-0000-000000000002', 'cashier', 'Cashier');
+          INSERT INTO prodx_store_memberships (organization_id, store_id, user_id)
+          VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000021', '00000000-0000-0000-0000-000000000011');
+          INSERT INTO prodx_user_roles (organization_id, user_id, role_id, store_id)
+          VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000031', '00000000-0000-0000-0000-000000000021');
+          INSERT INTO prodx_role_permissions (organization_id, role_id, permission_id)
+          VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000031', '10000000-0000-4000-8000-000000000006');
           SQL
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           BEGIN
             BEGIN
               INSERT INTO prodx_users (id, organization_id, username, display_name)
-              VALUES ('00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-000000000001', 'ci-user', 'Duplicate User');
+              VALUES ('00000000-0000-0000-0000-000000000013', '00000000-0000-0000-0000-000000000001', 'ci-user', 'Duplicate User');
               RAISE EXCEPTION 'expected organization username uniqueness violation';
             EXCEPTION WHEN unique_violation THEN
               NULL;
@@ -108,15 +131,31 @@ jobs:
             EXCEPTION WHEN check_violation THEN
               NULL;
             END;
+
+            BEGIN
+              INSERT INTO prodx_store_memberships (organization_id, store_id, user_id)
+              VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000022', '00000000-0000-0000-0000-000000000011');
+              RAISE EXCEPTION 'expected store organization isolation violation';
+            EXCEPTION WHEN foreign_key_violation THEN
+              NULL;
+            END;
+
+            BEGIN
+              INSERT INTO prodx_user_roles (organization_id, user_id, role_id, store_id)
+              VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000032', '00000000-0000-0000-0000-000000000021');
+              RAISE EXCEPTION 'expected role organization isolation violation';
+            EXCEPTION WHEN foreign_key_violation THEN
+              NULL;
+            END;
           END $$;
           SQL
-          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity');")
+          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity', '0004_m1_2_rbac');")
           for migration in "${migrations[@]}"; do
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
           done
-          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity');")
+          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity', '0004_m1_2_rbac');")
           test "$before" = "$after"
-          test "$after" = "3"
+          test "$after" = "4"
 
       - name: Theme validation
         run: bun run theme:validate
