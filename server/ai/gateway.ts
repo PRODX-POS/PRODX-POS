@@ -188,11 +188,8 @@ function buildProviderMessages(messages: readonly AIMessage[]): readonly AIMessa
   return [
     policy,
     ...messages.map((message) => ({
-      role: message.role,
-      content:
-        message.role === 'system'
-          ? message.content
-          : `[UNTRUSTED_USER_OR_BUSINESS_CONTEXT]\n${redactSensitiveContent(message.content)}\n[/UNTRUSTED_USER_OR_BUSINESS_CONTEXT]`,
+      role: 'user' as const,
+      content: `[UNTRUSTED_USER_OR_BUSINESS_CONTEXT]\n${redactSensitiveContent(message.content)}\n[/UNTRUSTED_USER_OR_BUSINESS_CONTEXT]`,
     })),
   ];
 }
