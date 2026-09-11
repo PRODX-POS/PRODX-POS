@@ -4,9 +4,7 @@
 -- No sessions, devices, business transactions, or authentication secrets belong here.
 
 -- Composite uniqueness keys let foreign keys enforce organization tenancy across joins.
-ALTER TABLE prodx_organizations
-  ADD CONSTRAINT prodx_organizations_id_id_unique UNIQUE (id);
-
+-- Organization.id is already a primary key and needs no redundant unique constraint.
 ALTER TABLE prodx_users
   ADD CONSTRAINT prodx_users_id_organization_unique UNIQUE (id, organization_id);
 
@@ -78,7 +76,7 @@ CREATE TABLE IF NOT EXISTS prodx_user_roles (
   organization_id UUID NOT NULL REFERENCES prodx_organizations(id) ON DELETE RESTRICT,
   user_id UUID NOT NULL,
   role_id UUID NOT NULL,
-  store_id UUID,
+  store_id UUID NOT NULL,
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (organization_id, user_id, role_id, store_id),
@@ -97,9 +95,7 @@ CREATE TABLE IF NOT EXISTS prodx_user_roles (
   CONSTRAINT prodx_user_roles_store_membership_fk
     FOREIGN KEY (organization_id, store_id, user_id)
     REFERENCES prodx_store_memberships(organization_id, store_id, user_id)
-    ON DELETE RESTRICT,
-  CONSTRAINT prodx_user_roles_scope_valid
-    CHECK (store_id IS NOT NULL)
+    ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS prodx_user_roles_user_scope_idx
