@@ -1,0 +1,96 @@
+name: M1.3 Device Session Gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  device-session:
+    name: PostgreSQL device/session invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: prodx
+          POSTGRES_PASSWORD: prodx
+          POSTGRES_DB: prodx_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prodx -d prodx_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Apply all migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          for migration in db/migrations/*.sql; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - name: Verify M1.3 schema and tenancy
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0005_m1_3_device_session';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_devices_store_org_fk';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_sessions_user_org_fk';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_sessions_device_org_fk';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_sessions_expiry_after_issue';
+          SELECT indexrelname FROM pg_indexes WHERE indexname = 'prodx_sessions_token_hash_unique';
+          INSERT INTO prodx_organizations (id, code, name) VALUES
+            ('00000000-0000-0000-0000-000000000101', 'm13-a', 'M13 A'),
+            ('00000000-0000-0000-0000-000000000102', 'm13-b', 'M13 B');
+          INSERT INTO prodx_stores (id, organization_id, code, name, business_timezone) VALUES
+            ('00000000-0000-0000-0000-000000000111', '00000000-0000-0000-0000-000000000101', 'store-a', 'Store A', 'Asia/Bangkok'),
+            ('00000000-0000-0000-0000-000000000112', '00000000-0000-0000-0000-000000000102', 'store-b', 'Store B', 'Asia/Bangkok');
+          INSERT INTO prodx_users (id, organization_id, username, display_name) VALUES
+            ('00000000-0000-0000-0000-000000000121', '00000000-0000-0000-0000-000000000101', 'user-a', 'User A'),
+            ('00000000-0000-0000-0000-000000000122', '00000000-0000-0000-0000-000000000102', 'user-b', 'User B');
+          INSERT INTO prodx_devices (id, organization_id, store_id, device_key, name) VALUES
+            ('00000000-0000-0000-0000-000000000131', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000111', 'terminal-a', 'Terminal A');
+          INSERT INTO prodx_sessions (id, organization_id, user_id, device_id, token_hash, issued_at, expires_at) VALUES
+            ('00000000-0000-0000-0000-000000000141', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000121', '00000000-0000-0000-0000-000000000131', 'hash-a', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '1 hour');
+          DO $$
+          BEGIN
+            BEGIN
+              INSERT INTO prodx_devices (id, organization_id, store_id, device_key, name)
+              VALUES ('00000000-0000-0000-0000-000000000132', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000112', 'terminal-cross', 'Cross Tenant');
+              RAISE EXCEPTION 'expected device store tenancy violation';
+            EXCEPTION WHEN foreign_key_violation THEN NULL;
+            END;
+            BEGIN
+              INSERT INTO prodx_sessions (id, organization_id, user_id, device_id, token_hash, issued_at, expires_at)
+              VALUES ('00000000-0000-0000-0000-000000000142', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000122', '00000000-0000-0000-0000-000000000131', 'hash-cross', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '1 hour');
+              RAISE EXCEPTION 'expected session user tenancy violation';
+            EXCEPTION WHEN foreign_key_violation THEN NULL;
+            END;
+            BEGIN
+              INSERT INTO prodx_sessions (id, organization_id, user_id, device_id, token_hash, issued_at, expires_at)
+              VALUES ('00000000-0000-0000-0000-000000000143', '00000000-0000-0000-0000-000000000101', '00000000-0000-0000-0000-000000000121', '00000000-0000-0000-0000-000000000131', 'hash-expired', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP - INTERVAL '1 minute');
+              RAISE EXCEPTION 'expected session expiry constraint violation';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+          END $$;
+          SQL
+      - name: Verify migration idempotency
+        shell: bash
+        run: |
+          set -euo pipefail
+          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations")
+          for migration in db/migrations/*.sql; do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null; done
+          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations")
+          test "$before" = "$after"
