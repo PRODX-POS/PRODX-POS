@@ -72,20 +72,51 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0001_m0_foundation';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0002_m1_organization_store_foundation';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0003_m1_1_auth_identity';
           SELECT 1 FROM prodx_migration_lock WHERE lock_id = 1;
           SELECT current_setting('TimeZone') AS session_timezone;
           SELECT (TIMESTAMPTZ '2026-01-01 00:00:00+00' AT TIME ZONE 'UTC') = TIMESTAMP '2026-01-01 00:00:00';
           SELECT (CAST(1234.56 AS NUMERIC(12,2)) = 1234.56);
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_stores_org_code_unique';
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_stores_timezone_not_blank';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_users_org_username_unique';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_user_credentials_hash_not_blank';
           SQL
-          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation');")
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO prodx_organizations (id, code, name)
+          VALUES ('00000000-0000-0000-0000-000000000001', 'ci-org', 'CI Organization');
+          INSERT INTO prodx_users (id, organization_id, username, display_name)
+          VALUES ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000001', 'ci-user', 'CI User');
+          INSERT INTO prodx_user_credentials (user_id, credential_type, secret_hash)
+          VALUES ('00000000-0000-0000-0000-000000000011', 'password', 'test-hash');
+          SQL
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            BEGIN
+              INSERT INTO prodx_users (id, organization_id, username, display_name)
+              VALUES ('00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-000000000001', 'ci-user', 'Duplicate User');
+              RAISE EXCEPTION 'expected organization username uniqueness violation';
+            EXCEPTION WHEN unique_violation THEN
+              NULL;
+            END;
+
+            BEGIN
+              INSERT INTO prodx_user_credentials (user_id, credential_type, secret_hash)
+              VALUES ('00000000-0000-0000-0000-000000000011', 'password', '');
+              RAISE EXCEPTION 'expected credential hash constraint violation';
+            EXCEPTION WHEN check_violation THEN
+              NULL;
+            END;
+          END $$;
+          SQL
+          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity');")
           for migration in "${migrations[@]}"; do
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
           done
-          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation');")
+          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity');")
           test "$before" = "$after"
-          test "$after" = "2"
+          test "$after" = "3"
 
       - name: Theme validation
         run: bun run theme:validate
