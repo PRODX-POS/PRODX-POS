@@ -15,9 +15,26 @@ concurrency:
 
 jobs:
   quality-gate:
-    name: Typecheck, server tests, build & theme validation
+    name: Typecheck, backend, PostgreSQL, build & security validation
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: prodx
+          POSTGRES_PASSWORD: prodx
+          POSTGRES_DB: prodx_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prodx -d prodx_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_test
 
     steps:
       - name: Checkout
@@ -39,6 +56,33 @@ jobs:
 
       - name: Backend boundary tests
         run: bun run server:test
+
+      - name: PostgreSQL foundation and migration gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DATABASE_URL"
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'SELECT version();'
+          migrations=(db/migrations/*.sql)
+          test "${#migrations[@]}" -gt 0
+          for migration in "${migrations[@]}"; do
+            echo "Applying $migration"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0001_m0_foundation';
+          SELECT 1 FROM prodx_migration_lock WHERE lock_id = 1;
+          SELECT current_setting('TimeZone') AS session_timezone;
+          SELECT (TIMESTAMPTZ '2026-01-01 00:00:00+00' AT TIME ZONE 'UTC') = TIMESTAMP '2026-01-01 00:00:00';
+          SELECT (CAST(1234.56 AS NUMERIC(12,2)) = 1234.56);
+          SQL
+          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version = '0001_m0_foundation';")
+          for migration in "${migrations[@]}"; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
+          done
+          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version = '0001_m0_foundation';")
+          test "$before" = "$after"
+          test "$after" = "1"
 
       - name: Theme validation
         run: bun run theme:validate
