@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@1e60f620b9541dca3b0b7f7f4f4f3d4f3e8b7f4f
         with:
           node-version: 20
 
