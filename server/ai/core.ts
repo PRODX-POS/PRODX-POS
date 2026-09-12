@@ -51,7 +51,11 @@ export class AICoreService {
       max_tokens: request.max_tokens,
     };
 
-    return provider.chat(providerRequest);
+    const response = await provider.chat(providerRequest);
+    return {
+      ...response,
+      provider: provider.name,
+    };
   }
 
   private validate(request: AICoreRequest): void {
