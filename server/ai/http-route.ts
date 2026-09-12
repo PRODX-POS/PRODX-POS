@@ -1,8 +1,7 @@
 import type { Router } from 'express';
 import { requirePermission } from '../http/createApp';
 import type { RequestContext } from '../http/types';
-import { AIBackendBoundary, AIAuthorizationError } from './backend-boundary';
-import { createAIHttpAdapter } from './http-contract';
+import { AIGatewayService } from './gateway';
 import type { AIMessage, AIMessageRole } from './types';
 
 const DEFAULT_PERMISSION = 'ai:use';
@@ -17,12 +16,11 @@ type AIChatBody = {
 };
 
 export type AIHttpRouteOptions = {
-  readonly boundary: AIBackendBoundary;
+  readonly gateway: AIGatewayService;
   readonly permission?: string;
 };
 
 export function installAIHttpRoute(router: Router, options: AIHttpRouteOptions): void {
-  const adapter = createAIHttpAdapter();
   const permission = options.permission ?? DEFAULT_PERMISSION;
 
   router.post('/chat', requirePermission(permission), async (request, response, next) => {
@@ -34,10 +32,15 @@ export function installAIHttpRoute(router: Router, options: AIHttpRouteOptions):
       }
 
       const body = parseBody(request.body);
-      const result = await adapter.handle(
-        { body, principal: principalFromContext(context, permission) },
-        options.boundary,
-      );
+      const result = await options.gateway.chat({
+        requestId: request.id,
+        scope: context.principal,
+        permission,
+        messages: body.messages,
+        model: body.model,
+        temperature: body.temperature,
+        max_tokens: body.max_tokens,
+      });
 
       response.status(200).json({
         id: result.id,
@@ -48,10 +51,6 @@ export function installAIHttpRoute(router: Router, options: AIHttpRouteOptions):
         requestId: request.id,
       });
     } catch (error) {
-      if (error instanceof AIAuthorizationError) {
-        response.status(403).json({ error: { code: 'FORBIDDEN', message: 'AI capability is not authorized.', requestId: request.id } });
-        return;
-      }
       if (error instanceof AIRequestValidationError) {
         response.status(error.status).json({ error: { code: error.code, message: error.message, requestId: request.id } });
         return;
@@ -59,15 +58,6 @@ export function installAIHttpRoute(router: Router, options: AIHttpRouteOptions):
       next(error);
     }
   });
-}
-
-function principalFromContext(context: RequestContext, permission: string) {
-  return {
-    userId: context.principal.userId,
-    organizationId: context.principal.organizationId,
-    storeId: context.principal.storeId,
-    permissions: [permission],
-  } as const;
 }
 
 function parseBody(value: unknown): AIChatBody {
