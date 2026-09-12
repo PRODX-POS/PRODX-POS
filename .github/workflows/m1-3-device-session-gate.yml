@@ -32,7 +32,7 @@ jobs:
       DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_test
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Apply all migrations
         shell: bash
         run: |
