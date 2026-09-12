@@ -2,8 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { installAIHttpRoute } from './http-route';
-import { AIBackendBoundary } from './backend-boundary';
-import { AICoreService } from './core';
+import { AIGatewayService } from './gateway';
 import type { AIProvider } from './types';
 
 function makeApp(allowed: boolean) {
@@ -25,11 +24,17 @@ function makeApp(allowed: boolean) {
       return { model: request.model ?? 'test-model', choices: [{ message: { role: 'assistant', content: 'ok' } }], raw: { secret: 'must-not-leak' } };
     },
   };
-  const core = new AICoreService({ get: () => provider }, { allowedProviders: ['okmd'] });
-  const boundary = new AIBackendBoundary(core);
+  const audit: unknown[] = [];
+  const gateway = new AIGatewayService(
+    { get: () => provider },
+    { authorize: (_scope, permission) => allowed && permission === 'ai:use' },
+    { record: (event) => { audit.push(event); } },
+    { permission: 'ai:use' },
+  );
   const router = express.Router();
-  installAIHttpRoute(router, { boundary });
+  installAIHttpRoute(router, { gateway });
   app.use('/api/v1/ai', router);
+  app.locals.aiAudit = audit;
   return app;
 }
 
@@ -44,10 +49,11 @@ test('AI HTTP route rejects unauthorized requests before provider execution', as
     body: JSON.stringify({ messages: [{ role: 'user', content: 'hello' }] }),
   });
   assert.equal(response.status, 403);
+  assert.equal((app.locals.aiAudit as unknown[]).length, 0);
   server.close();
 });
 
-test('AI HTTP route never returns provider raw payload or trusts browser identity', async () => {
+test('AI HTTP route uses gateway authorization, audit, and never returns provider raw payload', async () => {
   const app = makeApp(true);
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
@@ -66,6 +72,13 @@ test('AI HTTP route never returns provider raw payload or trusts browser identit
   assert.equal(body.requestId, 'test-request');
   assert.equal(body.raw, undefined);
   assert.equal(body.provider, 'okmd');
+  const audit = app.locals.aiAudit as Array<Record<string, unknown>>;
+  assert.equal(audit.length, 1);
+  assert.equal(audit[0]?.allowed, true);
+  assert.equal(audit[0]?.userId, 'u1');
+  assert.equal(audit[0]?.organizationId, 'o1');
+  assert.equal(audit[0]?.storeId, 's1');
+  assert.equal(audit[0]?.permission, undefined);
   server.close();
 });
 
