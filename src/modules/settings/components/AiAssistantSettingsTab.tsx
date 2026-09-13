@@ -5,7 +5,8 @@ import { Button } from '../../../components/common/Button';
 import { Badge } from '../../../components/common/Badge';
 import { useToast } from '../../../context/ToastContext';
 import { useLanguage } from '../../../context/LanguageContext';
-import { aiService, AiConfig, DEFAULT_AI_CONFIG } from '../../../services/aiService';
+import { aiService, DEFAULT_AI_CONFIG } from '../../../services/aiService';
+import type { AiConfig } from '../../../services/aiService';
 
 export const AiAssistantSettingsTab: React.FC = () => {
   const { addToast } = useToast();
@@ -67,7 +68,7 @@ export const AiAssistantSettingsTab: React.FC = () => {
         title: isThai ? 'การเชื่อมต่อล้มเหลว' : 'Connection Failed',
         message,
         type: 'error',
-      });
+        });
     } finally {
       setIsTesting(false);
     }
