@@ -37,7 +37,7 @@ test('control plane converts a workload into a policy-approved gateway request',
   assert.deepEqual(calls[0], {
     requestId: 'req-ui-1',
     scope: { userId: 'u1', organizationId: 'o1', storeId: 's1' },
-    permission: 'ai:design',
+    permission: 'ai:use',
     provider: 'okmd',
     model: 'ui-vision',
     messages: [{ role: 'user', content: 'Review this POS layout.' }],
