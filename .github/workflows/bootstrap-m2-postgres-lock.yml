@@ -1,0 +1,38 @@
+name: Bootstrap M2 PostgreSQL lockfile
+
+on:
+  push:
+    branches: [feat/m2-auth-db-integration]
+    paths:
+      - package.json
+
+permissions:
+  contents: write
+
+jobs:
+  lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: latest
+      - name: Resolve lockfile
+        run: bun install
+      - name: Commit lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- bun.lock; then
+            echo 'bun.lock is already current.'
+            exit 0
+          fi
+          git config user.name 'PRODX-POS CI'
+          git config user.email 'prodx-pos-ci@users.noreply.github.com'
+          git add bun.lock
+          git commit -m 'chore(ci): sync bun lockfile for M2 PostgreSQL'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
