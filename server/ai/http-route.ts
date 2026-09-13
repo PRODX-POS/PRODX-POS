@@ -3,8 +3,8 @@ import { requirePermission } from '../http/createApp';
 import { AIGatewayRequestValidationError, AIGatewayService } from './gateway';
 import type { AIControlPlaneService } from './control-plane';
 import type { AIMessage, AIMessageRole } from './types';
-import { AI_TASKS } from './task-router';
-import type { AITask } from './task-router';
+import { AI_TASKS } from '../../shared/ai';
+import type { AITask } from '../../shared/ai';
 
 const DEFAULT_PERMISSION = 'ai:use';
 const MAX_BODY_BYTES = 64 * 1024;
