@@ -5,6 +5,7 @@ on:
     branches: [feat/m2-auth-db-integration]
     paths:
       - package.json
+      - .github/workflows/bootstrap-m2-postgres-lock.yml
 
 permissions:
   contents: write
