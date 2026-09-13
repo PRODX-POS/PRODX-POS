@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { CheckoutRequest, CheckoutResponse } from '../../src/adapters/types';
-import type { CartLineItem } from '../../src/domain/order';
+import type { CartLineItem, TenderPayment } from '../../src/domain/order';
 import type { SqlQueryExecutor, TransactionalSqlExecutor } from '../db/transaction';
 
 export class CheckoutValidationError extends Error {
@@ -38,6 +38,35 @@ type OrderRow = {
   total_items_count: number;
   created_at: Date;
   server_committed_at: Date;
+};
+
+type OrderItemRow = {
+  id: string;
+  product_id: string;
+  quantity: number;
+  unit_price_minor: string;
+  item_discount_bps: number;
+  line_subtotal_minor: string;
+  line_tax_minor: string;
+  line_total_minor: string;
+  currency: string;
+  product_store_id: string;
+  product_sku: string;
+  product_barcode: string;
+  product_name: string;
+};
+
+type PaymentRow = {
+  id: string;
+  method: TenderPayment['method'];
+  amount_minor: string;
+  tendered_cash_minor: string | null;
+  change_given_minor: string | null;
+  auth_code: string | null;
+  card_last_four: string | null;
+  terminal_reference: string | null;
+  currency: string;
+  created_at: Date;
 };
 
 type PaymentInput = CheckoutRequest['payments'][number];
@@ -142,35 +171,110 @@ const readOrder = async (db: SqlQueryExecutor, storeId: string, idempotencyKey: 
   return result.rows[0] ?? null;
 };
 
-const toResponse = (row: OrderRow, cached: boolean): CheckoutResponse => ({
-  success: true,
-  serverConfirmed: true,
-  idempotencyCached: cached,
-  message: cached ? 'Checkout already committed; returning the existing transaction.' : 'Checkout committed.',
-  order: {
-    id: row.id,
-    orderNumber: row.order_number,
-    idempotencyKey: row.idempotency_key,
-    storeId: row.store_id,
-    registerId: row.register_id,
-    cashierId: row.cashier_id,
-    cashierName: '',
-    items: [],
-    totals: {
-      grossSubtotal: { amountInCents: toSafeNumber(BigInt(row.gross_subtotal_minor), 'gross subtotal'), currency: row.currency },
-      itemDiscounts: { amountInCents: toSafeNumber(BigInt(row.item_discounts_minor), 'item discounts'), currency: row.currency },
-      orderDiscount: { amountInCents: toSafeNumber(BigInt(row.order_discount_minor), 'order discount'), currency: row.currency },
-      netSubtotal: { amountInCents: toSafeNumber(BigInt(row.net_subtotal_minor), 'net subtotal'), currency: row.currency },
-      totalTax: { amountInCents: toSafeNumber(BigInt(row.total_tax_minor), 'tax'), currency: row.currency },
-      grandTotal: { amountInCents: toSafeNumber(BigInt(row.grand_total_minor), 'grand total'), currency: row.currency },
-      totalItemsCount: row.total_items_count,
+const readOrderItems = async (db: SqlQueryExecutor, orderId: string, storeId: string): Promise<OrderItemRow[]> => {
+  const result = await db.query<OrderItemRow>(
+    `SELECT oi.id, oi.product_id, oi.quantity, oi.unit_price_minor::text AS unit_price_minor,
+            oi.item_discount_bps, oi.line_subtotal_minor::text AS line_subtotal_minor,
+            oi.line_tax_minor::text AS line_tax_minor, oi.line_total_minor::text AS line_total_minor,
+            oi.currency, p.store_id AS product_store_id, p.sku AS product_sku,
+            p.barcode AS product_barcode, p.name AS product_name
+       FROM prodx_order_items oi
+       JOIN prodx_products p ON p.id = oi.product_id AND p.store_id = oi.store_id
+      WHERE oi.order_id = $1 AND oi.store_id = $2
+      ORDER BY oi.id`,
+    [orderId, storeId],
+  );
+  return result.rows;
+};
+
+const readPayments = async (db: SqlQueryExecutor, orderId: string, storeId: string): Promise<PaymentRow[]> => {
+  const result = await db.query<PaymentRow>(
+    `SELECT id, method, amount_minor::text AS amount_minor,
+            tendered_cash_minor::text AS tendered_cash_minor,
+            change_given_minor::text AS change_given_minor, auth_code, card_last_four,
+            terminal_reference, currency, created_at
+       FROM prodx_payments
+      WHERE order_id = $1 AND store_id = $2
+      ORDER BY created_at, id`,
+    [orderId, storeId],
+  );
+  return result.rows;
+};
+
+const toResponse = async (db: SqlQueryExecutor, row: OrderRow, cached: boolean): Promise<CheckoutResponse> => {
+  const [itemRows, paymentRows] = await Promise.all([
+    readOrderItems(db, row.id, row.store_id),
+    readPayments(db, row.id, row.store_id),
+  ]);
+
+  const items: CartLineItem[] = itemRows.map((item) => ({
+    lineId: item.id,
+    product: {
+      id: item.product_id,
+      storeId: item.product_store_id,
+      sku: item.product_sku,
+      barcode: item.product_barcode,
+      name: item.product_name,
+      categoryId: '',
+      price: { amountInCents: toSafeNumber(BigInt(item.unit_price_minor), 'unit price'), currency: item.currency },
+      costPrice: { amountInCents: 0, currency: item.currency },
+      taxRateBps: 0,
+      currentStock: 0,
+      reorderPoint: 0,
+      unitOfMeasure: 'unit',
+      isAgeRestricted: false,
+      active: true,
     },
-    payments: [],
-    status: row.status,
-    serverCommittedAt: row.server_committed_at.toISOString(),
-    createdAt: row.created_at.toISOString(),
-  },
-});
+    quantity: item.quantity,
+    unitPrice: { amountInCents: toSafeNumber(BigInt(item.unit_price_minor), 'unit price'), currency: item.currency },
+    discountBps: item.item_discount_bps,
+    lineSubtotal: { amountInCents: toSafeNumber(BigInt(item.line_subtotal_minor), 'line subtotal'), currency: item.currency },
+    lineTax: { amountInCents: toSafeNumber(BigInt(item.line_tax_minor), 'line tax'), currency: item.currency },
+    lineTotal: { amountInCents: toSafeNumber(BigInt(item.line_total_minor), 'line total'), currency: item.currency },
+  }));
+
+  const payments: TenderPayment[] = paymentRows.map((payment) => ({
+    id: payment.id,
+    method: payment.method,
+    amount: { amountInCents: toSafeNumber(BigInt(payment.amount_minor), 'payment amount'), currency: payment.currency },
+    tenderedCash: payment.tendered_cash_minor === null ? undefined : { amountInCents: toSafeNumber(BigInt(payment.tendered_cash_minor), 'tendered cash'), currency: payment.currency },
+    changeGiven: payment.change_given_minor === null ? undefined : { amountInCents: toSafeNumber(BigInt(payment.change_given_minor), 'change given'), currency: payment.currency },
+    authCode: payment.auth_code ?? undefined,
+    cardLastFour: payment.card_last_four ?? undefined,
+    terminalReference: payment.terminal_reference ?? undefined,
+    timestamp: payment.created_at.toISOString(),
+  }));
+
+  return {
+    success: true,
+    serverConfirmed: true,
+    idempotencyCached: cached,
+    message: cached ? 'Checkout already committed; returning the existing transaction.' : 'Checkout committed.',
+    order: {
+      id: row.id,
+      orderNumber: row.order_number,
+      idempotencyKey: row.idempotency_key,
+      storeId: row.store_id,
+      registerId: row.register_id,
+      cashierId: row.cashier_id,
+      cashierName: '',
+      items,
+      totals: {
+        grossSubtotal: { amountInCents: toSafeNumber(BigInt(row.gross_subtotal_minor), 'gross subtotal'), currency: row.currency },
+        itemDiscounts: { amountInCents: toSafeNumber(BigInt(row.item_discounts_minor), 'item discounts'), currency: row.currency },
+        orderDiscount: { amountInCents: toSafeNumber(BigInt(row.order_discount_minor), 'order discount'), currency: row.currency },
+        netSubtotal: { amountInCents: toSafeNumber(BigInt(row.net_subtotal_minor), 'net subtotal'), currency: row.currency },
+        totalTax: { amountInCents: toSafeNumber(BigInt(row.total_tax_minor), 'tax'), currency: row.currency },
+        grandTotal: { amountInCents: toSafeNumber(BigInt(row.grand_total_minor), 'grand total'), currency: row.currency },
+        totalItemsCount: row.total_items_count,
+      },
+      payments,
+      status: row.status,
+      serverCommittedAt: row.server_committed_at.toISOString(),
+      createdAt: row.created_at.toISOString(),
+    },
+  };
+};
 
 export const createCheckoutService = (db: TransactionalSqlExecutor) => ({
   async checkout(request: CheckoutRequest): Promise<CheckoutResponse> {
@@ -179,7 +283,21 @@ export const createCheckoutService = (db: TransactionalSqlExecutor) => ({
 
     return db.transaction(async (tx) => {
       const existing = await readOrder(tx, request.storeId, request.idempotencyKey);
-      if (existing) return toResponse(existing, true);
+      if (existing) return toResponse(tx, existing, true);
+
+      const shiftResult = await tx.query<{ id: string }>(
+        `SELECT sh.id
+           FROM prodx_shifts sh
+           JOIN prodx_registers r ON r.id = sh.register_id AND r.store_id = sh.store_id
+          WHERE sh.store_id = $1 AND sh.register_id = $2 AND sh.cashier_id = $3
+            AND sh.status = 'open' AND r.status = 'active'
+          FOR UPDATE`,
+        [request.storeId, request.registerId, request.cashierId],
+      );
+      if (shiftResult.rows.length !== 1) {
+        throw new CheckoutConflictError('An active shift for this register and cashier is required.');
+      }
+      const shiftId = shiftResult.rows[0].id;
 
       const itemIds = request.items.map((item) => item.product.id);
       const productResult = await tx.query<ProductRow>(
@@ -215,15 +333,15 @@ export const createCheckoutService = (db: TransactionalSqlExecutor) => ({
           (id, organization_id, store_id, register_id, cashier_id, shift_id, order_number, idempotency_key,
            gross_subtotal_minor, item_discounts_minor, order_discount_minor, net_subtotal_minor,
            total_tax_minor, grand_total_minor, currency, total_items_count)
-         SELECT $1, s.organization_id, s.id, $2, $3, NULL, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+         SELECT $1, s.organization_id, s.id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
            FROM prodx_stores s
-          WHERE s.id = $14
+          WHERE s.id = $15
          ON CONFLICT (store_id, idempotency_key) DO NOTHING
          RETURNING id, order_number, idempotency_key, store_id, register_id, cashier_id, status,
                    gross_subtotal_minor::text, item_discounts_minor::text, order_discount_minor::text,
                    net_subtotal_minor::text, total_tax_minor::text, grand_total_minor::text,
                    currency, total_items_count, created_at, server_committed_at`,
-        [orderId, request.registerId, request.cashierId, orderNumber, request.idempotencyKey,
+        [orderId, request.registerId, request.cashierId, shiftId, orderNumber, request.idempotencyKey,
           totals.gross.toString(), totals.itemDiscounts.toString(), totals.orderDiscount.toString(),
           totals.netSubtotal.toString(), totals.totalTax.toString(), totals.grandTotal.toString(),
           totals.currency, totals.totalItems, request.storeId],
@@ -232,7 +350,7 @@ export const createCheckoutService = (db: TransactionalSqlExecutor) => ({
       if (orderInsert.rows.length === 0) {
         const concurrent = await readOrder(tx, request.storeId, request.idempotencyKey);
         if (!concurrent) throw new CheckoutConflictError('Idempotency conflict could not be resolved.');
-        return toResponse(concurrent, true);
+        return toResponse(tx, concurrent, true);
       }
 
       const order = orderInsert.rows[0];
@@ -290,15 +408,19 @@ export const createCheckoutService = (db: TransactionalSqlExecutor) => ({
         );
 
         if (payment.method === 'cash') {
+          const tendered = payment.tenderedCash ? ensureMoney(payment.tenderedCash, 'tendered cash') : amount;
           const change = payment.changeGiven ? ensureMoney(payment.changeGiven, 'change given') : 0n;
-          const cashSale = amount - change;
+          if (tendered < amount || change !== tendered - amount) {
+            throw new CheckoutValidationError('Cash tender and change do not match the payment amount.');
+          }
+          const cashSale = tendered - change;
           if (cashSale <= 0n) throw new CheckoutValidationError('Cash sale after change must be positive.');
           await tx.query(
             `INSERT INTO prodx_cash_movements
               (id, organization_id, store_id, shift_id, type, amount_minor, reason, performed_by_user_id, currency)
              SELECT $1, organization_id, store_id, shift_id, 'cash_sale', $2, 'POS sale', $3, $4
-               FROM prodx_orders WHERE id = $5 AND store_id = $6 AND shift_id IS NOT NULL`,
-            [crypto.randomUUID(), cashSale.toString(), request.cashierId, totals.currency, order.id, request.storeId],
+               FROM prodx_orders WHERE id = $5 AND store_id = $6 AND shift_id = $7`,
+            [crypto.randomUUID(), cashSale.toString(), request.cashierId, totals.currency, order.id, request.storeId, shiftId],
           );
         }
       }
@@ -312,7 +434,7 @@ export const createCheckoutService = (db: TransactionalSqlExecutor) => ({
         [crypto.randomUUID(), JSON.stringify({ orderId: order.id, idempotencyKey: request.idempotencyKey, grandTotalMinor: totals.grandTotal.toString() }), order.id, request.storeId],
       );
 
-      return toResponse(order, false);
+      return toResponse(tx, order, false);
     });
   },
 });
