@@ -18,6 +18,7 @@ export type AIAuditEvent = {
   readonly userId: string;
   readonly organizationId: string;
   readonly storeId: string;
+  readonly permission: string;
   readonly provider: string;
   readonly model?: string;
   readonly inputChars: number;
@@ -29,6 +30,7 @@ export type AIAuditEvent = {
 
 export type AIGatewayPolicy = {
   readonly permission: string;
+  readonly allowedPermissions?: readonly string[];
   readonly maxRequestChars?: number;
   readonly maxOutputTokens?: number;
   readonly maxEstimatedInputTokens?: number;
@@ -65,7 +67,13 @@ export class AIGatewayRequestValidationError extends Error {
 }
 
 export class AIGatewayService {
-  private readonly policy: Required<AIGatewayPolicy>;
+  private readonly policy: {
+    readonly permission: string;
+    readonly allowedPermissions: readonly string[];
+    readonly maxRequestChars: number;
+    readonly maxOutputTokens: number;
+    readonly maxEstimatedInputTokens: number;
+  };
 
   constructor(
     private readonly registry: AIProviderRegistry,
@@ -75,6 +83,7 @@ export class AIGatewayService {
   ) {
     this.policy = {
       permission: policy.permission,
+      allowedPermissions: policy.allowedPermissions ?? [policy.permission],
       maxRequestChars: policy.maxRequestChars ?? DEFAULT_MAX_REQUEST_CHARS,
       maxOutputTokens: policy.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
       maxEstimatedInputTokens:
@@ -87,7 +96,7 @@ export class AIGatewayService {
     const inputChars = request.messages.reduce((sum, message) => sum + message.content.length, 0);
     const estimatedInputTokens = estimateTokens(request.messages);
 
-    if (!(await this.authorizer.authorize(request.scope, this.policy.permission))) {
+    if (!(await this.authorizer.authorize(request.scope, request.permission))) {
       await this.audit({
         request,
         provider: request.provider ?? 'unresolved',
@@ -136,9 +145,6 @@ export class AIGatewayService {
       allowed: true,
     });
 
-    // The gateway is the authoritative boundary for provider identity. Do not
-    // rely on adapters to populate this field consistently, while preserving
-    // the provider's raw payload internally for diagnostics/adapter use.
     return { ...response, provider: provider.name };
   }
 
@@ -158,6 +164,7 @@ export class AIGatewayService {
       userId: base.request.scope.userId,
       organizationId: base.request.scope.organizationId,
       storeId: base.request.scope.storeId,
+      permission: base.request.permission,
       provider: base.provider,
       model: base.model,
       inputChars: base.inputChars,
@@ -173,7 +180,7 @@ export class AIGatewayService {
     if (!request.scope.userId || !request.scope.organizationId || !request.scope.storeId) {
       throw new Error('AI organization/store/user scope is required.');
     }
-    if (!request.permission || request.permission !== this.policy.permission) {
+    if (!request.permission || !this.policy.allowedPermissions.includes(request.permission)) {
       throw new Error('AI permission does not match the configured capability.');
     }
     if (!Array.isArray(request.messages) || request.messages.length === 0) {
