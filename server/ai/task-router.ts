@@ -1,31 +1,10 @@
 import type { AIModelProfile, AIModelRegistry, AIModelTier } from './model-registry';
+import { AI_TASKS } from '../../shared/ai';
+import type { AITask } from '../../shared/ai';
 
-export const AI_TASKS = [
-  'assistant',
-  'explanation',
-  'draft',
-  'code_generation',
-  'refactoring',
-  'debugging',
-  'test_generation',
-  'migration_analysis',
-  'ux_analysis',
-  'ui_design',
-  'css_generation',
-  'accessibility_review',
-  'design_system_review',
-  'code_review',
-  'architecture_review',
-  'security_review',
-  'database_review',
-  'production_readiness_review',
-  'sales_insight',
-  'inventory_insight',
-  'operational_assistant',
-  'management_insight',
-] as const;
+export { AI_TASKS } from '../../shared/ai';
+export type { AITask } from '../../shared/ai';
 
-export type AITask = (typeof AI_TASKS)[number];
 export type AIRiskTier = 'low' | 'medium' | 'high' | 'critical';
 
 export interface AITaskPolicy {
