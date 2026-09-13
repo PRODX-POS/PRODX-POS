@@ -27,7 +27,7 @@ export type { AIModelProfile, AIModelRegistry, AIModelTier } from './model-regis
 export { AI_TASKS, AITaskRouter } from './task-router';
 export type { AITask, AITaskPlan, AITaskPolicy, AIRiskTier } from './task-router';
 export { OKMDProvider } from './okmdProvider';
-export type { OKMDProviderConfig } from './okmdProvider';
+export type { OKMDModel, OKMDProviderConfig } from './okmdProvider';
 export { OpenAIProvider } from './openaiProvider';
 export type { OpenAIProviderConfig } from './openaiProvider';
 export type {
