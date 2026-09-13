@@ -57,11 +57,16 @@ const executor = (query: SqlQueryExecutor['query']): TransactionalSqlExecutor =>
   },
 });
 
+const activeShift = <T extends Record<string, unknown>>(): { rows: T[] } => ({
+  rows: [{ id: 'shift-1' }] as T[],
+});
+
 test('rejects a tampered client total before financial writes', async () => {
   const queries: string[] = [];
   const db = executor(async <T extends Record<string, unknown>>(sql: string) => {
     queries.push(sql);
     if (sql.includes('FROM prodx_orders')) return { rows: [] as T[] };
+    if (sql.includes('FROM prodx_shifts')) return activeShift<T>();
     if (sql.includes('FROM prodx_products')) return { rows: [{ id: 'product-1', store_id: 'store-1', price_minor: '1000', currency: 'THB', tax_rate_bps: 0, current_stock: 5 }] as T[] };
     throw new Error(`unexpected write: ${sql}`);
   });
@@ -76,6 +81,7 @@ test('rejects a tampered client total before financial writes', async () => {
 test('rejects malformed payment before financial writes', async () => {
   const db = executor(async <T extends Record<string, unknown>>(sql: string) => {
     if (sql.includes('FROM prodx_orders')) return { rows: [] as T[] };
+    if (sql.includes('FROM prodx_shifts')) return activeShift<T>();
     if (sql.includes('FROM prodx_products')) return { rows: [{ id: 'product-1', store_id: 'store-1', price_minor: '999', currency: 'THB', tax_rate_bps: 0, current_stock: 5 }] as T[] };
     throw new Error(`unexpected write: ${sql}`);
   });
