@@ -12,15 +12,14 @@ const ALLOWED_ROLES: readonly AIMessageRole[] = ['system', 'user', 'assistant'];
 
 type AIChatBody = {
   messages: readonly AIMessage[];
-  task?: AITask;
-  model?: string;
+  task: AITask;
   temperature?: number;
   max_tokens?: number;
 };
 
 export type AIHttpRouteOptions = {
   readonly gateway: AIGatewayService;
-  readonly controlPlane?: AIControlPlaneService;
+  readonly controlPlane: AIControlPlaneService;
   readonly permission?: string;
 };
 
@@ -36,29 +35,14 @@ export function installAIHttpRoute(router: Router, options: AIHttpRouteOptions):
       }
 
       const body = parseBody(request.body);
-      if (body.task && !options.controlPlane) {
-        response.status(503).json({ error: { code: 'AI_ROUTING_UNAVAILABLE', message: 'AI workload routing is not configured.', requestId: request.id } });
-        return;
-      }
-
-      const result = body.task && options.controlPlane
-        ? await options.controlPlane.run({
-            requestId: request.id,
-            scope: context.principal,
-            task: body.task,
-            messages: body.messages,
-            temperature: body.temperature,
-            max_tokens: body.max_tokens,
-          })
-        : await options.gateway.chat({
-            requestId: request.id,
-            scope: context.principal,
-            permission,
-            messages: body.messages,
-            model: body.model,
-            temperature: body.temperature,
-            max_tokens: body.max_tokens,
-          });
+      const result = await options.controlPlane.run({
+        requestId: request.id,
+        scope: context.principal,
+        task: body.task,
+        messages: body.messages,
+        temperature: body.temperature,
+        max_tokens: body.max_tokens,
+      });
 
       response.status(200).json({
         id: result.id,
@@ -108,20 +92,23 @@ function parseBody(value: unknown): AIChatBody {
     messages.push({ role: candidate.role as AIMessageRole, content: candidate.content });
   }
 
-  const task = body.task === undefined
-    ? undefined
-    : typeof body.task === 'string' && AI_TASKS.includes(body.task.trim() as AITask)
-      ? body.task.trim() as AITask
-      : null;
-  const model = body.model === undefined ? undefined : typeof body.model === 'string' ? body.model.trim() : null;
+  if (typeof body.task !== 'string' || !AI_TASKS.includes(body.task.trim() as AITask)) {
+    throw new AIRequestValidationError(400, 'INVALID_TASK', 'AI workload task is required and must be supported.');
+  }
+
   const temperature = body.temperature === undefined ? undefined : typeof body.temperature === 'number' ? body.temperature : null;
   const maxTokens = body.max_tokens === undefined ? undefined : typeof body.max_tokens === 'number' ? body.max_tokens : null;
 
-  if (task === null || model === null || temperature === null || maxTokens === null) {
-    throw new AIRequestValidationError(400, 'INVALID_OPTIONS', 'AI task, model, temperature, and max_tokens must use valid types.');
+  if (temperature === null || maxTokens === null) {
+    throw new AIRequestValidationError(400, 'INVALID_OPTIONS', 'AI temperature and max_tokens must use valid types.');
   }
 
-  return { messages, task, model: model || undefined, temperature, max_tokens: maxTokens };
+  return {
+    messages,
+    task: body.task.trim() as AITask,
+    temperature,
+    max_tokens: maxTokens,
+  };
 }
 
 class AIRequestValidationError extends Error {
