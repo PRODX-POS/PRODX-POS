@@ -18,9 +18,11 @@ function makeApp(allowed: boolean) {
     next();
   });
 
+  const providerCalls = { count: 0 };
   const provider: AIProvider = {
     name: 'okmd',
     async chat(request) {
+      providerCalls.count += 1;
       return { model: request.model ?? 'test-model', choices: [{ message: { role: 'assistant', content: 'ok' } }], raw: { secret: 'must-not-leak' } };
     },
   };
@@ -35,6 +37,7 @@ function makeApp(allowed: boolean) {
   installAIHttpRoute(router, { gateway });
   app.use('/api/v1/ai', router);
   app.locals.aiAudit = audit;
+  app.locals.aiProviderCalls = providerCalls;
   return app;
 }
 
@@ -56,6 +59,7 @@ test('AI HTTP route rejects unauthorized requests before provider execution', as
   const response = await postChat(app, { messages: [{ role: 'user', content: 'hello' }] });
   assert.equal(response.status, 403);
   assert.equal((app.locals.aiAudit as unknown[]).length, 0);
+  assert.equal((app.locals.aiProviderCalls as { count: number }).count, 0);
 });
 
 test('AI HTTP route uses gateway authorization, audit, and never returns provider raw payload', async () => {
@@ -77,6 +81,7 @@ test('AI HTTP route uses gateway authorization, audit, and never returns provide
   assert.equal(audit[0]?.organizationId, 'o1');
   assert.equal(audit[0]?.storeId, 's1');
   assert.equal(audit[0]?.permission, undefined);
+  assert.equal((app.locals.aiProviderCalls as { count: number }).count, 1);
 });
 
 test('AI HTTP route rejects invalid message roles', async () => {
@@ -93,4 +98,16 @@ test('AI HTTP route rejects negative temperature before provider execution', asy
   });
   assert.equal(response.status, 400);
   assert.equal((app.locals.aiAudit as unknown[]).length, 0);
+  assert.equal((app.locals.aiProviderCalls as { count: number }).count, 0);
+});
+
+test('AI HTTP route rejects temperature above provider contract before provider execution', async () => {
+  const app = makeApp(true);
+  const response = await postChat(app, {
+    temperature: 2.01,
+    messages: [{ role: 'user', content: 'hello' }],
+  });
+  assert.equal(response.status, 400);
+  assert.equal((app.locals.aiAudit as unknown[]).length, 0);
+  assert.equal((app.locals.aiProviderCalls as { count: number }).count, 0);
 });
