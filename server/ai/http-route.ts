@@ -1,7 +1,7 @@
 import type { Router } from 'express';
 import { requirePermission } from '../http/createApp';
 import type { RequestContext } from '../http/types';
-import { AIGatewayService } from './gateway';
+import { AIGatewayRequestValidationError, AIGatewayService } from './gateway';
 import type { AIMessage, AIMessageRole } from './types';
 
 const DEFAULT_PERMISSION = 'ai:use';
@@ -53,6 +53,10 @@ export function installAIHttpRoute(router: Router, options: AIHttpRouteOptions):
     } catch (error) {
       if (error instanceof AIRequestValidationError) {
         response.status(error.status).json({ error: { code: error.code, message: error.message, requestId: request.id } });
+        return;
+      }
+      if (error instanceof AIGatewayRequestValidationError) {
+        response.status(400).json({ error: { code: error.code, message: error.message, requestId: request.id } });
         return;
       }
       next(error);

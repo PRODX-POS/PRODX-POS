@@ -57,6 +57,13 @@ export interface AIProviderRegistry {
   get(name?: string): AIProvider;
 }
 
+export class AIGatewayRequestValidationError extends Error {
+  constructor(readonly code: string, message: string) {
+    super(message);
+    this.name = 'AIGatewayRequestValidationError';
+  }
+}
+
 export class AIGatewayService {
   private readonly policy: Required<AIGatewayPolicy>;
 
@@ -178,6 +185,15 @@ export class AIGatewayService {
     }
     if (request.max_tokens !== undefined && (!Number.isInteger(request.max_tokens) || request.max_tokens < 1)) {
       throw new Error('AI max_tokens must be a positive integer.');
+    }
+    if (
+      request.temperature !== undefined &&
+      (!Number.isFinite(request.temperature) || request.temperature < 0 || request.temperature > 2)
+    ) {
+      throw new AIGatewayRequestValidationError(
+        'INVALID_TEMPERATURE',
+        'AI temperature must be a finite number between 0 and 2.',
+      );
     }
   }
 }
