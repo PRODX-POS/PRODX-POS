@@ -41,6 +41,7 @@ export interface CheckoutRequest {
   totals: CartTotals;
   payments: readonly TenderPayment[];
   notes?: string;
+  orderDiscountBps?: number;
   isOfflineSubmission?: boolean;
 }
 
