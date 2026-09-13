@@ -1,0 +1,70 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createPostgresAuthenticationRepository, type SqlExecutor } from './postgres-repository';
+
+test('credential lookup maps authoritative user and credential state', async () => {
+  const calls: Array<{ sql: string; parameters: readonly unknown[] }> = [];
+  const db: SqlExecutor = {
+    async query(sql, parameters = []) {
+      calls.push({ sql, parameters });
+      return [{
+        userId: 'user-1', organizationId: 'org-1', username: 'cashier', status: 'active',
+        credential_type: 'password', secret_hash: 'scrypt$hash', failed_attempts: 2, locked_until: null,
+      }];
+    },
+  };
+
+  const repository = createPostgresAuthenticationRepository(db);
+  const result = await repository.findCredentialByUsername('cashier');
+
+  assert.deepEqual(result, {
+    userId: 'user-1', organizationId: 'org-1', username: 'cashier', status: 'active',
+    credentialType: 'password', secretHash: 'scrypt$hash', failedAttempts: 2, lockedUntil: null,
+  });
+  assert.deepEqual(calls[0].parameters, ['cashier']);
+  assert.match(calls[0].sql, /lower\(u\.username\) = lower\(\$1\)/);
+});
+
+test('session lookup joins user status instead of trusting session state', async () => {
+  const db: SqlExecutor = {
+    async query() {
+      return [{
+        id: 'session-1', organization_id: 'org-1', user_id: 'user-1', device_id: 'device-1',
+        token_hash: 'hash', expires_at: new Date('2030-01-01T00:00:00Z'), revoked_at: null,
+        user_status: 'active',
+      }];
+    },
+  };
+
+  const repository = createPostgresAuthenticationRepository(db);
+  const result = await repository.findSessionByTokenHash('hash');
+
+  assert.equal(result?.userStatus, 'active');
+  assert.equal(result?.organizationId, 'org-1');
+  assert.equal(result?.tokenHash, 'hash');
+});
+
+test('session and device writes use parameterized SQL', async () => {
+  const calls: Array<{ sql: string; parameters: readonly unknown[] }> = [];
+  const db: SqlExecutor = {
+    async query(sql, parameters = []) {
+      calls.push({ sql, parameters });
+      return [];
+    },
+  };
+  const repository = createPostgresAuthenticationRepository(db);
+
+  await repository.createSession({
+    id: 'session-1', organizationId: 'org-1', userId: 'user-1', deviceId: 'device-1',
+    tokenHash: 'token-hash', expiresAt: new Date('2030-01-01T00:00:00Z'),
+  });
+  await repository.recordFailedAttempt('user-1');
+  await repository.resetFailedAttempts('user-1');
+  await repository.touchSession('session-1', new Date('2030-01-01T00:00:00Z'));
+
+  assert.equal(calls.length, 4);
+  assert.ok(calls.every(({ sql }) => !sql.includes('token-hash')));
+  assert.deepEqual(calls[0].parameters, [
+    'session-1', 'org-1', 'user-1', 'device-1', 'token-hash', new Date('2030-01-01T00:00:00Z'),
+  ]);
+});
