@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421818aeaa5fe8019c6242189d6d6
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: latest
 
@@ -121,32 +121,25 @@ jobs:
               INSERT INTO prodx_users (id, organization_id, username, display_name)
               VALUES ('00000000-0000-0000-0000-000000000013', '00000000-0000-0000-0000-000000000001', 'ci-user', 'Duplicate User');
               RAISE EXCEPTION 'expected organization username uniqueness violation';
-            EXCEPTION WHEN unique_violation THEN
-              NULL;
+            EXCEPTION WHEN unique_violation THEN NULL;
             END;
-
             BEGIN
               INSERT INTO prodx_user_credentials (user_id, credential_type, secret_hash)
               VALUES ('00000000-0000-0000-0000-000000000011', 'password', '');
               RAISE EXCEPTION 'expected credential hash constraint violation';
-            EXCEPTION WHEN check_violation THEN
-              NULL;
+            EXCEPTION WHEN check_violation THEN NULL;
             END;
-
             BEGIN
               INSERT INTO prodx_store_memberships (organization_id, store_id, user_id)
               VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000022', '00000000-0000-0000-0000-000000000011');
               RAISE EXCEPTION 'expected store organization isolation violation';
-            EXCEPTION WHEN foreign_key_violation THEN
-              NULL;
+            EXCEPTION WHEN foreign_key_violation THEN NULL;
             END;
-
             BEGIN
               INSERT INTO prodx_user_roles (organization_id, user_id, role_id, store_id)
               VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000032', '00000000-0000-0000-0000-000000000021');
               RAISE EXCEPTION 'expected role organization isolation violation';
-            EXCEPTION WHEN foreign_key_violation THEN
-              NULL;
+            EXCEPTION WHEN foreign_key_violation THEN NULL;
             END;
           END $$;
           SQL
