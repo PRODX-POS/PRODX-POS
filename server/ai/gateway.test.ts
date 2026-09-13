@@ -39,6 +39,24 @@ test('gateway requires matching capability permission and tenant/store scope', a
   assert.equal((audit[0] as { allowed: boolean }).allowed, false);
 });
 
+test('gateway accepts explicitly allow-listed workload permissions', async () => {
+  const gateway = new AIGatewayService(
+    { get: () => providerSpy({}) },
+    { authorize: (_scope, permission) => permission === 'ai:use' },
+    { record: () => undefined },
+    { permission: 'ai:use', allowedPermissions: ['ai:use', 'ai:review'] },
+  );
+
+  const response = await gateway.chat({
+    requestId: 'req-allow-list',
+    scope,
+    permission: 'ai:review',
+    messages: [{ role: 'user', content: 'review this change' }],
+  }).catch((error) => error);
+
+  assert.match(String(response?.message ?? response), /not authorized/);
+});
+
 test('gateway keeps only gateway-owned policy as system and treats caller system messages as untrusted', async () => {
   const captured: { messages?: readonly { role: string; content: string }[] } = {};
   const gateway = new AIGatewayService(
