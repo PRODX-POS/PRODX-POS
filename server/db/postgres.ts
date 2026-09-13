@@ -14,7 +14,7 @@ export const createPostgresPool = (config: PoolConfig = {}): Pool => {
 };
 
 export const asSqlExecutor = (pool: Pick<Pool, 'query'>): SqlExecutor => ({
-  async query<T extends Record<string, unknown>>(sql, parameters = []) {
+  async query<T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) {
     const result = await pool.query<T & QueryResultRow>(sql, [...parameters]);
     return result.rows;
   },
