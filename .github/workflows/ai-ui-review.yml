@@ -31,7 +31,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Run Gemini design review
-        uses: google-github-actions/run-gemini-cli@f77273f
+        uses: google-github-actions/run-gemini-cli@f77273f4c914e4bf38440cf36a0369cb64a37489
         id: gemini_ui_review
         env:
           GEMINI_CLI_TRUST_WORKSPACE: 'true'
