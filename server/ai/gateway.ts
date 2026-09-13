@@ -179,6 +179,9 @@ export class AIGatewayService {
     if (request.max_tokens !== undefined && (!Number.isInteger(request.max_tokens) || request.max_tokens < 1)) {
       throw new Error('AI max_tokens must be a positive integer.');
     }
+    if (request.temperature !== undefined && (!Number.isFinite(request.temperature) || request.temperature < 0)) {
+      throw new Error('AI temperature must be a finite non-negative number.');
+    }
   }
 }
 
