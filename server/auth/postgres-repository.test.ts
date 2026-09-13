@@ -5,12 +5,12 @@ import { createPostgresAuthenticationRepository, type SqlExecutor } from './post
 test('credential lookup maps authoritative user and credential state', async () => {
   const calls: Array<{ sql: string; parameters: readonly unknown[] }> = [];
   const db: SqlExecutor = {
-    async query(sql, parameters = []) {
+    async query<T extends Record<string, unknown>>(sql: string, parameters = []): Promise<readonly T[]> {
       calls.push({ sql, parameters });
       return [{
         userId: 'user-1', organizationId: 'org-1', username: 'cashier', status: 'active',
         credential_type: 'password', secret_hash: 'scrypt$hash', failed_attempts: 2, locked_until: null,
-      }];
+      } as T];
     },
   };
 
@@ -27,12 +27,12 @@ test('credential lookup maps authoritative user and credential state', async () 
 
 test('session lookup joins user status instead of trusting session state', async () => {
   const db: SqlExecutor = {
-    async query() {
+    async query<T extends Record<string, unknown>>(): Promise<readonly T[]> {
       return [{
         id: 'session-1', organization_id: 'org-1', user_id: 'user-1', device_id: 'device-1',
         token_hash: 'hash', expires_at: new Date('2030-01-01T00:00:00Z'), revoked_at: null,
         user_status: 'active',
-      }];
+      } as T];
     },
   };
 
@@ -47,7 +47,7 @@ test('session lookup joins user status instead of trusting session state', async
 test('session and device writes use parameterized SQL', async () => {
   const calls: Array<{ sql: string; parameters: readonly unknown[] }> = [];
   const db: SqlExecutor = {
-    async query(sql, parameters = []) {
+    async query<T extends Record<string, unknown>>(sql: string, parameters = []): Promise<readonly T[]> {
       calls.push({ sql, parameters });
       return [];
     },
