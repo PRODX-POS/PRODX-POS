@@ -73,6 +73,7 @@ jobs:
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0004_m1_2_rbac';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0005_m1_3_device_session';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0006_m2_transaction_core';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0007_m2_store_membership_invariants';
           SELECT 1 FROM prodx_migration_lock WHERE lock_id = 1;
           SELECT current_setting('TimeZone') AS session_timezone;
           SELECT (TIMESTAMPTZ '2026-01-01 00:00:00+00' AT TIME ZONE 'UTC') = TIMESTAMP '2026-01-01 00:00:00';
@@ -86,6 +87,10 @@ jobs:
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_user_roles_store_membership_fk';
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_orders_store_idempotency_unique';
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_products_store_sku_unique';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_orders_cashier_store_membership_fk';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_shifts_cashier_store_membership_fk';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_inventory_user_store_membership_fk';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_audit_user_store_membership_fk';
           SELECT count(*) = 15 FROM prodx_permissions;
           SQL
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
@@ -141,15 +146,25 @@ jobs:
               RAISE EXCEPTION 'expected role organization isolation violation';
             EXCEPTION WHEN foreign_key_violation THEN NULL;
             END;
+            BEGIN
+              INSERT INTO prodx_orders
+                (id, organization_id, store_id, register_id, cashier_id, order_number, idempotency_key,
+                 gross_subtotal_minor, net_subtotal_minor, grand_total_minor, total_items_count)
+              VALUES
+                ('00000000-0000-0000-0000-000000000061', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000021',
+                 '00000000-0000-0000-0000-000000000099', '00000000-0000-0000-0000-000000000012', 'bad-order', 'bad-membership', 1, 1, 1, 1);
+              RAISE EXCEPTION 'expected transaction actor membership violation';
+            EXCEPTION WHEN foreign_key_violation THEN NULL;
+            END;
           END $$;
           SQL
-          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity', '0004_m1_2_rbac', '0005_m1_3_device_session', '0006_m2_transaction_core');")
+          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity', '0004_m1_2_rbac', '0005_m1_3_device_session', '0006_m2_transaction_core', '0007_m2_store_membership_invariants');")
           for migration in "${migrations[@]}"; do
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
           done
-          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity', '0004_m1_2_rbac', '0005_m1_3_device_session', '0006_m2_transaction_core');")
+          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity', '0004_m1_2_rbac', '0005_m1_3_device_session', '0006_m2_transaction_core', '0007_m2_store_membership_invariants');")
           test "$before" = "$after"
-          test "$after" = "6"
+          test "$after" = "7"
 
       - name: Backend boundary tests
         run: bun run server:test
