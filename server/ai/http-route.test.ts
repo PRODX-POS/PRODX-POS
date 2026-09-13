@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import { installAIHttpRoute } from './http-route';
 import { AIGatewayService } from './gateway';
+import { AIControlPlaneService } from './control-plane';
+import { StaticAIModelRegistry } from './model-registry';
+import { AITaskRouter } from './task-router';
 import type { AIProvider } from './types';
 
-function makeApp(allowed: boolean) {
+function makeApp(allowed: boolean, withControlPlane = false) {
   const app = express();
   app.use(express.json());
   app.use((request, _response, next) => {
@@ -33,8 +36,28 @@ function makeApp(allowed: boolean) {
     { record: (event) => { audit.push(event); } },
     { permission: 'ai:use' },
   );
+
+  const controlPlane = withControlPlane
+    ? new AIControlPlaneService(
+        new AITaskRouter(
+          new StaticAIModelRegistry([
+            {
+              provider: 'okmd',
+              model: 'assistant-model',
+              tiers: ['fast'],
+              qualityScore: 80,
+              contextTokens: 16_000,
+              supportsVision: false,
+              enabled: true,
+            },
+          ]),
+        ),
+        gateway,
+      )
+    : undefined;
+
   const router = express.Router();
-  installAIHttpRoute(router, { gateway });
+  installAIHttpRoute(router, { gateway, controlPlane });
   app.use('/api/v1/ai', router);
   app.locals.aiAudit = audit;
   app.locals.aiProviderCalls = providerCalls;
@@ -80,8 +103,38 @@ test('AI HTTP route uses gateway authorization, audit, and never returns provide
   assert.equal(audit[0]?.userId, 'u1');
   assert.equal(audit[0]?.organizationId, 'o1');
   assert.equal(audit[0]?.storeId, 's1');
-  assert.equal(audit[0]?.permission, undefined);
+  assert.equal(audit[0]?.permission, 'ai:use');
   assert.equal((app.locals.aiProviderCalls as { count: number }).count, 1);
+});
+
+test('AI HTTP route routes a workload through the control plane and ignores caller model selection', async () => {
+  const app = makeApp(true, true);
+  const response = await postChat(app, {
+    task: 'assistant',
+    model: 'attacker-selected-model',
+    messages: [{ role: 'user', content: 'hello' }],
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json() as Record<string, unknown>;
+  assert.equal(body.model, 'assistant-model');
+  assert.equal(body.provider, 'okmd');
+  assert.equal((app.locals.aiProviderCalls as { count: number }).count, 1);
+});
+
+test('AI HTTP route fails closed when workload routing is requested but not configured', async () => {
+  const app = makeApp(true);
+  const response = await postChat(app, {
+    task: 'assistant',
+    messages: [{ role: 'user', content: 'hello' }],
+  });
+  assert.equal(response.status, 503);
+  assert.equal((app.locals.aiProviderCalls as { count: number }).count, 0);
+});
+
+test('AI HTTP route rejects invalid workload names', async () => {
+  const app = makeApp(true, true);
+  const response = await postChat(app, { task: 'arbitrary-model', messages: [{ role: 'user', content: 'hello' }] });
+  assert.equal(response.status, 400);
 });
 
 test('AI HTTP route rejects invalid message roles', async () => {
