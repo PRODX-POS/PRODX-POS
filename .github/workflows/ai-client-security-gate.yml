@@ -1,0 +1,38 @@
+name: AI Client Security Gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  browser-ai-boundary:
+    name: Verify browser AI boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Reject provider credentials and direct provider calls in frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if grep -R -n -E --include='*.ts' --include='*.tsx' \
+            'gen\.ai\.kku\.ac\.th|OKMD_AI_API_KEY|Authorization:[[:space:]]*[`"'"'"']?Bearer|localStorage[^\n]*(apiKey|API_KEY|secret|token)' src; then
+            echo 'Browser AI boundary violation detected.'
+            echo 'Provider credentials, direct provider endpoints, and secrets must remain server-side.'
+            exit 1
+          fi
+
+      - name: Require frontend AI service to use the authenticated same-origin route
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "const AI_ROUTE = '/api/v1/ai/chat';" src/services/aiService.ts
+          grep -q "credentials: 'include'" src/services/aiService.ts
