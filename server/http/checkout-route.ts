@@ -15,7 +15,7 @@ const parseCheckoutRequest = (value: unknown): CheckoutRequest => {
 export const registerCheckoutRoute = (
   app: import('express').Express,
   db: TransactionalSqlExecutor,
-  permission = 'sales:write',
+  permission = 'pos.sell',
 ): void => {
   const service = createCheckoutService(db);
 
