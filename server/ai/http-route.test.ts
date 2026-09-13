@@ -38,34 +38,32 @@ function makeApp(allowed: boolean) {
   return app;
 }
 
-test('AI HTTP route rejects unauthorized requests before provider execution', async () => {
-  const app = makeApp(false);
+async function postChat(app: ReturnType<typeof makeApp>, payload: unknown): Promise<Response> {
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   const address = server.address();
   assert.ok(address && typeof address === 'object');
   const response = await fetch(`http://127.0.0.1:${address.port}/api/v1/ai/chat`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages: [{ role: 'user', content: 'hello' }] }),
+    body: JSON.stringify(payload),
   });
+  server.close();
+  return response;
+}
+
+test('AI HTTP route rejects unauthorized requests before provider execution', async () => {
+  const app = makeApp(false);
+  const response = await postChat(app, { messages: [{ role: 'user', content: 'hello' }] });
   assert.equal(response.status, 403);
   assert.equal((app.locals.aiAudit as unknown[]).length, 0);
-  server.close();
 });
 
 test('AI HTTP route uses gateway authorization, audit, and never returns provider raw payload', async () => {
   const app = makeApp(true);
-  const server = app.listen(0);
-  await new Promise<void>((resolve) => server.once('listening', () => resolve()));
-  const address = server.address();
-  assert.ok(address && typeof address === 'object');
-  const response = await fetch(`http://127.0.0.1:${address.port}/api/v1/ai/chat`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      userId: 'attacker', organizationId: 'attacker-org', storeId: 'attacker-store',
-      apiKey: 'should-not-be-forwarded', endpoint: 'https://attacker.example',
-      messages: [{ role: 'user', content: 'hello' }],
-    }),
+  const response = await postChat(app, {
+    userId: 'attacker', organizationId: 'attacker-org', storeId: 'attacker-store',
+    apiKey: 'should-not-be-forwarded', endpoint: 'https://attacker.example',
+    messages: [{ role: 'user', content: 'hello' }],
   });
   assert.equal(response.status, 200);
   const body = await response.json() as Record<string, unknown>;
@@ -79,19 +77,20 @@ test('AI HTTP route uses gateway authorization, audit, and never returns provide
   assert.equal(audit[0]?.organizationId, 'o1');
   assert.equal(audit[0]?.storeId, 's1');
   assert.equal(audit[0]?.permission, undefined);
-  server.close();
 });
 
 test('AI HTTP route rejects invalid message roles', async () => {
   const app = makeApp(true);
-  const server = app.listen(0);
-  await new Promise<void>((resolve) => server.once('listening', () => resolve()));
-  const address = server.address();
-  assert.ok(address && typeof address === 'object');
-  const response = await fetch(`http://127.0.0.1:${address.port}/api/v1/ai/chat`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ messages: [{ role: 'developer', content: 'nope' }] }),
+  const response = await postChat(app, { messages: [{ role: 'developer', content: 'nope' }] });
+  assert.equal(response.status, 400);
+});
+
+test('AI HTTP route rejects negative temperature before provider execution', async () => {
+  const app = makeApp(true);
+  const response = await postChat(app, {
+    temperature: -1,
+    messages: [{ role: 'user', content: 'hello' }],
   });
   assert.equal(response.status, 400);
-  server.close();
+  assert.equal((app.locals.aiAudit as unknown[]).length, 0);
 });
