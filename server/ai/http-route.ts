@@ -1,9 +1,9 @@
 import type { Router } from 'express';
 import { requirePermission } from '../http/createApp';
-import type { RequestContext } from '../http/types';
 import { AIGatewayRequestValidationError, AIGatewayService } from './gateway';
 import type { AIControlPlaneService } from './control-plane';
 import type { AIMessage, AIMessageRole } from './types';
+import { AI_TASKS } from './task-router';
 import type { AITask } from './task-router';
 
 const DEFAULT_PERMISSION = 'ai:use';
@@ -36,6 +36,11 @@ export function installAIHttpRoute(router: Router, options: AIHttpRouteOptions):
       }
 
       const body = parseBody(request.body);
+      if (body.task && !options.controlPlane) {
+        response.status(503).json({ error: { code: 'AI_ROUTING_UNAVAILABLE', message: 'AI workload routing is not configured.', requestId: request.id } });
+        return;
+      }
+
       const result = body.task && options.controlPlane
         ? await options.controlPlane.run({
             requestId: request.id,
@@ -103,7 +108,11 @@ function parseBody(value: unknown): AIChatBody {
     messages.push({ role: candidate.role as AIMessageRole, content: candidate.content });
   }
 
-  const task = body.task === undefined ? undefined : typeof body.task === 'string' && body.task.trim() ? body.task.trim() as AITask : null;
+  const task = body.task === undefined
+    ? undefined
+    : typeof body.task === 'string' && AI_TASKS.includes(body.task.trim() as AITask)
+      ? body.task.trim() as AITask
+      : null;
   const model = body.model === undefined ? undefined : typeof body.model === 'string' ? body.model.trim() : null;
   const temperature = body.temperature === undefined ? undefined : typeof body.temperature === 'number' ? body.temperature : null;
   const maxTokens = body.max_tokens === undefined ? undefined : typeof body.max_tokens === 'number' ? body.max_tokens : null;
