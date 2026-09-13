@@ -1,0 +1,92 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import type { CheckoutRequest } from '../../src/adapters/types';
+import { CheckoutConflictError, CheckoutValidationError, createCheckoutService } from './checkout-service';
+import type { SqlQueryExecutor, TransactionalSqlExecutor } from '../db/transaction';
+
+const request = (overrides: Partial<CheckoutRequest> = {}): CheckoutRequest => ({
+  idempotencyKey: 'checkout-test-1',
+  storeId: 'store-1',
+  registerId: 'register-1',
+  cashierId: 'cashier-1',
+  items: [{
+    id: 'line-1',
+    product: {
+      id: 'product-1',
+      storeId: 'store-1',
+      sku: 'SKU-1',
+      name: 'Test product',
+      price: { amountInCents: 999, currency: 'THB' },
+      quantity: 2,
+      discountBps: 0,
+    },
+    quantity: 2,
+    discountBps: 0,
+  }],
+  totals: {
+    grossSubtotal: { amountInCents: 1998, currency: 'THB' },
+    itemDiscounts: { amountInCents: 0, currency: 'THB' },
+    orderDiscount: { amountInCents: 0, currency: 'THB' },
+    netSubtotal: { amountInCents: 1998, currency: 'THB' },
+    totalTax: { amountInCents: 0, currency: 'THB' },
+    grandTotal: { amountInCents: 1998, currency: 'THB' },
+    totalItemsCount: 2,
+  },
+  payments: [{
+    id: 'payment-1',
+    method: 'cash',
+    amount: { amountInCents: 1998, currency: 'THB' },
+  }],
+  ...overrides,
+});
+
+const executor = (query: SqlQueryExecutor['query']): TransactionalSqlExecutor => ({
+  query,
+  async transaction<T>(work: (tx: SqlQueryExecutor) => Promise<T>): Promise<T> {
+    return work({ query });
+  },
+});
+
+test('rejects a tampered client total before financial writes', async () => {
+  const queries: string[] = [];
+  const db = executor(async <T extends Record<string, unknown>>(sql: string) => {
+    queries.push(sql);
+    if (sql.includes('FROM prodx_orders')) return { rows: [] as T[] };
+    if (sql.includes('FROM prodx_products')) return { rows: [{ id: 'product-1', store_id: 'store-1', price_minor: '1000', currency: 'THB', tax_rate_bps: 0, current_stock: 5 }] as T[] };
+    throw new Error(`unexpected write: ${sql}`);
+  });
+
+  await assert.rejects(
+    createCheckoutService(db).checkout(request()),
+    (error: unknown) => error instanceof CheckoutConflictError && error.code === 'CHECKOUT_CONFLICT',
+  );
+  assert.equal(queries.filter((sql) => sql.trimStart().startsWith('INSERT') || sql.trimStart().startsWith('UPDATE')).length, 0);
+});
+
+test('rejects malformed payment before financial writes', async () => {
+  const db = executor(async <T extends Record<string, unknown>>(sql: string) => {
+    if (sql.includes('FROM prodx_orders')) return { rows: [] as T[] };
+    if (sql.includes('FROM prodx_products')) return { rows: [{ id: 'product-1', store_id: 'store-1', price_minor: '999', currency: 'THB', tax_rate_bps: 0, current_stock: 5 }] as T[] };
+    throw new Error(`unexpected write: ${sql}`);
+  });
+  await assert.rejects(
+    createCheckoutService(db).checkout(request({ payments: [] })),
+    (error: unknown) => error instanceof CheckoutConflictError,
+  );
+});
+
+test('requires idempotency key', async () => {
+  const db = executor(async () => ({ rows: [] }));
+  await assert.rejects(
+    createCheckoutService(db).checkout(request({ idempotencyKey: '   ' })),
+    (error: unknown) => error instanceof CheckoutValidationError && error.code === 'CHECKOUT_VALIDATION_FAILED',
+  );
+});
+
+test('preserves a transaction failure so the transaction wrapper can roll it back', async () => {
+  const db: TransactionalSqlExecutor = {
+    query: async () => ({ rows: [] }),
+    transaction: async () => { throw new Error('db failure'); },
+  };
+  await assert.rejects(createCheckoutService(db).checkout(request()), /db failure/);
+});
