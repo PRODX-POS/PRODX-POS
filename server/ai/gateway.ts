@@ -128,7 +128,11 @@ export class AIGatewayService {
       outputTokens: response.usage?.completion_tokens,
       allowed: true,
     });
-    return response;
+
+    // The gateway is the authoritative boundary for provider identity. Do not
+    // rely on adapters to populate this field consistently, while preserving
+    // the provider's raw payload internally for diagnostics/adapter use.
+    return { ...response, provider: provider.name };
   }
 
   private async audit(base: {
