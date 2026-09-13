@@ -81,12 +81,13 @@ export class AITaskRouter {
 
   plan(task: AITask, preferredProvider?: string): AITaskPlan {
     const policy = COMMON_TASKS[task];
-    const candidates = this.registry
-      .findEligible({
+    const candidates = Array.from(
+      this.registry.findEligible({
         tier: policy.tier,
         minQualityScore: policy.minQualityScore,
         requiresVision: policy.requiresVision,
-      })
+      }),
+    )
       .filter((model) => !preferredProvider || model.provider === preferredProvider)
       .sort(compareModels);
 
