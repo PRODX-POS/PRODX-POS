@@ -1,4 +1,4 @@
-import { Pool, type PoolConfig } from 'pg';
+import { Pool, type PoolConfig, type QueryResultRow } from 'pg';
 import type { SqlExecutor } from '../auth/postgres-repository';
 
 export const createPostgresPool = (config: PoolConfig = {}): Pool => {
@@ -15,7 +15,7 @@ export const createPostgresPool = (config: PoolConfig = {}): Pool => {
 
 export const asSqlExecutor = (pool: Pick<Pool, 'query'>): SqlExecutor => ({
   async query<T extends Record<string, unknown>>(sql, parameters = []) {
-    const result = await pool.query<T>(sql, [...parameters]);
+    const result = await pool.query<T & QueryResultRow>(sql, [...parameters]);
     return result.rows;
   },
 });
