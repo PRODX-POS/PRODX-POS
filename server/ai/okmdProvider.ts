@@ -6,6 +6,12 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_MESSAGES = 50;
 const MAX_MESSAGE_CHARS = 20_000;
 
+export type OKMDModel = {
+  readonly id: string;
+  readonly name: string;
+  readonly ownedBy?: string;
+};
+
 export interface OKMDProviderConfig {
   apiKey?: string;
   baseUrl?: string;
@@ -46,6 +52,51 @@ export class OKMDProvider implements AIProvider {
     }
   }
 
+  async listModels(): Promise<readonly OKMDModel[]> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const response = await fetch(`${this.baseUrl}/models`, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`OKMD AI model discovery failed (${response.status}).`);
+      }
+
+      const raw = (await response.json()) as Record<string, unknown>;
+      if (!Array.isArray(raw.data)) {
+        throw new Error('OKMD AI model discovery returned an invalid response.');
+      }
+
+      const models: OKMDModel[] = [];
+      for (const entry of raw.data) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+        const model = entry as Record<string, unknown>;
+        const id = typeof model.id === 'string' || typeof model.id === 'number' ? String(model.id) : '';
+        const ownedBy = typeof model.owned_by === 'string' ? model.owned_by : undefined;
+        const name = typeof model.name === 'string' ? model.name : ownedBy;
+        if (!id || !name) continue;
+        models.push({ id, name, ownedBy });
+      }
+
+      return models;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`OKMD AI model discovery timed out after ${this.timeoutMs}ms.`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async chat(request: AIChatRequest): Promise<AIChatResponse> {
     this.validateRequest(request);
 
@@ -71,8 +122,6 @@ export class OKMDProvider implements AIProvider {
       });
 
       if (!response.ok) {
-        // Do not include response bodies or request headers: provider errors may contain
-        // sensitive information and should not be copied into application logs.
         throw new Error(`OKMD AI request failed (${response.status}).`);
       }
 
@@ -81,7 +130,9 @@ export class OKMDProvider implements AIProvider {
 
       return {
         id: typeof raw.id === 'string' ? raw.id : undefined,
-        model: typeof raw.model === 'string' ? raw.model : request.model ?? this.defaultModel,
+        model: typeof raw.model === 'string' || typeof raw.model === 'number'
+          ? String(raw.model)
+          : request.model ?? this.defaultModel,
         choices: Array.isArray(raw.choices) ? raw.choices : undefined,
         usage: usage
           ? {
