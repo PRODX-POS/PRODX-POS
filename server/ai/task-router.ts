@@ -26,7 +26,6 @@ export const AI_TASKS = [
 ] as const;
 
 export type AITask = (typeof AI_TASKS)[number];
-
 export type AIRiskTier = 'low' | 'medium' | 'high' | 'critical';
 
 export interface AITaskPolicy {
@@ -47,29 +46,34 @@ export interface AITaskPlan {
   readonly requiresHumanApproval: boolean;
 }
 
+// M2 currently provisions one AI permission (`ai:use`). Workload-specific
+// permissions are intentionally not invented here; they require an explicit
+// RBAC migration and role-assignment policy before production enforcement.
+const AI_USE_PERMISSION = 'ai:use';
+
 const COMMON_TASKS: Record<AITask, AITaskPolicy> = {
-  assistant: { tier: 'fast', minQualityScore: 60, risk: 'low', permission: 'ai:use' },
-  explanation: { tier: 'fast', minQualityScore: 60, risk: 'low', permission: 'ai:use' },
-  draft: { tier: 'fast', minQualityScore: 60, risk: 'low', permission: 'ai:use' },
-  code_generation: { tier: 'coding', minQualityScore: 75, risk: 'medium', permission: 'ai:engineering' },
-  refactoring: { tier: 'coding', minQualityScore: 75, risk: 'medium', permission: 'ai:engineering' },
-  debugging: { tier: 'coding', minQualityScore: 75, risk: 'medium', permission: 'ai:engineering' },
-  test_generation: { tier: 'coding', minQualityScore: 75, risk: 'medium', permission: 'ai:engineering' },
-  migration_analysis: { tier: 'reasoning', minQualityScore: 85, risk: 'high', permission: 'ai:engineering' },
-  ux_analysis: { tier: 'vision', minQualityScore: 80, requiresVision: true, risk: 'medium', permission: 'ai:design' },
-  ui_design: { tier: 'vision', minQualityScore: 80, requiresVision: true, risk: 'medium', permission: 'ai:design' },
-  css_generation: { tier: 'coding', minQualityScore: 75, risk: 'medium', permission: 'ai:design' },
-  accessibility_review: { tier: 'vision', minQualityScore: 80, requiresVision: true, risk: 'high', permission: 'ai:design' },
-  design_system_review: { tier: 'reasoning', minQualityScore: 85, risk: 'high', permission: 'ai:design' },
-  code_review: { tier: 'reasoning', minQualityScore: 85, risk: 'high', permission: 'ai:review' },
-  architecture_review: { tier: 'critical', minQualityScore: 90, risk: 'critical', permission: 'ai:review' },
-  security_review: { tier: 'critical', minQualityScore: 95, risk: 'critical', permission: 'ai:security' },
-  database_review: { tier: 'critical', minQualityScore: 90, risk: 'critical', permission: 'ai:security' },
-  production_readiness_review: { tier: 'critical', minQualityScore: 95, risk: 'critical', permission: 'ai:review' },
-  sales_insight: { tier: 'reasoning', minQualityScore: 80, risk: 'high', permission: 'ai:operations' },
-  inventory_insight: { tier: 'reasoning', minQualityScore: 80, risk: 'high', permission: 'ai:operations' },
-  operational_assistant: { tier: 'reasoning', minQualityScore: 80, risk: 'high', permission: 'ai:operations' },
-  management_insight: { tier: 'reasoning', minQualityScore: 85, risk: 'high', permission: 'ai:operations' },
+  assistant: { tier: 'fast', minQualityScore: 60, risk: 'low', permission: AI_USE_PERMISSION },
+  explanation: { tier: 'fast', minQualityScore: 60, risk: 'low', permission: AI_USE_PERMISSION },
+  draft: { tier: 'fast', minQualityScore: 60, risk: 'low', permission: AI_USE_PERMISSION },
+  code_generation: { tier: 'coding', minQualityScore: 75, risk: 'medium', permission: AI_USE_PERMISSION },
+  refactoring: { tier: 'coding', minQualityScore: 75, risk: 'medium', permission: AI_USE_PERMISSION },
+  debugging: { tier: 'coding', minQualityScore: 75, risk: 'medium', permission: AI_USE_PERMISSION },
+  test_generation: { tier: 'coding', minQualityScore: 75, risk: 'medium', permission: AI_USE_PERMISSION },
+  migration_analysis: { tier: 'reasoning', minQualityScore: 85, risk: 'high', permission: AI_USE_PERMISSION },
+  ux_analysis: { tier: 'vision', minQualityScore: 80, requiresVision: true, risk: 'medium', permission: AI_USE_PERMISSION },
+  ui_design: { tier: 'vision', minQualityScore: 80, requiresVision: true, risk: 'medium', permission: AI_USE_PERMISSION },
+  css_generation: { tier: 'coding', minQualityScore: 75, risk: 'medium', permission: AI_USE_PERMISSION },
+  accessibility_review: { tier: 'vision', minQualityScore: 80, requiresVision: true, risk: 'high', permission: AI_USE_PERMISSION },
+  design_system_review: { tier: 'reasoning', minQualityScore: 85, risk: 'high', permission: AI_USE_PERMISSION },
+  code_review: { tier: 'reasoning', minQualityScore: 85, risk: 'high', permission: AI_USE_PERMISSION },
+  architecture_review: { tier: 'critical', minQualityScore: 90, risk: 'critical', permission: AI_USE_PERMISSION },
+  security_review: { tier: 'critical', minQualityScore: 95, risk: 'critical', permission: AI_USE_PERMISSION },
+  database_review: { tier: 'critical', minQualityScore: 90, risk: 'critical', permission: AI_USE_PERMISSION },
+  production_readiness_review: { tier: 'critical', minQualityScore: 95, risk: 'critical', permission: AI_USE_PERMISSION },
+  sales_insight: { tier: 'reasoning', minQualityScore: 80, risk: 'high', permission: AI_USE_PERMISSION },
+  inventory_insight: { tier: 'reasoning', minQualityScore: 80, risk: 'high', permission: AI_USE_PERMISSION },
+  operational_assistant: { tier: 'reasoning', minQualityScore: 80, risk: 'high', permission: AI_USE_PERMISSION },
+  management_insight: { tier: 'reasoning', minQualityScore: 85, risk: 'high', permission: AI_USE_PERMISSION },
 };
 
 export class AITaskRouter {
