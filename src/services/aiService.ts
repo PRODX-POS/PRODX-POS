@@ -1,4 +1,4 @@
-import type { AITask } from '../../server/ai/task-router';
+import type { AITask } from '../../shared/ai';
 
 export interface AiConfig {
   enabled: boolean;
