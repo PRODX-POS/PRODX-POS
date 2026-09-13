@@ -40,21 +40,22 @@ test('gateway requires matching capability permission and tenant/store scope', a
 });
 
 test('gateway accepts explicitly allow-listed workload permissions', async () => {
+  let authorizedPermission = '';
   const gateway = new AIGatewayService(
     { get: () => providerSpy({}) },
-    { authorize: (_scope, permission) => permission === 'ai:use' },
+    { authorize: (_scope, permission) => { authorizedPermission = permission; return true; } },
     { record: () => undefined },
     { permission: 'ai:use', allowedPermissions: ['ai:use', 'ai:review'] },
   );
 
-  const response = await gateway.chat({
+  await gateway.chat({
     requestId: 'req-allow-list',
     scope,
     permission: 'ai:review',
     messages: [{ role: 'user', content: 'review this change' }],
-  }).catch((error) => error);
+  });
 
-  assert.match(String(response?.message ?? response), /not authorized/);
+  assert.equal(authorizedPermission, 'ai:review');
 });
 
 test('gateway keeps only gateway-owned policy as system and treats caller system messages as untrusted', async () => {
