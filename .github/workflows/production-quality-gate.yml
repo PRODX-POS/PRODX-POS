@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421818aeaa5fe8019c6242189d6d6
         with:
           bun-version: latest
 
@@ -53,9 +53,6 @@ jobs:
 
       - name: Type check backend
         run: bun run server:check
-
-      - name: Backend boundary tests
-        run: bun run server:test
 
       - name: PostgreSQL foundation and migration gate
         shell: bash
@@ -74,6 +71,8 @@ jobs:
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0002_m1_organization_store_foundation';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0003_m1_1_auth_identity';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0004_m1_2_rbac';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0005_m1_3_device_session';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0006_m2_transaction_core';
           SELECT 1 FROM prodx_migration_lock WHERE lock_id = 1;
           SELECT current_setting('TimeZone') AS session_timezone;
           SELECT (TIMESTAMPTZ '2026-01-01 00:00:00+00' AT TIME ZONE 'UTC') = TIMESTAMP '2026-01-01 00:00:00';
@@ -85,6 +84,8 @@ jobs:
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_roles_id_organization_unique';
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_store_memberships_store_org_fk';
           SELECT conname FROM pg_constraint WHERE conname = 'prodx_user_roles_store_membership_fk';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_orders_store_idempotency_unique';
+          SELECT conname FROM pg_constraint WHERE conname = 'prodx_products_store_sku_unique';
           SELECT count(*) = 15 FROM prodx_permissions;
           SQL
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
@@ -149,13 +150,16 @@ jobs:
             END;
           END $$;
           SQL
-          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity', '0004_m1_2_rbac');")
+          before=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity', '0004_m1_2_rbac', '0005_m1_3_device_session', '0006_m2_transaction_core');")
           for migration in "${migrations[@]}"; do
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
           done
-          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity', '0004_m1_2_rbac');")
+          after=$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM prodx_schema_migrations WHERE version IN ('0001_m0_foundation', '0002_m1_organization_store_foundation', '0003_m1_1_auth_identity', '0004_m1_2_rbac', '0005_m1_3_device_session', '0006_m2_transaction_core');")
           test "$before" = "$after"
-          test "$after" = "4"
+          test "$after" = "6"
+
+      - name: Backend boundary tests
+        run: bun run server:test
 
       - name: Theme validation
         run: bun run theme:validate
