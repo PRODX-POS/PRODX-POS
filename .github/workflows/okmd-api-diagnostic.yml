@@ -41,13 +41,12 @@ jobs:
           [[ -n "$model_id" ]] || model_id="$(printf '%s' "$models" | jq -r '.data[0].id // empty')"
           echo "advertised_model_count=$(printf '%s' "$models" | jq '.data | length')"
           echo "selected_model=$model_id"
+          export OKMD_MODEL_ID="$model_id"
           python3 - <<'PY'
           import json, os, urllib.error, urllib.request
           base=os.environ['OKMD_BASE_URL']
           key=os.environ['OKMD_API_KEY']
-          model=os.environ['model_id'] if 'model_id' in os.environ else None
-          if not model:
-              raise SystemExit('model_id missing')
+          model=os.environ['OKMD_MODEL_ID']
           payload=json.dumps({'model':model,'messages':[{'role':'user','content':'Return exactly OKMD-POS-API-TEST'}],'temperature':0,'max_tokens':32,'stream':False}).encode()
           req=urllib.request.Request(base+'/chat/completions',data=payload,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json','Accept':'application/json'},method='POST')
           try:
@@ -61,8 +60,6 @@ jobs:
           if status != 200 or not body.get('choices'):
               raise SystemExit('OKMD chat/completions did not return choices; inspect diagnostic output above.')
           PY
-        env:
-          model_id: ''
 
       - name: Comment diagnostic result
         if: always()
@@ -73,4 +70,4 @@ jobs:
         run: |
           set -euo pipefail
           gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-            --field body='OKMD API diagnostic run completed. See the Actions job log for the sanitized HTTP status, response keys, provider/model, error object, usage, and quota. No API key is printed.' >/dev/null
+            --field body='OKMD API diagnostic run completed. See the Actions job log for sanitized API evidence. No API key is printed.' >/dev/null
