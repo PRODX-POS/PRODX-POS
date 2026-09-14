@@ -1,4 +1,4 @@
-name: OKMD AI Review Dispatch
+name: AI Review Dispatch
 
 on:
   pull_request_target:
@@ -12,10 +12,8 @@ permissions:
   issues: write
   pull-requests: write
 
-# Keep this recovery lane isolated from the legacy OKMD workflow's concurrency group.
-# Otherwise the two workflows can cancel each other before reaching the provider.
 concurrency:
-  group: okmd-ai-review-dispatch-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  group: ai-review-dispatch-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -26,7 +24,7 @@ jobs:
       (
         github.event_name == 'issue_comment' &&
         github.event.issue.pull_request &&
-        startsWith(github.event.comment.body, '/okmd-review') &&
+        startsWith(github.event.comment.body, '/ai-review') &&
         (github.event.comment.author_association == 'OWNER' ||
          github.event.comment.author_association == 'MEMBER' ||
          github.event.comment.author_association == 'COLLABORATOR')
@@ -43,33 +41,23 @@ jobs:
         run: |
           set -euo pipefail
           pr_number="${EVENT_PR:-}"
-          if [[ -z "$pr_number" ]]; then
-            pr_number="${COMMENT_PR:-}"
-          fi
-          if [[ -z "$pr_number" ]]; then
-            echo 'workflow_dispatch requires a pull-request event context; use /okmd-review on a PR.' >&2
-            exit 1
-          fi
+          if [[ -z "$pr_number" ]]; then pr_number="${COMMENT_PR:-}"; fi
+          test -n "$pr_number" || { echo 'A pull-request context is required.' >&2; exit 1; }
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
 
       - name: Verify repository-owned pull request
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
-        shell: bash
         run: |
           set -euo pipefail
           head_repo="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.repo.full_name')"
-          if [[ "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
-            echo 'OKMD review is restricted to repository-owned pull requests.' >&2
-            exit 1
-          fi
+          test "$head_repo" = "$GITHUB_REPOSITORY" || { echo 'AI review is restricted to repository-owned pull requests.' >&2; exit 1; }
 
       - name: Fetch and sanitize pull request diff
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
-        shell: bash
         run: |
           set -euo pipefail
           curl --fail --silent --show-error \
@@ -77,77 +65,70 @@ jobs:
             --header 'Accept: application/vnd.github.v3.diff' \
             --header 'X-GitHub-Api-Version: 2022-11-28' \
             "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}.diff" > pr.diff
-
           python3 - <<'PY'
           from pathlib import Path
           import re
           source = Path('pr.diff').read_text(encoding='utf-8', errors='replace')
           blocks = re.split(r'(?=^diff --git )', source, flags=re.MULTILINE)
-          allowed, excluded = [], []
+          allowed = []
+          excluded = []
           sensitive_name = re.compile(r'(^|/)(?:\.env(?:\..*)?|.*(?:secret|credential|password|token).*)$|\.(?:pem|key|p12|pfx)$', re.I)
-          secret_patterns = [
+          patterns = [
               (re.compile(r'(Authorization:\s*Bearer\s+)[^\s]+', re.I), r'\1[REDACTED]'),
               (re.compile(r'((?:api[_-]?key|access[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*["\']?)[^\s"\'&,]+', re.I), r'\1[REDACTED]'),
               (re.compile(r'-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----', re.S), '[REDACTED_PRIVATE_KEY]'),
               (re.compile(r'(gh[pousr]_[A-Za-z0-9_]{20,})'), '[REDACTED_GITHUB_TOKEN]'),
           ]
           for block in blocks:
-              if not block.strip():
-                  continue
+              if not block.strip(): continue
               match = re.search(r'^diff --git a/(.*?) b/(.*?)$', block, re.M)
               path = match.group(2) if match else 'unknown'
               if sensitive_name.search(path):
                   excluded.append(path)
                   continue
-              cleaned = block
-              for pattern, replacement in secret_patterns:
-                  cleaned = pattern.sub(replacement, cleaned)
-              allowed.append(cleaned)
+              for pattern, replacement in patterns:
+                  block = pattern.sub(replacement, block)
+              allowed.append(block)
           result = ''.join(allowed)
           if len(result.encode()) > 120_000:
               result = result.encode()[:120_000].decode('utf-8', errors='ignore') + '\n\n[DIFF TRUNCATED AT 120KB]\n'
-          if not result.strip():
-              raise SystemExit('No reviewable source diff remained after sensitive-file filtering.')
+          test result.strip() || { echo 'No reviewable source diff remained after filtering.' >&2; exit 1; }
           Path('sanitized.diff').write_text(result, encoding='utf-8')
           Path('excluded-files.txt').write_text('\n'.join(sorted(set(excluded))) or 'none', encoding='utf-8')
           PY
 
-      - name: Select OKMD model from advertised models
+      - name: Select OpenRouter model from advertised models
         id: model
         env:
-          OKMD_BASE_URL: https://gen.ai.kku.ac.th/okmd/api/v1
-          OKMD_API_KEY: ${{ secrets.OKMD_AI_API_KEY }}
-          PREFERRED_MODEL_ID: ${{ vars.OKMD_AI_REVIEW_MODEL_ID }}
-        shell: bash
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PREFERRED_MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID }}
         run: |
           set -euo pipefail
-          test -n "${OKMD_API_KEY:-}" || { echo 'OKMD_AI_API_KEY is not configured.' >&2; exit 1; }
+          test -n "${OPENROUTER_API_KEY:-}" || { echo 'OPENROUTER_API_KEY is not configured.' >&2; exit 1; }
           models="$(curl --fail --silent --show-error \
-            --header "Authorization: Bearer $OKMD_API_KEY" \
+            --header "Authorization: Bearer $OPENROUTER_API_KEY" \
             --header 'Accept: application/json' \
-            "$OKMD_BASE_URL/models")"
+            https://openrouter.ai/api/v1/models)"
           model_id=''
-          if [[ -n "$PREFERRED_MODEL_ID" ]]; then
-            model_id="$(printf '%s' "$models" | jq -r --arg p "$PREFERRED_MODEL_ID" '.data[] | select((.id|tostring) == $p) | .id' | head -n1)"
+          if [[ -n "${PREFERRED_MODEL_ID:-}" ]]; then
+            model_id="$(printf '%s' "$models" | jq -r --arg p "$PREFERRED_MODEL_ID" '.data[] | select(.id == $p) | .id' | head -n1)"
           fi
           if [[ -z "$model_id" ]]; then
-            model_id="$(printf '%s' "$models" | jq -r '.data[].id' | grep -E '^(gpt-5\.6|claude-sonnet-5|gemini-3\.)' | head -n1 || true)"
+            model_id="$(printf '%s' "$models" | jq -r '.data[].id' | grep -E '^(openai/|anthropic/|google/)' | head -n1 || true)"
           fi
           if [[ -z "$model_id" ]]; then
             model_id="$(printf '%s' "$models" | jq -r '.data[0].id // empty')"
           fi
-          test -n "$model_id" || { echo 'OKMD API returned no usable model.' >&2; exit 1; }
+          test -n "$model_id" || { echo 'OpenRouter returned no usable model.' >&2; exit 1; }
           echo "model_id=$model_id" >> "$GITHUB_OUTPUT"
-          echo "OKMD advertised model count: $(printf '%s' "$models" | jq '.data | length')" >> "$GITHUB_STEP_SUMMARY"
-          echo "OKMD selected model: $model_id" >> "$GITHUB_STEP_SUMMARY"
+          echo "OpenRouter advertised model count: $(printf '%s' "$models" | jq '.data | length')" >> "$GITHUB_STEP_SUMMARY"
+          echo "OpenRouter selected model: $model_id" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Review diff with OKMD AI
+      - name: Review diff with OpenRouter
         env:
-          OKMD_BASE_URL: https://gen.ai.kku.ac.th/okmd/api/v1
-          OKMD_API_KEY: ${{ secrets.OKMD_AI_API_KEY }}
-          OKMD_MODEL_ID: ${{ steps.model.outputs.model_id }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_ID: ${{ steps.model.outputs.model_id }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
-        shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -155,10 +136,10 @@ jobs:
           from pathlib import Path
           diff = Path('sanitized.diff').read_text(encoding='utf-8')
           excluded = Path('excluded-files.txt').read_text(encoding='utf-8')
-          system = '''You are the independent OKMD AI security and architecture reviewer for PRODX-POS. Review only the supplied pull-request diff. Return ONLY valid JSON: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH. Be conservative about security, tenant isolation, database integrity, financial correctness, idempotency, auditability, and regression risk.'''
+          system = '''You are the independent security and architecture reviewer for PRODX-POS. Review only the supplied pull-request diff. Return ONLY valid JSON: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH. Be conservative about tenant isolation, database integrity, financial correctness, idempotency, auditability, authentication, authorization, secret handling, and regression risk.'''
           user = f'''PR #{os.environ["PR_NUMBER"]}\nSensitive paths excluded:\n{excluded}\n\nSanitized diff:\n```diff\n{diff}\n```'''
-          payload = json.dumps({'model': os.environ['OKMD_MODEL_ID'], 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':3000, 'stream':False}).encode()
-          req = urllib.request.Request(os.environ['OKMD_BASE_URL'] + '/chat/completions', data=payload, headers={'Authorization':'Bearer ' + os.environ['OKMD_API_KEY'], 'Content-Type':'application/json'}, method='POST')
+          payload = json.dumps({'model': os.environ['OPENROUTER_MODEL_ID'], 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':3000, 'stream':False}).encode()
+          req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=payload, headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/PRODX-POS/PRODX-POS', 'X-Title':'PRODX-POS AI Review'}, method='POST')
           with urllib.request.urlopen(req, timeout=180) as response:
               body = json.load(response)
           content = body['choices'][0]['message']['content'].strip()
@@ -166,33 +147,32 @@ jobs:
               content = content.split('\n',1)[1].rsplit('```',1)[0].strip()
           review = json.loads(content)
           if review.get('decision') not in {'PASS','WARN','FAIL'}:
-              raise SystemExit('OKMD returned an invalid decision.')
-          Path('okmd-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
-          print(json.dumps({'model': body.get('model'), 'provider': body.get('provider'), 'usage': body.get('usage'), 'model_quota': body.get('model_quota'), 'decision': review['decision']}, ensure_ascii=False))
+              raise SystemExit('OpenRouter returned an invalid decision.')
+          Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
+          print(json.dumps({'provider': body.get('provider'), 'model': body.get('model'), 'usage': body.get('usage'), 'decision': review['decision']}, ensure_ascii=False))
           if review['decision'] == 'FAIL':
-              raise SystemExit('OKMD AI Code Review found CRITICAL/HIGH findings.')
+              raise SystemExit('AI review found CRITICAL/HIGH findings.')
           PY
 
-      - name: Post OKMD review to pull request
+      - name: Post AI review to pull request
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           MODEL_ID: ${{ steps.model.outputs.model_id }}
-        shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json, os
           from pathlib import Path
-          review = json.loads(Path('okmd-review.json').read_text(encoding='utf-8'))
-          lines = ['<!-- prodx-okmd-review -->','## OKMD AI Code Review','',f'**Decision:** `{review["decision"]}`',f'**Model:** `{os.environ["MODEL_ID"]}`','',review.get('summary','No summary returned.')]
+          review = json.loads(Path('ai-review.json').read_text(encoding='utf-8'))
+          lines = ['<!-- prodx-ai-review -->','## PRODX-POS AI Code Review','',f'**Decision:** `{review["decision"]}`',f'**Model:** `{os.environ["MODEL_ID"]}`','',review.get('summary','No summary returned.')]
           findings = review.get('findings', [])
           if findings:
               lines += ['', '| Severity | File | Line | Finding | Recommendation |','|---|---|---:|---|---|']
               for f in findings:
                   cell=lambda v: str(v).replace('|','\\|').replace('\n',' ')
                   lines.append(f'| {cell(f.get("severity"))} | `{cell(f.get("file"))}` | {cell(f.get("line",0))} | {cell(f.get("title"))}: {cell(f.get("reason"))} | {cell(f.get("recommendation"))} |')
-          Path('okmd-comment.json').write_text(json.dumps({'body':'\n'.join(lines)}, ensure_ascii=False), encoding='utf-8')
+          Path('ai-comment.json').write_text(json.dumps({'body':'\n'.join(lines)}, ensure_ascii=False), encoding='utf-8')
           PY
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input okmd-comment.json --header 'Accept: application/vnd.github+json' >/dev/null
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input ai-comment.json --header 'Accept: application/vnd.github+json' >/dev/null
