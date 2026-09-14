@@ -2,23 +2,18 @@ import crypto from 'node:crypto';
 import type { RequestPrincipal } from '../http/types';
 
 export type AuthenticatedSession = RequestPrincipal & { sessionId: string };
-
 export type CredentialRecord = {
   userId: string; organizationId: string; username: string;
   status: 'active' | 'disabled'; credentialType: 'password'; secretHash: string;
   failedAttempts: number; lockedUntil: Date | null;
 };
-
 export type SessionRecord = {
   id: string; organizationId: string; userId: string; deviceId: string;
-  tokenHash: string; expiresAt: Date; revokedAt: Date | null;
-  userStatus: 'active' | 'disabled';
+  tokenHash: string; expiresAt: Date; revokedAt: Date | null; userStatus: 'active' | 'disabled';
 };
-
 export type DeviceRecord = {
   id: string; organizationId: string; storeId: string; status: 'active' | 'disabled';
 };
-
 export type AuthenticationRepository = {
   findCredentialByUsername: (username: string) => Promise<CredentialRecord | null>;
   recordFailedAttempt: (userId: string, lockedUntil?: Date) => Promise<void>;
@@ -28,7 +23,6 @@ export type AuthenticationRepository = {
   findDevice: (deviceId: string) => Promise<DeviceRecord | null>;
   touchSession: (sessionId: string, at: Date) => Promise<void>;
 };
-
 export type AuthenticateCredentialsInput = { username: string; password: string; deviceId: string };
 export type SessionIssuer = {
   authenticateCredentials: (input: AuthenticateCredentialsInput) => Promise<{ token: string; sessionId: string } | null>;
@@ -39,9 +33,7 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 
-export const hashSessionToken = (token: string): string =>
-  crypto.createHash('sha256').update(token, 'utf8').digest('hex');
-
+export const hashSessionToken = (token: string): string => crypto.createHash('sha256').update(token, 'utf8').digest('hex');
 const newBearerToken = (): string => crypto.randomBytes(32).toString('base64url');
 
 export const createSessionIssuer = (
@@ -52,16 +44,12 @@ export const createSessionIssuer = (
   authenticateCredentials: async ({ username, password, deviceId }) => {
     const normalizedUsername = username.trim();
     if (!normalizedUsername || !password || !deviceId) return null;
-
     const credential = await repository.findCredentialByUsername(normalizedUsername);
     if (!credential || credential.status !== 'active' || credential.credentialType !== 'password') return null;
-
     const current = now();
     if (credential.lockedUntil && credential.lockedUntil > current) return null;
-
     const device = await repository.findDevice(deviceId);
     if (!device || device.status !== 'active' || device.organizationId !== credential.organizationId) return null;
-
     if (!(await verifySecret(password, credential.secretHash))) {
       const nextFailedAttempts = credential.failedAttempts + 1;
       const lockedUntil = nextFailedAttempts >= MAX_FAILED_ATTEMPTS
@@ -70,26 +58,21 @@ export const createSessionIssuer = (
       await repository.recordFailedAttempt(credential.userId, lockedUntil);
       return null;
     }
-
     await repository.resetFailedAttempts(credential.userId);
     const token = newBearerToken();
     const sessionId = crypto.randomUUID();
     await repository.createSession({
-      id: sessionId, organizationId: credential.organizationId, userId: credential.userId,
-      deviceId: device.id, tokenHash: hashSessionToken(token),
-      expiresAt: new Date(current.getTime() + SESSION_TTL_MS),
+      id: sessionId, organizationId: credential.organizationId, userId: credential.userId, deviceId: device.id,
+      tokenHash: hashSessionToken(token), expiresAt: new Date(current.getTime() + SESSION_TTL_MS),
     });
     return { token, sessionId };
   },
-
   authenticateBearer: async (token) => {
     if (!token) return null;
     const session = await repository.findSessionByTokenHash(hashSessionToken(token));
     if (!session || session.revokedAt || session.expiresAt <= now() || session.userStatus !== 'active') return null;
-
     const device = await repository.findDevice(session.deviceId);
     if (!device || device.status !== 'active' || device.organizationId !== session.organizationId) return null;
-
     await repository.touchSession(session.id, now());
     return { sessionId: session.id, userId: session.userId, organizationId: session.organizationId, storeId: device.storeId };
   },
