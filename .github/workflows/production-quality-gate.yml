@@ -54,6 +54,18 @@ jobs:
       - name: Type check backend
         run: bun run server:check
 
+      - name: Prepare PostgreSQL schema for backend integration tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$DATABASE_URL"
+          migrations=(db/migrations/*.sql)
+          test "${#migrations[@]}" -gt 0
+          for migration in "${migrations[@]}"; do
+            echo "Applying $migration"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+
       - name: Backend boundary tests
         run: bun run server:test
 

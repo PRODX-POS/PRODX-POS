@@ -9,6 +9,23 @@ on:
 jobs:
   auth-security:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: prodx
+          POSTGRES_PASSWORD: prodx
+          POSTGRES_DB: prodx_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prodx -d prodx_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_test
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -21,11 +38,22 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      - name: Apply PostgreSQL migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          for migration in db/migrations/*.sql; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+
       - name: Type check
         run: npm run lint
 
       - name: Production build
         run: npm run build
+
+      - name: M2 PostgreSQL authentication integration
+        run: npm run server:test:integration
 
       - name: Reject direct mock auth wiring
         shell: bash

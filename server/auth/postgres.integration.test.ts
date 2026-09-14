@@ -144,7 +144,7 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, and tok
   assert.equal(await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA }), null);
   await pool.query('UPDATE prodx_devices SET status = \'active\' WHERE id = $1', [ids.deviceA]);
 
-  await pool.query('UPDATE prodx_sessions SET expires_at = CURRENT_TIMESTAMP - INTERVAL \'1 minute\' WHERE id = $1', [result.sessionId]);
+  await pool.query('UPDATE prodx_sessions SET issued_at = CURRENT_TIMESTAMP - INTERVAL \'2 minutes\', expires_at = CURRENT_TIMESTAMP - INTERVAL \'1 minute\' WHERE id = $1', [result.sessionId]);
   assert.equal(await authentication.authenticateBearer(result.token), null);
 
   const fresh = await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA });
