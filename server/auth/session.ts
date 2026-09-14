@@ -21,7 +21,7 @@ export type DeviceRecord = {
 
 export type AuthenticationRepository = {
   findCredentialByUsername: (username: string) => Promise<CredentialRecord | null>;
-  recordFailedAttempt: (userId: string) => Promise<void>;
+  recordFailedAttempt: (userId: string, lockedUntil?: Date) => Promise<void>;
   resetFailedAttempts: (userId: string) => Promise<void>;
   createSession: (input: { id: string; organizationId: string; userId: string; deviceId: string; tokenHash: string; expiresAt: Date }) => Promise<void>;
   findSessionByTokenHash: (tokenHash: string) => Promise<SessionRecord | null>;
@@ -36,6 +36,8 @@ export type SessionIssuer = {
 };
 
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 
 export const hashSessionToken = (token: string): string =>
   crypto.createHash('sha256').update(token, 'utf8').digest('hex');
@@ -61,7 +63,11 @@ export const createSessionIssuer = (
     if (!device || device.status !== 'active' || device.organizationId !== credential.organizationId) return null;
 
     if (!(await verifySecret(password, credential.secretHash))) {
-      await repository.recordFailedAttempt(credential.userId);
+      const nextFailedAttempts = credential.failedAttempts + 1;
+      const lockedUntil = nextFailedAttempts >= MAX_FAILED_ATTEMPTS
+        ? new Date(current.getTime() + LOCKOUT_DURATION_MS)
+        : undefined;
+      await repository.recordFailedAttempt(credential.userId, lockedUntil);
       return null;
     }
 
