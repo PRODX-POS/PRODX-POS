@@ -19,17 +19,49 @@ export const createPostgresAuthenticationRepository = (db: SqlExecutor): Authent
   },
   async recordFailedAttempt(userId, lockedUntil) {
     await db.query(
-      `UPDATE prodx_user_credentials
-          SET failed_attempts = failed_attempts + 1,
-              locked_until = CASE WHEN $2::timestamptz IS NULL THEN locked_until ELSE $2::timestamptz END,
-              updated_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1`, [userId, lockedUntil ?? null],
+      `WITH updated AS (
+         UPDATE prodx_user_credentials
+            SET failed_attempts = failed_attempts + 1,
+                locked_until = CASE WHEN $2::timestamptz IS NULL THEN locked_until ELSE $2::timestamptz END,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = $1
+            AND (locked_until IS NULL OR locked_until <= CURRENT_TIMESTAMP)
+          RETURNING user_id, failed_attempts, locked_until
+       )
+       INSERT INTO prodx_security_audit_events
+         (id, organization_id, user_id, event_type, metadata)
+       SELECT gen_random_uuid(), u.organization_id, updated.user_id, 'AUTH_LOCKOUT',
+              jsonb_build_object('failed_attempts', updated.failed_attempts, 'locked_until', updated.locked_until)
+         FROM updated
+         JOIN prodx_users u ON u.id = updated.user_id
+        WHERE updated.failed_attempts = 5 AND updated.locked_until IS NOT NULL`,
+      [userId, lockedUntil ?? null],
     );
   },
   async resetFailedAttempts(userId) {
     await db.query(
-      `UPDATE prodx_user_credentials SET failed_attempts = 0, locked_until = NULL,
-              last_authenticated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1`, [userId],
+      `WITH previous AS (
+         SELECT user_id, failed_attempts, locked_until
+           FROM prodx_user_credentials
+          WHERE user_id = $1
+          FOR UPDATE
+       ), updated AS (
+         UPDATE prodx_user_credentials c
+            SET failed_attempts = 0, locked_until = NULL,
+                last_authenticated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+           FROM previous
+          WHERE c.user_id = previous.user_id
+          RETURNING c.user_id
+       )
+       INSERT INTO prodx_security_audit_events
+         (id, organization_id, user_id, event_type, metadata)
+       SELECT gen_random_uuid(), u.organization_id, previous.user_id, 'AUTH_LOCKOUT_RESET',
+              jsonb_build_object('previous_failed_attempts', previous.failed_attempts,
+                                 'previous_locked_until', previous.locked_until)
+         FROM previous
+         JOIN prodx_users u ON u.id = previous.user_id
+        WHERE previous.failed_attempts > 0 OR previous.locked_until IS NOT NULL`,
+      [userId],
     );
   },
   async createSession(input) {
