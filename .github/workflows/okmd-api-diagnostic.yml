@@ -1,0 +1,76 @@
+name: OKMD API Diagnostic
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+concurrency:
+  group: okmd-api-diagnostic-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  diagnostic:
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/okmd-api-test') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Test OKMD API
+        env:
+          OKMD_BASE_URL: https://gen.ai.kku.ac.th/okmd/api/v1
+          OKMD_API_KEY: ${{ secrets.OKMD_AI_API_KEY }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${OKMD_API_KEY:-}" || { echo 'OKMD_AI_API_KEY is not configured.' >&2; exit 1; }
+          models="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $OKMD_API_KEY" \
+            --header 'Accept: application/json' \
+            "$OKMD_BASE_URL/models")"
+          model_id="$(printf '%s' "$models" | jq -r '.data[].id' | grep -E '^(claude-sonnet-5|gpt-5\.6|gemini-3\.)' | head -n1 || true)"
+          [[ -n "$model_id" ]] || model_id="$(printf '%s' "$models" | jq -r '.data[0].id // empty')"
+          echo "advertised_model_count=$(printf '%s' "$models" | jq '.data | length')"
+          echo "selected_model=$model_id"
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.request
+          base=os.environ['OKMD_BASE_URL']
+          key=os.environ['OKMD_API_KEY']
+          model=os.environ['model_id'] if 'model_id' in os.environ else None
+          if not model:
+              raise SystemExit('model_id missing')
+          payload=json.dumps({'model':model,'messages':[{'role':'user','content':'Return exactly OKMD-POS-API-TEST'}],'temperature':0,'max_tokens':32,'stream':False}).encode()
+          req=urllib.request.Request(base+'/chat/completions',data=payload,headers={'Authorization':'Bearer '+key,'Content-Type':'application/json','Accept':'application/json'},method='POST')
+          try:
+              with urllib.request.urlopen(req,timeout=180) as r:
+                  status=r.status
+                  body=json.load(r)
+          except urllib.error.HTTPError as e:
+              status=e.code
+              body=json.loads(e.read().decode('utf-8','replace'))
+          print(json.dumps({'http_status':status,'keys':sorted(body.keys()),'model':body.get('model'),'provider':body.get('provider'),'error':body.get('error'),'usage':body.get('usage'),'model_quota':body.get('model_quota'),'has_choices':bool(body.get('choices'))},ensure_ascii=False))
+          if status != 200 or not body.get('choices'):
+              raise SystemExit('OKMD chat/completions did not return choices; inspect diagnostic output above.')
+          PY
+        env:
+          model_id: ''
+
+      - name: Comment diagnostic result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --field body='OKMD API diagnostic run completed. See the Actions job log for the sanitized HTTP status, response keys, provider/model, error object, usage, and quota. No API key is printed.' >/dev/null
