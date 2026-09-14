@@ -1,0 +1,77 @@
+name: AI Automated Formal Review
+
+on:
+  workflow_run:
+    workflows: ["AI Review Dispatch"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: ai-automated-formal-review-${{ github.event.workflow_run.id }}
+  cancel-in-progress: true
+
+jobs:
+  formal-review:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve repository-owned pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          prs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/pull_requests")"
+          count="$(printf '%s' "$prs" | jq 'length')"
+          test "$count" = "1" || { echo "Expected exactly one pull request." >&2; exit 1; }
+          pr_number="$(printf '%s' "$prs" | jq -r '.[0].number')"
+          head_repo="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}" --jq '.head.repo.full_name')"
+          [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo "AI formal review is restricted to repository-owned pull requests." >&2; exit 1; }
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+
+      - name: Read repository-owned AI review decision
+        id: decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          comments="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments")"
+          review="$(printf '%s' "$comments" | jq -r '[.[] | select(.user.login == "github-actions[bot]") | select(.body | contains("<!-- prodx-openrouter-review -->"))] | last | .body // empty')"
+          [[ -n "$review" ]] || { echo "No repository-owned AI review result found." >&2; exit 1; }
+          decision="$(printf '%s' "$review" | sed -n 's/.*\*\*Decision:\*\* `\([^`]*\)`.*/\1/p' | head -n1)"
+          case "$decision" in
+            PASS|WARN|FAIL) ;;
+            *) echo "Invalid AI decision: $decision" >&2; exit 1 ;;
+          esac
+          echo "decision=$decision" >> "$GITHUB_OUTPUT"
+
+      - name: Submit formal AI approval
+        if: steps.decision.outputs.decision == 'PASS'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          jq -n '{event:"APPROVE", body:"Automated AI review PASS. This formal review is generated only from the repository-owned PRODX-POS OpenRouter AI review result; it does not bypass branch protection or required status checks."}' > review.json
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" --input review.json --header 'Accept: application/vnd.github+json' >/dev/null
+
+      - name: Submit formal AI change request
+        if: steps.decision.outputs.decision == 'FAIL'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          jq -n '{event:"REQUEST_CHANGES", body:"Automated AI review found CRITICAL/HIGH findings. Resolve the AI review findings and rerun the review before merge."}' > review.json
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" --input review.json --header 'Accept: application/vnd.github+json' >/dev/null
+
+      - name: Record warning-only decision
+        if: steps.decision.outputs.decision == 'WARN'
+        run: echo "AI review returned WARN; no formal approval is issued."
