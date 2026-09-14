@@ -1,9 +1,5 @@
 import type { AuthenticationRepository, CredentialRecord, DeviceRecord, SessionRecord } from './session';
 
-/**
- * Minimal parameterized SQL boundary. The concrete PostgreSQL client is injected
- * by the application composition root, keeping auth independent of a vendor SDK.
- */
 export type SqlExecutor = {
   query<T extends Record<string, unknown>>(sql: string, parameters?: readonly unknown[]): Promise<readonly T[]>;
 };
@@ -32,7 +28,6 @@ export const createPostgresAuthenticationRepository = (db: SqlExecutor): Authent
       lockedUntil: row.locked_until,
     };
   },
-
   async recordFailedAttempt(userId, lockedUntil) {
     await db.query(
       `UPDATE prodx_user_credentials
@@ -43,19 +38,15 @@ export const createPostgresAuthenticationRepository = (db: SqlExecutor): Authent
       [userId, lockedUntil ?? null],
     );
   },
-
   async resetFailedAttempts(userId) {
     await db.query(
       `UPDATE prodx_user_credentials
-          SET failed_attempts = 0,
-              locked_until = NULL,
-              last_authenticated_at = CURRENT_TIMESTAMP,
-              updated_at = CURRENT_TIMESTAMP
+          SET failed_attempts = 0, locked_until = NULL,
+              last_authenticated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
         WHERE user_id = $1`,
       [userId],
     );
   },
-
   async createSession(input) {
     await db.query(
       `INSERT INTO prodx_sessions
@@ -64,7 +55,6 @@ export const createPostgresAuthenticationRepository = (db: SqlExecutor): Authent
       [input.id, input.organizationId, input.userId, input.deviceId, input.tokenHash, input.expiresAt],
     );
   },
-
   async findSessionByTokenHash(tokenHash) {
     const rows = await db.query<{
       id: string; organization_id: string; user_id: string; device_id: string;
@@ -73,55 +63,30 @@ export const createPostgresAuthenticationRepository = (db: SqlExecutor): Authent
       `SELECT s.id, s.organization_id, s.user_id, s.device_id, s.token_hash,
               s.expires_at, s.revoked_at, u.status AS user_status
          FROM prodx_sessions s
-         JOIN prodx_users u
-           ON u.id = s.user_id AND u.organization_id = s.organization_id
+         JOIN prodx_users u ON u.id = s.user_id AND u.organization_id = s.organization_id
         WHERE s.token_hash = $1
         LIMIT 1`,
       [tokenHash],
     );
     const row = rows[0];
     if (!row) return null;
-    const session: SessionRecord = {
-      id: row.id,
-      organizationId: row.organization_id,
-      userId: row.user_id,
-      deviceId: row.device_id,
-      tokenHash: row.token_hash,
-      expiresAt: row.expires_at,
-      revokedAt: row.revoked_at,
-      userStatus: row.user_status,
-    };
-    return session;
+    return {
+      id: row.id, organizationId: row.organization_id, userId: row.user_id, deviceId: row.device_id,
+      tokenHash: row.token_hash, expiresAt: row.expires_at, revokedAt: row.revoked_at, userStatus: row.user_status,
+    } satisfies SessionRecord;
   },
-
   async findDevice(deviceId) {
-    const rows = await db.query<{
-      id: string; organization_id: string; store_id: string; status: 'active' | 'disabled';
-    }>(
-      `SELECT id, organization_id, store_id, status
-         FROM prodx_devices
-        WHERE id = $1
-        LIMIT 1`,
-      [deviceId],
+    const rows = await db.query<{ id: string; organization_id: string; store_id: string; status: 'active' | 'disabled' }>(
+      `SELECT id, organization_id, store_id, status FROM prodx_devices WHERE id = $1 LIMIT 1`, [deviceId],
     );
     const row = rows[0];
     if (!row) return null;
-    const device: DeviceRecord = {
-      id: row.id,
-      organizationId: row.organization_id,
-      storeId: row.store_id,
-      status: row.status,
-    };
-    return device;
+    return { id: row.id, organizationId: row.organization_id, storeId: row.store_id, status: row.status } satisfies DeviceRecord;
   },
-
   async touchSession(sessionId, at) {
     await db.query(
-      `UPDATE prodx_sessions
-          SET last_seen_at = $2
-        WHERE id = $1
-          AND revoked_at IS NULL
-          AND expires_at > $2`,
+      `UPDATE prodx_sessions SET last_seen_at = $2
+        WHERE id = $1 AND revoked_at IS NULL AND expires_at > $2`,
       [sessionId, at],
     );
   },
