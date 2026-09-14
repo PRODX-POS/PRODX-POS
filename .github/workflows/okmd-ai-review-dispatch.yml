@@ -16,6 +16,10 @@ concurrency:
   group: ai-review-dispatch-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
   cancel-in-progress: true
 
+env:
+  AI_REVIEW_PRIMARY_MODEL: nex-agi/nex-n2.5-pro:free
+  AI_REVIEW_FALLBACK_MODEL: nex-agi/nex-n2.5-mini:free
+
 jobs:
   review:
     if: >-
@@ -74,24 +78,31 @@ jobs:
           Path('excluded-files.txt').write_text('\n'.join(sorted(set(excluded))) or 'none', encoding='utf-8')
           PY
 
-      - name: Select free OpenRouter model from advertised models
+      - name: Select pinned OpenRouter model with explicit fallback
         id: model
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          PREFERRED_MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID }}
         run: |
           set -euo pipefail
           [[ -n "${OPENROUTER_API_KEY:-}" ]] || { echo 'OPENROUTER_API_KEY is not configured.' >&2; exit 1; }
           models="$(curl --fail --silent --show-error --header "Authorization: Bearer $OPENROUTER_API_KEY" --header 'Accept: application/json' https://openrouter.ai/api/v1/models)"
+          primary='${{ env.AI_REVIEW_PRIMARY_MODEL }}'
+          fallback='${{ env.AI_REVIEW_FALLBACK_MODEL }}'
           model_id=''
-          if [[ -n "${PREFERRED_MODEL_ID:-}" ]] && printf '%s' "$models" | jq -e --arg id "$PREFERRED_MODEL_ID" '.data[] | select(.id == $id)' >/dev/null; then model_id="$PREFERRED_MODEL_ID"; fi
-          if [[ -z "$model_id" ]]; then model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id | endswith(":free")) and ((.architecture.output_modalities // ["text"]) | index("text")) and ((.supported_parameters // []) | index("response_format"))) | .id' | grep -Ev 'vision|vl' | head -n1 || true)"; fi
-          if [[ -z "$model_id" ]]; then model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id | endswith(":free")) and ((.architecture.output_modalities // ["text"]) | index("text"))) | .id' | grep -Ev 'vision|vl' | head -n1 || true)"; fi
-          if [[ -z "$model_id" ]]; then model_id='openrouter/free'; fi
-          [[ -n "$model_id" ]] || { echo 'OpenRouter API returned no usable model.' >&2; exit 1; }
+          for candidate in "$primary" "$fallback"; do
+            if printf '%s' "$models" | jq -e --arg id "$candidate" '.data[] | select(.id == $id) | select((.architecture.output_modalities // ["text"]) | index("text"))' >/dev/null; then
+              model_id="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$model_id" ]]; then
+            echo 'Pinned Nex Pro and Mini are unavailable; using OpenRouter free router as emergency availability fallback.' >> "$GITHUB_STEP_SUMMARY"
+            model_id='openrouter/free'
+          fi
           echo "model_id=$model_id" >> "$GITHUB_OUTPUT"
-          echo "OpenRouter advertised model count: $(printf '%s' "$models" | jq '.data | length')" >> "$GITHUB_STEP_SUMMARY"
-          echo "OpenRouter selected model: $model_id" >> "$GITHUB_STEP_SUMMARY"
+          echo "Primary reviewer: $primary" >> "$GITHUB_STEP_SUMMARY"
+          echo "Fallback reviewer: $fallback" >> "$GITHUB_STEP_SUMMARY"
+          echo "Selected reviewer: $model_id" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Review diff with OpenRouter
         id: review
@@ -159,7 +170,9 @@ jobs:
           if review is None:
             raise SystemExit('OpenRouter response did not contain valid review JSON. Model returned no parseable text content.')
           Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
-          print(json.dumps({'provider': body.get('provider'), 'model': body.get('model'), 'usage': body.get('usage'), 'decision': review['decision']}, ensure_ascii=False))
+          audit = {'provider': body.get('provider'), 'model': body.get('model'), 'requested_model': os.environ['OPENROUTER_MODEL_ID'], 'usage': body.get('usage'), 'decision': review['decision']}
+          Path('ai-review-audit.json').write_text(json.dumps(audit, indent=2, ensure_ascii=False), encoding='utf-8')
+          print(json.dumps(audit, ensure_ascii=False))
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out: out.write(f"decision={review['decision']}\n")
           PY
 
@@ -175,7 +188,8 @@ jobs:
           import json, os
           from pathlib import Path
           review = json.loads(Path('ai-review.json').read_text(encoding='utf-8'))
-          lines = ['<!-- prodx-openrouter-review -->','## PRODX-POS OpenRouter AI Code Review','',f'**Decision:** `{review["decision"]}`','**Provider:** `OpenRouter`',f'**Model:** `{os.environ["MODEL_ID"]}`','',review.get('summary','No summary returned.')]
+          audit = json.loads(Path('ai-review-audit.json').read_text(encoding='utf-8'))
+          lines = ['<!-- prodx-openrouter-review -->','## PRODX-POS OpenRouter AI Code Review','',f'**Decision:** `{review["decision"]}`','**Provider:** `OpenRouter`',f'**Requested model:** `{audit.get("requested_model")}`',f'**Served model:** `{audit.get("model")}`','',review.get('summary','No summary returned.')]
           findings = review.get('findings', [])
           if findings:
             lines += ['', '| Severity | File | Line | Finding | Recommendation |','|---|---|---:|---|---|']
