@@ -31,7 +31,7 @@ test('session lookup joins user status instead of trusting session state', async
   assert.equal(result?.tokenHash, 'hash');
 });
 
-test('session and credential writes use parameterized SQL', async () => {
+test('credential and session writes remain parameterized and persist auth security events atomically', async () => {
   const calls: Array<{ sql: string; parameters: readonly unknown[] }> = [];
   const db: SqlExecutor = { async query<T extends Record<string, unknown>>(sql: string, parameters = []): Promise<readonly T[]> {
     calls.push({ sql, parameters }); return [];
@@ -44,5 +44,9 @@ test('session and credential writes use parameterized SQL', async () => {
   await repository.touchSession('session-1', new Date('2030-01-01T00:00:00Z'));
   assert.equal(calls.length, 4);
   assert.ok(calls.every(({ sql }) => !sql.includes('token-hash')));
-  assert.deepEqual(calls[1].parameters, ['user-1', lockout]);
+  assert.deepEqual(calls[1].parameters.slice(0, 2), ['user-1', lockout]);
+  assert.equal(calls[1].parameters.length, 3);
+  assert.match(calls[1].sql, /AUTH_LOCKOUT/);
+  assert.match(calls[2].sql, /AUTH_LOCKOUT_RESET/);
+  assert.equal(calls[2].parameters.length, 2);
 });
