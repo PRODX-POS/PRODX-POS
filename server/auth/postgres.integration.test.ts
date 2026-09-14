@@ -24,6 +24,7 @@ const authentication = pool ? createPostgresAuthentication(asSqlExecutor(pool)) 
 const seed = async (): Promise<void> => {
   if (!pool) throw new Error('DATABASE_URL is required for PostgreSQL integration tests.');
   const passwordHash = await hashPassword('correct-password');
+  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
   await pool.query('DELETE FROM prodx_devices WHERE id IN ($1, $2)', [ids.deviceA, ids.deviceB]);
@@ -63,6 +64,7 @@ const seed = async (): Promise<void> => {
 
 const cleanup = async (): Promise<void> => {
   if (!pool) return;
+  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
   await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
   await pool.query('DELETE FROM prodx_devices WHERE id IN ($1, $2)', [ids.deviceA, ids.deviceB]);
@@ -71,7 +73,7 @@ const cleanup = async (): Promise<void> => {
   await pool.query('DELETE FROM prodx_organizations WHERE id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
 };
 
-test('M2 PostgreSQL authentication enforces credential, tenant, session, and token-hash invariants', async (t) => {
+test('M2 PostgreSQL authentication enforces credential, tenant, session, token-hash, lockout, and security-audit invariants', async (t) => {
   if (!pool || !authentication) {
     t.skip('DATABASE_URL is not configured; run server:test:integration with PostgreSQL.');
     return;
@@ -117,17 +119,56 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, and tok
   assert.equal(afterTouch.rows[0].last_seen_at !== null, true);
   assert.equal(beforeTouch.rows[0].last_seen_at === null || afterTouch.rows[0].last_seen_at! >= beforeTouch.rows[0].last_seen_at!, true);
 
-  const wrongPassword = await authentication.authenticateCredentials({
-    username: 'm2-user-a',
-    password: 'wrong-password',
-    deviceId: ids.deviceA,
-  });
-  assert.equal(wrongPassword, null);
-  const failedAttempts = await pool.query<{ failed_attempts: number }>(
-    'SELECT failed_attempts FROM prodx_user_credentials WHERE user_id = $1',
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    assert.equal(await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'wrong-password', deviceId: ids.deviceA }), null);
+  }
+  const locked = await pool.query<{ failed_attempts: number; locked_until: Date | null }>(
+    'SELECT failed_attempts, locked_until FROM prodx_user_credentials WHERE user_id = $1',
     [ids.userA],
   );
-  assert.equal(failedAttempts.rows[0].failed_attempts, 1);
+  assert.equal(locked.rows[0].failed_attempts, 5);
+  assert.ok(locked.rows[0].locked_until);
+  assert.ok(locked.rows[0].locked_until!.getTime() > Date.now());
+
+  const audit = await pool.query<{ event_type: string; organization_id: string; user_id: string; metadata: { failed_attempts: number } }>(
+    `SELECT event_type, organization_id, user_id, metadata
+       FROM prodx_security_audit_events
+      WHERE organization_id = $1
+      ORDER BY occurred_at DESC`,
+    [ids.organizationA],
+  );
+  assert.equal(audit.rows.length, 1);
+  assert.equal(audit.rows[0].event_type, 'AUTH_LOCKOUT');
+  assert.equal(audit.rows[0].organization_id, ids.organizationA);
+  assert.equal(audit.rows[0].user_id, ids.userA);
+  assert.equal(audit.rows[0].metadata.failed_attempts, 5);
+
+  assert.equal(await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA }), null);
+  const stillLocked = await pool.query<{ failed_attempts: number; locked_until: Date | null }>(
+    'SELECT failed_attempts, locked_until FROM prodx_user_credentials WHERE user_id = $1',
+    [ids.userA],
+  );
+  assert.equal(stillLocked.rows[0].failed_attempts, 5);
+  assert.equal(stillLocked.rows[0].locked_until?.getTime(), locked.rows[0].locked_until?.getTime());
+
+  // Test successful reset without waiting 15 minutes by ending the test lock window in setup.
+  await pool.query('UPDATE prodx_user_credentials SET locked_until = CURRENT_TIMESTAMP - INTERVAL \'1 second\' WHERE user_id = $1', [ids.userA]);
+  const resetResult = await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA });
+  assert.ok(resetResult);
+  const resetState = await pool.query<{ failed_attempts: number; locked_until: Date | null }>(
+    'SELECT failed_attempts, locked_until FROM prodx_user_credentials WHERE user_id = $1',
+    [ids.userA],
+  );
+  assert.equal(resetState.rows[0].failed_attempts, 0);
+  assert.equal(resetState.rows[0].locked_until, null);
+  const resetAudit = await pool.query<{ event_type: string; metadata: { previous_failed_attempts: number } }>(
+    `SELECT event_type, metadata FROM prodx_security_audit_events
+      WHERE organization_id = $1 ORDER BY occurred_at ASC`,
+    [ids.organizationA],
+  );
+  assert.equal(resetAudit.rows.length, 2);
+  assert.equal(resetAudit.rows[1].event_type, 'AUTH_LOCKOUT_RESET');
+  assert.equal(resetAudit.rows[1].metadata.previous_failed_attempts, 5);
 
   const crossTenantDevice = await authentication.authenticateCredentials({
     username: 'm2-user-a',
