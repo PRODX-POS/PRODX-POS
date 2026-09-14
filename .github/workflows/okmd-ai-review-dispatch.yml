@@ -116,6 +116,7 @@ jobs:
           echo "OpenRouter selected model: $model_id" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Review diff with OpenRouter
+        id: review
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL_ID: ${{ steps.model.outputs.model_id }}
@@ -123,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, urllib.request
+          import json, os, urllib.request, urllib.error
           from pathlib import Path
           diff = Path('sanitized.diff').read_text(encoding='utf-8')
           excluded = Path('excluded-files.txt').read_text(encoding='utf-8')
@@ -145,12 +146,13 @@ jobs:
             raise SystemExit('OpenRouter returned an invalid decision.')
           Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
           print(json.dumps({'provider': body.get('provider'), 'model': body.get('model'), 'usage': body.get('usage'), 'decision': review['decision']}, ensure_ascii=False))
-          if review['decision'] == 'FAIL':
-            raise SystemExit('OpenRouter AI review found CRITICAL/HIGH findings.')
-          PY
+          echo = os.environ.get('GITHUB_OUTPUT')
+          if echo:
+            with open(echo, 'a', encoding='utf-8') as out:
+              out.write(f"decision={review['decision']}\n")
 
       - name: Post OpenRouter review to pull request
-        if: success()
+        if: always() && steps.review.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
@@ -171,3 +173,14 @@ jobs:
           Path('openrouter-comment.json').write_text(json.dumps({'body':'\n'.join(lines)}, ensure_ascii=False), encoding='utf-8')
           PY
           gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input openrouter-comment.json --header 'Accept: application/vnd.github+json' >/dev/null
+
+      - name: Enforce OpenRouter decision
+        if: always() && steps.review.outcome == 'success'
+        run: |
+          set -euo pipefail
+          decision="$(jq -r '.decision' ai-review.json)"
+          case "$decision" in
+            PASS|WARN) echo "OpenRouter decision: $decision" ;;
+            FAIL) echo 'OpenRouter AI review found CRITICAL/HIGH findings.' >&2; exit 1 ;;
+            *) echo 'Invalid OpenRouter decision.' >&2; exit 1 ;;
+          esac
