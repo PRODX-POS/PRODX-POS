@@ -256,6 +256,6 @@ Sanitized unified diff:
                   def cell(v): return str(v).replace('|', '\\|').replace('\n', ' ')
                   lines.append(f'| {cell(f.get("severity"))} | `{cell(f.get("file"))}` | {cell(f.get("line", 0))} | {cell(f.get("title"))}: {cell(f.get("reason"))} | {cell(f.get("recommendation"))} |')
           body = '\n'.join(lines)
-          Path('okmd-comment.md').write_text(body, encoding='utf-8')
+          Path('okmd-comment.json').write_text(json.dumps({'body': body}, ensure_ascii=False), encoding='utf-8')
           PY
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input okmd-comment.md --header 'Accept: application/vnd.github+json' >/dev/null
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input okmd-comment.json --header 'Accept: application/vnd.github+json' >/dev/null
