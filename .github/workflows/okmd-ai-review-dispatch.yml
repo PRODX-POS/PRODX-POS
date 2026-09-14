@@ -105,7 +105,7 @@ jobs:
             model_id="$PREFERRED_MODEL_ID"
           fi
           if [[ -z "$model_id" ]]; then
-            model_id="$(printf '%s' "$models" | jq -r '.data[].id' | grep -E ':free$' | head -n1 || true)"
+            model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id | endswith(":free")) and ((.architecture.output_modalities // ["text"]) | index("text"))) | .id' | grep -Ev 'vision|vl' | head -n1 || true)"
           fi
           if [[ -z "$model_id" ]]; then
             model_id='openrouter/free'
@@ -124,13 +124,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, urllib.request, urllib.error
+          import json, os, re, urllib.request, urllib.error
           from pathlib import Path
           diff = Path('sanitized.diff').read_text(encoding='utf-8')
           excluded = Path('excluded-files.txt').read_text(encoding='utf-8')
-          system = '''You are the independent security and architecture reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return ONLY valid JSON: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH.'''
+          system = '''You are the independent security and architecture reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return ONLY valid JSON with exactly this shape: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH. Do not put the JSON inside markdown fences.'''
           user = f'PR #{os.environ["PR_NUMBER"]}\nSensitive paths excluded:\n{excluded}\n\nSanitized diff:\n```diff\n{diff}\n```'
-          payload = json.dumps({'model': os.environ['OPENROUTER_MODEL_ID'], 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':3000, 'stream':False}).encode()
+          payload = json.dumps({'model': os.environ['OPENROUTER_MODEL_ID'], 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':6000, 'stream':False, 'reasoning': {'effort':'low'}}).encode()
           req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=payload, headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/' + os.environ['GITHUB_REPOSITORY'], 'X-Title':'PRODX-POS AI Code Review'}, method='POST')
           try:
             with urllib.request.urlopen(req, timeout=180) as response:
@@ -138,12 +138,32 @@ jobs:
           except urllib.error.HTTPError as exc:
             detail = exc.read().decode('utf-8', errors='replace')[:2000]
             raise SystemExit(f'OpenRouter chat completion failed with HTTP {exc.code}: {detail}')
-          content = body['choices'][0]['message']['content'].strip()
+          message = body.get('choices', [{}])[0].get('message', {})
+          content = message.get('content')
+          if not isinstance(content, str) or not content.strip():
+            content = message.get('reasoning')
+          if not isinstance(content, str) or not content.strip():
+            raise SystemExit('OpenRouter returned neither message content nor reasoning text.')
+          content = content.strip()
           if content.startswith('```'):
             content = content.split('\n',1)[1].rsplit('```',1)[0].strip()
-          review = json.loads(content)
-          if review.get('decision') not in {'PASS','WARN','FAIL'}:
-            raise SystemExit('OpenRouter returned an invalid decision.')
+          try:
+            review = json.loads(content)
+          except json.JSONDecodeError:
+            candidates = re.findall(r'\{(?:[^{}]|\{[^{}]*\})*\}', content, re.S)
+            review = None
+            for candidate in reversed(candidates):
+              try:
+                parsed = json.loads(candidate)
+              except json.JSONDecodeError:
+                continue
+              if parsed.get('decision') in {'PASS','WARN','FAIL'} and isinstance(parsed.get('findings'), list):
+                review = parsed
+                break
+            if review is None:
+              raise SystemExit('OpenRouter response did not contain valid review JSON.')
+          if review.get('decision') not in {'PASS','WARN','FAIL'} or not isinstance(review.get('findings'), list):
+            raise SystemExit('OpenRouter returned an invalid review schema.')
           Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
           print(json.dumps({'provider': body.get('provider'), 'model': body.get('model'), 'usage': body.get('usage'), 'decision': review['decision']}, ensure_ascii=False))
           echo = os.environ.get('GITHUB_OUTPUT')
