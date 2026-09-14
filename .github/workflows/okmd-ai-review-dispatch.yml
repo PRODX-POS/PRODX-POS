@@ -85,6 +85,7 @@ jobs:
           models="$(curl --fail --silent --show-error --header "Authorization: Bearer $OPENROUTER_API_KEY" --header 'Accept: application/json' https://openrouter.ai/api/v1/models)"
           model_id=''
           if [[ -n "${PREFERRED_MODEL_ID:-}" ]] && printf '%s' "$models" | jq -e --arg id "$PREFERRED_MODEL_ID" '.data[] | select(.id == $id)' >/dev/null; then model_id="$PREFERRED_MODEL_ID"; fi
+          if [[ -z "$model_id" ]]; then model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id | endswith(":free")) and ((.architecture.output_modalities // ["text"]) | index("text")) and ((.supported_parameters // []) | index("response_format"))) | .id' | grep -Ev 'vision|vl' | head -n1 || true)"; fi
           if [[ -z "$model_id" ]]; then model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id | endswith(":free")) and ((.architecture.output_modalities // ["text"]) | index("text"))) | .id' | grep -Ev 'vision|vl' | head -n1 || true)"; fi
           if [[ -z "$model_id" ]]; then model_id='openrouter/free'; fi
           [[ -n "$model_id" ]] || { echo 'OpenRouter API returned no usable model.' >&2; exit 1; }
@@ -125,6 +126,17 @@ jobs:
           candidates = []
           for value in (message.get('content'), message.get('reasoning')):
             if isinstance(value, str) and value.strip(): candidates.append(value.strip())
+            elif isinstance(value, list):
+              parts=[]
+              for item in value:
+                if isinstance(item, dict):
+                  text=item.get('text') or item.get('content')
+                  if isinstance(text,str) and text.strip(): parts.append(text.strip())
+              if parts: candidates.append('\n'.join(parts))
+          for item in message.get('reasoning_details') or []:
+            if isinstance(item, dict):
+              text=item.get('text') or item.get('content')
+              if isinstance(text,str) and text.strip(): candidates.append(text.strip())
 
           def extract_review(text):
             text = text.strip()
@@ -144,7 +156,8 @@ jobs:
             return None
 
           review = next((r for text in candidates if (r := extract_review(text)) is not None), None)
-          if review is None: raise SystemExit('OpenRouter response did not contain valid review JSON.')
+          if review is None:
+            raise SystemExit('OpenRouter response did not contain valid review JSON. Model returned no parseable text content.')
           Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
           print(json.dumps({'provider': body.get('provider'), 'model': body.get('model'), 'usage': body.get('usage'), 'decision': review['decision']}, ensure_ascii=False))
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out: out.write(f"decision={review['decision']}\n")
