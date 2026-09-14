@@ -88,7 +88,7 @@ jobs:
           Path('excluded-files.txt').write_text('\n'.join(sorted(set(excluded))) or 'none', encoding='utf-8')
           PY
 
-      - name: Select OpenRouter model from advertised models
+      - name: Select free OpenRouter model from advertised models
         id: model
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -105,10 +105,10 @@ jobs:
             model_id="$PREFERRED_MODEL_ID"
           fi
           if [[ -z "$model_id" ]]; then
-            model_id="$(printf '%s' "$models" | jq -r '.data[].id' | grep -E '^(openai/|anthropic/|google/)' | head -n1 || true)"
+            model_id="$(printf '%s' "$models" | jq -r '.data[].id' | grep -E ':free$' | head -n1 || true)"
           fi
           if [[ -z "$model_id" ]]; then
-            model_id="$(printf '%s' "$models" | jq -r '.data[0].id // empty')"
+            model_id='openrouter/free'
           fi
           [[ -n "$model_id" ]] || { echo 'OpenRouter API returned no usable model.' >&2; exit 1; }
           echo "model_id=$model_id" >> "$GITHUB_OUTPUT"
@@ -131,8 +131,12 @@ jobs:
           user = f'PR #{os.environ["PR_NUMBER"]}\nSensitive paths excluded:\n{excluded}\n\nSanitized diff:\n```diff\n{diff}\n```'
           payload = json.dumps({'model': os.environ['OPENROUTER_MODEL_ID'], 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':3000, 'stream':False}).encode()
           req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=payload, headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/' + os.environ['GITHUB_REPOSITORY'], 'X-Title':'PRODX-POS AI Code Review'}, method='POST')
-          with urllib.request.urlopen(req, timeout=180) as response:
-            body = json.load(response)
+          try:
+            with urllib.request.urlopen(req, timeout=180) as response:
+              body = json.load(response)
+          except urllib.error.HTTPError as exc:
+            detail = exc.read().decode('utf-8', errors='replace')[:2000]
+            raise SystemExit(f'OpenRouter chat completion failed with HTTP {exc.code}: {detail}')
           content = body['choices'][0]['message']['content'].strip()
           if content.startswith('```'):
             content = content.split('\n',1)[1].rsplit('```',1)[0].strip()
