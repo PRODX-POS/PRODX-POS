@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { AuthenticationRepository, CredentialRecord, DeviceRecord, SessionRecord } from './session';
 
 export type SqlExecutor = {
@@ -30,12 +31,12 @@ export const createPostgresAuthenticationRepository = (db: SqlExecutor): Authent
        )
        INSERT INTO prodx_security_audit_events
          (id, organization_id, user_id, event_type, metadata)
-       SELECT gen_random_uuid(), u.organization_id, updated.user_id, 'AUTH_LOCKOUT',
+       SELECT $3::uuid, u.organization_id, updated.user_id, 'AUTH_LOCKOUT',
               jsonb_build_object('failed_attempts', updated.failed_attempts, 'locked_until', updated.locked_until)
          FROM updated
          JOIN prodx_users u ON u.id = updated.user_id
         WHERE updated.failed_attempts = 5 AND updated.locked_until IS NOT NULL`,
-      [userId, lockedUntil ?? null],
+      [userId, lockedUntil ?? null, crypto.randomUUID()],
     );
   },
   async resetFailedAttempts(userId) {
@@ -55,13 +56,13 @@ export const createPostgresAuthenticationRepository = (db: SqlExecutor): Authent
        )
        INSERT INTO prodx_security_audit_events
          (id, organization_id, user_id, event_type, metadata)
-       SELECT gen_random_uuid(), u.organization_id, previous.user_id, 'AUTH_LOCKOUT_RESET',
+       SELECT $2::uuid, u.organization_id, previous.user_id, 'AUTH_LOCKOUT_RESET',
               jsonb_build_object('previous_failed_attempts', previous.failed_attempts,
                                  'previous_locked_until', previous.locked_until)
          FROM previous
          JOIN prodx_users u ON u.id = previous.user_id
         WHERE previous.failed_attempts > 0 OR previous.locked_until IS NOT NULL`,
-      [userId],
+      [userId, crypto.randomUUID()],
     );
   },
   async createSession(input) {
