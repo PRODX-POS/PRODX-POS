@@ -21,14 +21,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request_target' ||
       github.event_name == 'workflow_dispatch' ||
-      (
-        github.event_name == 'issue_comment' &&
-        github.event.issue.pull_request &&
-        startsWith(github.event.comment.body, '/ai-review') &&
-        (github.event.comment.author_association == 'OWNER' ||
-         github.event.comment.author_association == 'MEMBER' ||
-         github.event.comment.author_association == 'COLLABORATOR')
-      )
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/ai-review') && (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -37,12 +30,10 @@ jobs:
         env:
           EVENT_PR: ${{ github.event.pull_request.number }}
           COMMENT_PR: ${{ github.event.issue.number }}
-        shell: bash
         run: |
           set -euo pipefail
-          pr_number="${EVENT_PR:-}"
-          if [[ -z "$pr_number" ]]; then pr_number="${COMMENT_PR:-}"; fi
-          test -n "$pr_number" || { echo 'A pull-request context is required.' >&2; exit 1; }
+          pr_number="${EVENT_PR:-${COMMENT_PR:-}}"
+          [[ -n "$pr_number" ]] || { echo 'A pull-request context is required.' >&2; exit 1; }
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
 
       - name: Verify repository-owned pull request
@@ -52,7 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           head_repo="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.repo.full_name')"
-          test "$head_repo" = "$GITHUB_REPOSITORY" || { echo 'AI review is restricted to repository-owned pull requests.' >&2; exit 1; }
+          [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo 'AI review is restricted to repository-owned pull requests.' >&2; exit 1; }
 
       - name: Fetch and sanitize pull request diff
         env:
@@ -70,29 +61,29 @@ jobs:
           import re
           source = Path('pr.diff').read_text(encoding='utf-8', errors='replace')
           blocks = re.split(r'(?=^diff --git )', source, flags=re.MULTILINE)
-          allowed = []
-          excluded = []
-          sensitive_name = re.compile(r'(^|/)(?:\.env(?:\..*)?|.*(?:secret|credential|password|token).*)$|\.(?:pem|key|p12|pfx)$', re.I)
+          allowed, excluded = [], []
+          sensitive = re.compile(r'(^|/)(?:\.env(?:\..*)?|.*(?:secret|credential|password|token).*)$|\.(?:pem|key|p12|pfx)$', re.I)
           patterns = [
-              (re.compile(r'(Authorization:\s*Bearer\s+)[^\s]+', re.I), r'\1[REDACTED]'),
-              (re.compile(r'((?:api[_-]?key|access[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*["\']?)[^\s"\'&,]+', re.I), r'\1[REDACTED]'),
-              (re.compile(r'-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----', re.S), '[REDACTED_PRIVATE_KEY]'),
-              (re.compile(r'(gh[pousr]_[A-Za-z0-9_]{20,})'), '[REDACTED_GITHUB_TOKEN]'),
+            (re.compile(r'(Authorization:\s*Bearer\s+)[^\s]+', re.I), r'\1[REDACTED]'),
+            (re.compile(r'((?:api[_-]?key|access[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*["\']?)[^\s"\'&,]+', re.I), r'\1[REDACTED]'),
+            (re.compile(r'-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----', re.S), '[REDACTED_PRIVATE_KEY]'),
+            (re.compile(r'gh[pousr]_[A-Za-z0-9_]{20,}'), '[REDACTED_GITHUB_TOKEN]'),
           ]
           for block in blocks:
-              if not block.strip(): continue
-              match = re.search(r'^diff --git a/(.*?) b/(.*?)$', block, re.M)
-              path = match.group(2) if match else 'unknown'
-              if sensitive_name.search(path):
-                  excluded.append(path)
-                  continue
-              for pattern, replacement in patterns:
-                  block = pattern.sub(replacement, block)
-              allowed.append(block)
+            if not block.strip(): continue
+            m = re.search(r'^diff --git a/(.*?) b/(.*?)$', block, re.M)
+            path = m.group(2) if m else 'unknown'
+            if sensitive.search(path):
+              excluded.append(path)
+              continue
+            for pattern, replacement in patterns:
+              block = pattern.sub(replacement, block)
+            allowed.append(block)
           result = ''.join(allowed)
-          if len(result.encode()) > 120_000:
-              result = result.encode()[:120_000].decode('utf-8', errors='ignore') + '\n\n[DIFF TRUNCATED AT 120KB]\n'
-          test result.strip() || { echo 'No reviewable source diff remained after filtering.' >&2; exit 1; }
+          if len(result.encode()) > 120000:
+            result = result.encode()[:120000].decode('utf-8', errors='ignore') + '\n\n[DIFF TRUNCATED AT 120KB]\n'
+          if not result.strip():
+            raise SystemExit('No reviewable source diff remained after sensitive-file filtering.')
           Path('sanitized.diff').write_text(result, encoding='utf-8')
           Path('excluded-files.txt').write_text('\n'.join(sorted(set(excluded))) or 'none', encoding='utf-8')
           PY
@@ -104,14 +95,14 @@ jobs:
           PREFERRED_MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID }}
         run: |
           set -euo pipefail
-          test -n "${OPENROUTER_API_KEY:-}" || { echo 'OPENROUTER_API_KEY is not configured.' >&2; exit 1; }
+          [[ -n "${OPENROUTER_API_KEY:-}" ]] || { echo 'OPENROUTER_API_KEY is not configured.' >&2; exit 1; }
           models="$(curl --fail --silent --show-error \
             --header "Authorization: Bearer $OPENROUTER_API_KEY" \
             --header 'Accept: application/json' \
             https://openrouter.ai/api/v1/models)"
           model_id=''
-          if [[ -n "${PREFERRED_MODEL_ID:-}" ]]; then
-            model_id="$(printf '%s' "$models" | jq -r --arg p "$PREFERRED_MODEL_ID" '.data[] | select(.id == $p) | .id' | head -n1)"
+          if [[ -n "${PREFERRED_MODEL_ID:-}" ]] && printf '%s' "$models" | jq -e --arg id "$PREFERRED_MODEL_ID" '.data[] | select(.id == $id)' >/dev/null; then
+            model_id="$PREFERRED_MODEL_ID"
           fi
           if [[ -z "$model_id" ]]; then
             model_id="$(printf '%s' "$models" | jq -r '.data[].id' | grep -E '^(openai/|anthropic/|google/)' | head -n1 || true)"
@@ -119,7 +110,7 @@ jobs:
           if [[ -z "$model_id" ]]; then
             model_id="$(printf '%s' "$models" | jq -r '.data[0].id // empty')"
           fi
-          test -n "$model_id" || { echo 'OpenRouter returned no usable model.' >&2; exit 1; }
+          [[ -n "$model_id" ]] || { echo 'OpenRouter API returned no usable model.' >&2; exit 1; }
           echo "model_id=$model_id" >> "$GITHUB_OUTPUT"
           echo "OpenRouter advertised model count: $(printf '%s' "$models" | jq '.data | length')" >> "$GITHUB_STEP_SUMMARY"
           echo "OpenRouter selected model: $model_id" >> "$GITHUB_STEP_SUMMARY"
@@ -136,25 +127,25 @@ jobs:
           from pathlib import Path
           diff = Path('sanitized.diff').read_text(encoding='utf-8')
           excluded = Path('excluded-files.txt').read_text(encoding='utf-8')
-          system = '''You are the independent security and architecture reviewer for PRODX-POS. Review only the supplied pull-request diff. Return ONLY valid JSON: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH. Be conservative about tenant isolation, database integrity, financial correctness, idempotency, auditability, authentication, authorization, secret handling, and regression risk.'''
-          user = f'''PR #{os.environ["PR_NUMBER"]}\nSensitive paths excluded:\n{excluded}\n\nSanitized diff:\n```diff\n{diff}\n```'''
+          system = '''You are the independent security and architecture reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return ONLY valid JSON: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH.'''
+          user = f'PR #{os.environ["PR_NUMBER"]}\nSensitive paths excluded:\n{excluded}\n\nSanitized diff:\n```diff\n{diff}\n```'
           payload = json.dumps({'model': os.environ['OPENROUTER_MODEL_ID'], 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':3000, 'stream':False}).encode()
-          req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=payload, headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/PRODX-POS/PRODX-POS', 'X-Title':'PRODX-POS AI Review'}, method='POST')
+          req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=payload, headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/' + os.environ['GITHUB_REPOSITORY'], 'X-Title':'PRODX-POS AI Code Review'}, method='POST')
           with urllib.request.urlopen(req, timeout=180) as response:
-              body = json.load(response)
+            body = json.load(response)
           content = body['choices'][0]['message']['content'].strip()
           if content.startswith('```'):
-              content = content.split('\n',1)[1].rsplit('```',1)[0].strip()
+            content = content.split('\n',1)[1].rsplit('```',1)[0].strip()
           review = json.loads(content)
           if review.get('decision') not in {'PASS','WARN','FAIL'}:
-              raise SystemExit('OpenRouter returned an invalid decision.')
+            raise SystemExit('OpenRouter returned an invalid decision.')
           Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
           print(json.dumps({'provider': body.get('provider'), 'model': body.get('model'), 'usage': body.get('usage'), 'decision': review['decision']}, ensure_ascii=False))
           if review['decision'] == 'FAIL':
-              raise SystemExit('AI review found CRITICAL/HIGH findings.')
+            raise SystemExit('OpenRouter AI review found CRITICAL/HIGH findings.')
           PY
 
-      - name: Post AI review to pull request
+      - name: Post OpenRouter review to pull request
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -166,13 +157,13 @@ jobs:
           import json, os
           from pathlib import Path
           review = json.loads(Path('ai-review.json').read_text(encoding='utf-8'))
-          lines = ['<!-- prodx-ai-review -->','## PRODX-POS AI Code Review','',f'**Decision:** `{review["decision"]}`',f'**Model:** `{os.environ["MODEL_ID"]}`','',review.get('summary','No summary returned.')]
+          lines = ['<!-- prodx-openrouter-review -->','## PRODX-POS OpenRouter AI Code Review','',f'**Decision:** `{review["decision"]}`','**Provider:** `OpenRouter`',f'**Model:** `{os.environ["MODEL_ID"]}`','',review.get('summary','No summary returned.')]
           findings = review.get('findings', [])
           if findings:
-              lines += ['', '| Severity | File | Line | Finding | Recommendation |','|---|---|---:|---|---|']
-              for f in findings:
-                  cell=lambda v: str(v).replace('|','\\|').replace('\n',' ')
-                  lines.append(f'| {cell(f.get("severity"))} | `{cell(f.get("file"))}` | {cell(f.get("line",0))} | {cell(f.get("title"))}: {cell(f.get("reason"))} | {cell(f.get("recommendation"))} |')
-          Path('ai-comment.json').write_text(json.dumps({'body':'\n'.join(lines)}, ensure_ascii=False), encoding='utf-8')
+            lines += ['', '| Severity | File | Line | Finding | Recommendation |','|---|---|---:|---|---|']
+            for f in findings:
+              cell=lambda v: str(v).replace('|','\\|').replace('\n',' ')
+              lines.append(f'| {cell(f.get("severity"))} | `{cell(f.get("file"))}` | {cell(f.get("line",0))} | {cell(f.get("title"))}: {cell(f.get("reason"))} | {cell(f.get("recommendation"))} |')
+          Path('openrouter-comment.json').write_text(json.dumps({'body':'\n'.join(lines)}, ensure_ascii=False), encoding='utf-8')
           PY
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input ai-comment.json --header 'Accept: application/vnd.github+json' >/dev/null
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input openrouter-comment.json --header 'Accept: application/vnd.github+json' >/dev/null
