@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
   group: okmd-ai-review-${{ github.event.pull_request.number }}
@@ -128,6 +128,7 @@ jobs:
             exit 1
           fi
           echo "model_id=$model_id" >> "$GITHUB_OUTPUT"
+          printf '%s' "$models" | jq -r --arg selected "$model_id" '"OKMD advertised model count: \(.data | length)" , ("OKMD selected model: " + $selected)' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Review diff with OKMD AI
         if: steps.trust.outputs.enabled == 'true'
@@ -202,7 +203,6 @@ Sanitized unified diff:
               raise SystemExit('OKMD returned an invalid decision.')
 
           Path('okmd-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
-          Path('okmd-review-response.json').write_text(json.dumps(body, indent=2, ensure_ascii=False), encoding='utf-8')
           print(json.dumps(review, indent=2, ensure_ascii=False))
 
           summary = review.get('summary', '')
@@ -223,3 +223,39 @@ Sanitized unified diff:
           if review['decision'] == 'FAIL':
               raise SystemExit('OKMD AI Code Review found CRITICAL/HIGH findings.')
           PY
+
+      - name: Post OKMD review to pull request
+        if: steps.trust.outputs.enabled == 'true' && success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MODEL_ID: ${{ steps.model.outputs.model_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          review = json.loads(Path('okmd-review.json').read_text(encoding='utf-8'))
+          decision = review['decision']
+          summary = review.get('summary', '').strip()
+          findings = review.get('findings', [])
+          lines = [
+              '<!-- prodx-okmd-review -->',
+              '## OKMD AI Code Review',
+              '',
+              f'**Decision:** `{decision}`',
+              f'**Provider:** `OKMD`',
+              f'**Model:** `{os.environ["MODEL_ID"]}`',
+              '',
+              summary or 'No summary returned.',
+          ]
+          if findings:
+              lines += ['', '| Severity | File | Line | Finding | Recommendation |', '|---|---|---:|---|---|']
+              for f in findings:
+                  def cell(v): return str(v).replace('|', '\\|').replace('\n', ' ')
+                  lines.append(f'| {cell(f.get("severity"))} | `{cell(f.get("file"))}` | {cell(f.get("line", 0))} | {cell(f.get("title"))}: {cell(f.get("reason"))} | {cell(f.get("recommendation"))} |')
+          body = '\n'.join(lines)
+          Path('okmd-comment.md').write_text(body, encoding='utf-8')
+          PY
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input okmd-comment.md --header 'Accept: application/vnd.github+json' >/dev/null
