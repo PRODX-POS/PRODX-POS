@@ -124,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, re, urllib.request, urllib.error
+          import json, os, urllib.request, urllib.error
           from pathlib import Path
           diff = Path('sanitized.diff').read_text(encoding='utf-8')
           excluded = Path('excluded-files.txt').read_text(encoding='utf-8')
@@ -140,36 +140,52 @@ jobs:
             raise SystemExit(f'OpenRouter chat completion failed with HTTP {exc.code}: {detail}')
           message = body.get('choices', [{}])[0].get('message', {})
           content = message.get('content')
-          if not isinstance(content, str) or not content.strip():
-            content = message.get('reasoning')
-          if not isinstance(content, str) or not content.strip():
-            raise SystemExit('OpenRouter returned neither message content nor reasoning text.')
-          content = content.strip()
-          if content.startswith('```'):
-            content = content.split('\n',1)[1].rsplit('```',1)[0].strip()
-          try:
-            review = json.loads(content)
-          except json.JSONDecodeError:
-            candidates = re.findall(r'\{(?:[^{}]|\{[^{}]*\})*\}', content, re.S)
-            review = None
-            for candidate in reversed(candidates):
+          reasoning = message.get('reasoning')
+          if isinstance(content, str) and content.strip():
+            candidate_texts = [content.strip()]
+          else:
+            candidate_texts = []
+          if isinstance(reasoning, str) and reasoning.strip():
+            candidate_texts.append(reasoning.strip())
+
+          def extract_review(text):
+            text = text.strip()
+            if text.startswith('```'):
+              parts = text.split('\n', 1)
+              if len(parts) == 2:
+                text = parts[1].rsplit('```', 1)[0].strip()
+            try:
+              parsed = json.loads(text)
+              if parsed.get('decision') in {'PASS','WARN','FAIL'} and isinstance(parsed.get('findings'), list):
+                return parsed
+            except (json.JSONDecodeError, AttributeError):
+              pass
+            decoder = json.JSONDecoder()
+            for index, char in enumerate(text):
+              if char != '{':
+                continue
               try:
-                parsed = json.loads(candidate)
+                parsed, _ = decoder.raw_decode(text[index:])
               except json.JSONDecodeError:
                 continue
-              if parsed.get('decision') in {'PASS','WARN','FAIL'} and isinstance(parsed.get('findings'), list):
-                review = parsed
-                break
-            if review is None:
-              raise SystemExit('OpenRouter response did not contain valid review JSON.')
+              if isinstance(parsed, dict) and parsed.get('decision') in {'PASS','WARN','FAIL'} and isinstance(parsed.get('findings'), list):
+                return parsed
+            return None
+
+          review = None
+          for text in candidate_texts:
+            review = extract_review(text)
+            if review is not None:
+              break
+          if review is None:
+            raise SystemExit('OpenRouter response did not contain valid review JSON.')
           if review.get('decision') not in {'PASS','WARN','FAIL'} or not isinstance(review.get('findings'), list):
             raise SystemExit('OpenRouter returned an invalid review schema.')
           Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
           print(json.dumps({'provider': body.get('provider'), 'model': body.get('model'), 'usage': body.get('usage'), 'decision': review['decision']}, ensure_ascii=False))
-          echo = os.environ.get('GITHUB_OUTPUT')
-          if echo:
-            with open(echo, 'a', encoding='utf-8') as out:
-              out.write(f"decision={review['decision']}\n")
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+            out.write(f"decision={review['decision']}\n")
+          PY
 
       - name: Post OpenRouter review to pull request
         if: always() && steps.review.outcome == 'success'
