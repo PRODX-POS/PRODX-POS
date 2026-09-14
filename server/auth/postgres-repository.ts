@@ -33,13 +33,14 @@ export const createPostgresAuthenticationRepository = (db: SqlExecutor): Authent
     };
   },
 
-  async recordFailedAttempt(userId) {
+  async recordFailedAttempt(userId, lockedUntil) {
     await db.query(
       `UPDATE prodx_user_credentials
           SET failed_attempts = failed_attempts + 1,
+              locked_until = CASE WHEN $2::timestamptz IS NULL THEN locked_until ELSE $2::timestamptz END,
               updated_at = CURRENT_TIMESTAMP
         WHERE user_id = $1`,
-      [userId],
+      [userId, lockedUntil ?? null],
     );
   },
 
