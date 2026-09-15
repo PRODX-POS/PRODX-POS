@@ -1,0 +1,21 @@
+name: AI Review Dispatch Probe
+on:
+  push:
+    branches: [fix/ai-review-openrouter-parser]
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record dispatch probe
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          prs="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" --jq '.[].number')"
+          for pr in $prs; do
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${pr}/comments" -f body="AI Review Dispatch Probe: push event executed for ${GITHUB_SHA}. This is infrastructure evidence only; it is not an AI review decision." >/dev/null
+          done
