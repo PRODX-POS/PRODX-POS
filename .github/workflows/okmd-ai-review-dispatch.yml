@@ -1,6 +1,9 @@
 name: AI Review Dispatch
 
 on:
+  push:
+    branches:
+      - fix/ai-review-openrouter-parser
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
   issue_comment:
@@ -19,6 +22,7 @@ concurrency:
 jobs:
   review:
     if: >-
+      github.event_name == 'push' ||
       github.event_name == 'pull_request_target' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/ai-review') && (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR'))
@@ -30,9 +34,18 @@ jobs:
         env:
           EVENT_PR: ${{ github.event.pull_request.number }}
           COMMENT_PR: ${{ github.event.issue.number }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          pr_number="${EVENT_PR:-${COMMENT_PR:-}}"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            mapfile -t prs < <(gh api "repos/${GITHUB_REPOSITORY}/commits/${PUSH_SHA}/pulls" --jq '.[].number')
+            [[ "${#prs[@]}" -eq 1 ]] || { echo "Expected exactly one pull request for push ${PUSH_SHA}; found ${#prs[@]}." >&2; exit 1; }
+            pr_number="${prs[0]}"
+          else
+            pr_number="${EVENT_PR:-${COMMENT_PR:-}}"
+          fi
           [[ -n "$pr_number" ]] || { echo 'A pull-request context is required.' >&2; exit 1; }
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
 
@@ -167,7 +180,6 @@ jobs:
               if isinstance(parsed,dict) and parsed.get('decision') in {'PASS','WARN','FAIL'} and isinstance(parsed.get('findings'),list): return parsed
             return None
 
-          attempts=[]
           bodies=[]
           try:
             body=request({'response_format':{'type':'json_object'}})
@@ -177,9 +189,7 @@ jobs:
             review=None
           if review is None:
             fallback=dict(base)
-            fallback['model']=os.environ['OPENROUTER_MODEL_ID']
             fallback['messages']=[{'role':'system','content':system + '\nIf structured output is unavailable, still return the JSON object as plain text with no markdown.'},{'role':'user','content':user}]
-            body=request.__wrapped__(None) if hasattr(request,'__wrapped__') else None
             req=urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=json.dumps(fallback).encode(), headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/' + os.environ['GITHUB_REPOSITORY'], 'X-Title':'PRODX-POS AI Code Review'}, method='POST')
             try:
               with urllib.request.urlopen(req, timeout=180) as response: body=json.load(response)
