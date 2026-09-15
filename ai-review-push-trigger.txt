@@ -1,0 +1,1 @@
+Temporary trigger marker for repository-owned AI Review Dispatch push-path verification. Remove after evidence is captured.
