@@ -1,4 +1,4 @@
-name: OKMD AI Code Review
+name: AI Code Review
 
 on:
   pull_request_target:
@@ -9,12 +9,12 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: okmd-ai-review-${{ github.event.pull_request.number }}
+  group: ai-code-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  okmd-ai-review:
-    name: OKMD AI Code Review
+  ai-review:
+    name: OpenRouter AI Code Review
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
           if [[ "$HEAD_REPO" != "$BASE_REPO" ]]; then
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "OKMD review is skipped for fork pull requests; no repository secret is exposed."
+            echo "OpenRouter review is skipped for fork pull requests; no repository secret is exposed."
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
@@ -51,8 +51,7 @@ jobs:
             --header "Authorization: Bearer $GH_TOKEN" \
             --header "Accept: application/vnd.github.v3.diff" \
             --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}.diff" \
-            > pr.diff
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}.diff" > pr.diff
 
           python3 - <<'PY'
           from pathlib import Path
@@ -96,46 +95,53 @@ jobs:
           print(f'Excluded sensitive paths: {len(set(excluded))}')
           PY
 
-      - name: Select OKMD model
+      - name: Select OpenRouter model
         if: steps.trust.outputs.enabled == 'true'
         id: model
         env:
-          OKMD_BASE_URL: https://gen.ai.kku.ac.th/okmd/api/v1
-          OKMD_API_KEY: ${{ secrets.OKMD_AI_API_KEY }}
-          PREFERRED_MODEL_ID: ${{ vars.OKMD_AI_REVIEW_MODEL_ID }}
+          OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PREFERRED_MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID }}
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${OKMD_API_KEY:-}" ]]; then
-            echo "OKMD_AI_API_KEY is not available to this workflow run." >&2
+          if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
+            echo "OPENROUTER_API_KEY is not available to this workflow run." >&2
             exit 1
           fi
 
           models="$(curl --fail --silent --show-error \
-            --header "Authorization: Bearer $OKMD_API_KEY" \
+            --header "Authorization: Bearer $OPENROUTER_API_KEY" \
             --header "Accept: application/json" \
-            "$OKMD_BASE_URL/models")"
+            "$OPENROUTER_BASE_URL/models")"
 
           model_id="$PREFERRED_MODEL_ID"
-          if [[ -z "$model_id" ]]; then
-            model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.owned_by // "") | test("claude-sonnet-4|gpt-5|gemini-2.5-pro"; "i")) | .id' | head -n1)"
+          if [[ -n "$model_id" ]]; then
+            if ! printf '%s' "$models" | jq -e --arg id "$model_id" '.data[] | select(.id == $id)' >/dev/null; then
+              echo "Configured OpenRouter review model is not currently advertised; falling back to an advertised model." >&2
+              model_id=""
+            fi
           fi
-          if [[ -z "$model_id" || "$model_id" == "null" ]]; then
+          if [[ -z "$model_id" ]]; then
+            model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id // "") | test("^(openai|anthropic|google)/")) | .id' | head -n1)"
+          fi
+          if [[ -z "$model_id" ]]; then
             model_id="$(printf '%s' "$models" | jq -r '.data[0].id // empty')"
           fi
-          if [[ -z "$model_id" ]]; then
-            echo "OKMD API returned no usable model." >&2
+          if [[ -z "$model_id" || "$model_id" == "null" ]]; then
+            echo "OpenRouter API returned no usable model." >&2
             exit 1
           fi
           echo "model_id=$model_id" >> "$GITHUB_OUTPUT"
-          printf '%s' "$models" | jq -r --arg selected "$model_id" '"OKMD advertised model count: \(.data | length)" , ("OKMD selected model: " + $selected)' >> "$GITHUB_STEP_SUMMARY"
+          echo "OpenRouter advertised model count: $(printf '%s' "$models" | jq '.data | length')" >> "$GITHUB_STEP_SUMMARY"
+          echo "OpenRouter selected model: $model_id" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Review diff with OKMD AI
+      - name: Review diff with OpenRouter AI
         if: steps.trust.outputs.enabled == 'true'
         env:
-          OKMD_BASE_URL: https://gen.ai.kku.ac.th/okmd/api/v1
-          OKMD_API_KEY: ${{ secrets.OKMD_AI_API_KEY }}
-          OKMD_MODEL_ID: ${{ steps.model.outputs.model_id }}
+          OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_ID: ${{ steps.model.outputs.model_id }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -144,14 +150,13 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
-          import os
           import urllib.request
 
           diff = Path('sanitized.diff').read_text(encoding='utf-8')
           excluded = Path('excluded-files.txt').read_text(encoding='utf-8')
-          system = '''You are the independent OKMD AI security and architecture reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not assume missing code is correct. Do not propose weakening tests, security controls, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, or financial correctness.
+          system = '''You are the independent security and architecture reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not assume missing code is correct. Do not propose weakening tests, security controls, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, or financial correctness.
 
 Return ONLY valid JSON with this exact shape:
 {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}
@@ -172,7 +177,7 @@ Sanitized unified diff:
 ```'''
 
           payload = json.dumps({
-              'model': os.environ['OKMD_MODEL_ID'],
+              'model': os.environ['OPENROUTER_MODEL_ID'],
               'messages': [
                   {'role': 'system', 'content': system},
                   {'role': 'user', 'content': user},
@@ -182,49 +187,49 @@ Sanitized unified diff:
               'stream': False,
           }).encode()
           req = urllib.request.Request(
-              os.environ['OKMD_BASE_URL'] + '/chat/completions',
+              os.environ['OPENROUTER_BASE_URL'] + '/chat/completions',
               data=payload,
               headers={
                   'Content-Type': 'application/json',
-                  'Authorization': 'Bearer ' + os.environ['OKMD_API_KEY'],
+                  'Authorization': 'Bearer ' + os.environ['OPENROUTER_API_KEY'],
+                  'HTTP-Referer': 'https://github.com/' + os.environ['GITHUB_REPOSITORY'],
+                  'X-Title': 'PRODX-POS AI Code Review',
               },
               method='POST',
           )
           with urllib.request.urlopen(req, timeout=180) as response:
               body = json.load(response)
 
-          content = body['choices'][0]['message']['content']
-          content = content.strip()
+          content = body['choices'][0]['message']['content'].strip()
           if content.startswith('```'):
               content = content.split('\n', 1)[1]
               content = content.rsplit('```', 1)[0].strip()
           review = json.loads(content)
           if review.get('decision') not in {'PASS', 'WARN', 'FAIL'}:
-              raise SystemExit('OKMD returned an invalid decision.')
+              raise SystemExit('OpenRouter returned an invalid decision.')
 
-          Path('okmd-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
+          Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
           print(json.dumps(review, indent=2, ensure_ascii=False))
 
           summary = review.get('summary', '')
           findings = review.get('findings', [])
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as out:
-              out.write('# OKMD AI Code Review\n\n')
+              out.write('# OpenRouter AI Code Review\n\n')
               out.write(f'**Decision:** `{review["decision"]}`\n\n')
               out.write(summary + '\n\n')
               if findings:
                   out.write('| Severity | File | Line | Finding | Recommendation |\n|---|---|---:|---|---|\n')
                   for finding in findings:
-                      def cell(value):
-                          return str(value).replace('|', '\\|').replace('\n', ' ')
+                      def cell(value): return str(value).replace('|', '\\|').replace('\n', ' ')
                       out.write(f'| {cell(finding.get("severity"))} | `{cell(finding.get("file"))}` | {cell(finding.get("line", 0))} | {cell(finding.get("title"))}: {cell(finding.get("reason"))} | {cell(finding.get("recommendation"))} |\n')
               else:
                   out.write('No actionable findings.\n')
 
           if review['decision'] == 'FAIL':
-              raise SystemExit('OKMD AI Code Review found CRITICAL/HIGH findings.')
+              raise SystemExit('OpenRouter AI Code Review found CRITICAL/HIGH findings.')
           PY
 
-      - name: Post OKMD review to pull request
+      - name: Post OpenRouter review to pull request
         if: steps.trust.outputs.enabled == 'true' && success()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -236,16 +241,16 @@ Sanitized unified diff:
           python3 - <<'PY'
           import json, os
           from pathlib import Path
-          review = json.loads(Path('okmd-review.json').read_text(encoding='utf-8'))
+          review = json.loads(Path('ai-review.json').read_text(encoding='utf-8'))
           decision = review['decision']
           summary = review.get('summary', '').strip()
           findings = review.get('findings', [])
           lines = [
-              '<!-- prodx-okmd-review -->',
-              '## OKMD AI Code Review',
+              '<!-- prodx-openrouter-review -->',
+              '## OpenRouter AI Code Review',
               '',
               f'**Decision:** `{decision}`',
-              f'**Provider:** `OKMD`',
+              '**Provider:** `OpenRouter`',
               f'**Model:** `{os.environ["MODEL_ID"]}`',
               '',
               summary or 'No summary returned.',
@@ -255,7 +260,6 @@ Sanitized unified diff:
               for f in findings:
                   def cell(v): return str(v).replace('|', '\\|').replace('\n', ' ')
                   lines.append(f'| {cell(f.get("severity"))} | `{cell(f.get("file"))}` | {cell(f.get("line", 0))} | {cell(f.get("title"))}: {cell(f.get("reason"))} | {cell(f.get("recommendation"))} |')
-          body = '\n'.join(lines)
-          Path('okmd-comment.md').write_text(body, encoding='utf-8')
+          Path('openrouter-comment.json').write_text(json.dumps({'body': '\n'.join(lines)}, ensure_ascii=False), encoding='utf-8')
           PY
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input okmd-comment.md --header 'Accept: application/vnd.github+json' >/dev/null
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input openrouter-comment.json --header 'Accept: application/vnd.github+json' >/dev/null
