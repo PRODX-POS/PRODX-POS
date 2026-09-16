@@ -4,6 +4,12 @@ import { createCheckoutService, CheckoutConflictError, CheckoutValidationError }
 import type { CheckoutRequest } from '../../src/adapters/types';
 import type { TransactionalSqlExecutor } from '../db/transaction';
 
+class SyncScopeViolationError extends Error {
+  constructor(readonly code: 'STORE_SCOPE_VIOLATION' | 'PRINCIPAL_SCOPE_VIOLATION', message: string) {
+    super(message);
+  }
+}
+
 const errorResponse = (response: Response, request: Request, status: number, code: string, message: string) => {
   response.status(status).json({ error: { code, message, requestId: request.id } });
 };
@@ -28,8 +34,8 @@ const asCheckoutRequest = (body: Record<string, unknown>, storeId: string, cashi
     throw new CheckoutValidationError('Offline order payload is required.');
   }
   const request = payload as CheckoutRequest;
-  if (request.storeId !== storeId) throw new Error('STORE_SCOPE_VIOLATION');
-  if (request.cashierId !== cashierId) throw new Error('PRINCIPAL_SCOPE_VIOLATION');
+  if (request.storeId !== storeId) throw new SyncScopeViolationError('STORE_SCOPE_VIOLATION', 'Offline payload store must match the authenticated store.');
+  if (request.cashierId !== cashierId) throw new SyncScopeViolationError('PRINCIPAL_SCOPE_VIOLATION', 'Offline payload cashier must match the authenticated principal.');
   if (request.idempotencyKey !== stringField(body, 'idempotencyKey')) {
     throw new CheckoutConflictError('Offline idempotency key does not match the payload.');
   }
@@ -61,9 +67,8 @@ export const registerSyncRoutes = (app: Express, db: TransactionalSqlExecutor): 
       });
     } catch (error) {
       if (error instanceof CheckoutValidationError) return errorResponse(response, request, 400, error.code, error.message);
+      if (error instanceof SyncScopeViolationError) return errorResponse(response, request, 403, error.code, error.message);
       if (error instanceof CheckoutConflictError) return errorResponse(response, request, 409, error.code, error.message);
-      if (error instanceof Error && error.message === 'STORE_SCOPE_VIOLATION') return errorResponse(response, request, 403, 'STORE_SCOPE_VIOLATION', 'Offline payload store must match the authenticated store.');
-      if (error instanceof Error && error.message === 'PRINCIPAL_SCOPE_VIOLATION') return errorResponse(response, request, 403, 'PRINCIPAL_SCOPE_VIOLATION', 'Offline payload cashier must match the authenticated principal.');
       throw error;
     }
   });
