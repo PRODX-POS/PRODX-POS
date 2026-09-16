@@ -247,7 +247,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo "OKMD API HTTP status: $http_status"
-          echo "OKMD API response recorded in Step Summary (sanitized)."
+          echo "OKMD API sanitized response: $sanitized_response"
 
           case "$http_status" in
             2??) ;;
@@ -256,3 +256,8 @@ jobs:
               exit 1
               ;;
           esac
+
+          if ! printf '%s' "$sanitized_response" | jq -e '.choices[0].message.content | type == "string" and length > 0' >/dev/null 2>&1; then
+            echo "OKMD API returned HTTP 2xx but no usable chat completion content."
+            exit 1
+          fi
