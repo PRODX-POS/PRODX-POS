@@ -41,13 +41,13 @@ async function seed() {
   await pool.query("INSERT INTO prodx_roles(id,organization_id,role_key,name) VALUES($1,$2,'runtime-refund','Runtime Refund')", [ids.role, ids.org]);
 }
 
-async function grantRefund() {
+async function grantPermission(permissionKey: string) {
   if (!pool) throw new Error('DATABASE_URL required');
   await pool.query("INSERT INTO prodx_user_roles(organization_id,user_id,role_id,store_id) VALUES($1,$2,$3,$4)", [ids.org, ids.user, ids.role, ids.store]);
-  await pool.query("INSERT INTO prodx_role_permissions(organization_id,role_id,permission_id) SELECT $1,$2,id FROM prodx_permissions WHERE permission_key='pos.refund'", [ids.org, ids.role]);
+  await pool.query("INSERT INTO prodx_role_permissions(organization_id,role_id,permission_id) SELECT $1,$2,id FROM prodx_permissions WHERE permission_key=$3", [ids.org, ids.role, permissionKey]);
 }
 
-test('production HTTP runtime enforces authentication, permission, and store scope', async t => {
+test('production HTTP runtime enforces authentication, permission, store scope, and sync replay gates', async t => {
   if (!pool) {
     t.skip('DATABASE_URL not configured');
     return;
@@ -69,15 +69,33 @@ test('production HTTP runtime enforces authentication, permission, and store sco
     await pool.end();
   });
 
-  const unauthenticated = await fetch(`${base}/api/v1/orders/00000000-0000-4000-8000-000000002108/refund`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  const syncBody = {
+    type: 'order_transaction',
+    idempotencyKey: 'offline-runtime-idem-01',
+    payload: {
+      idempotencyKey: 'offline-runtime-idem-01',
+      storeId: ids.store,
+      registerId: '00000000-0000-4000-8000-000000002108',
+      cashierId: ids.user,
+      items: [],
+      totals: { grossSubtotal: { amountInCents: 0, currency: 'THB' }, itemDiscounts: { amountInCents: 0, currency: 'THB' }, orderDiscount: { amountInCents: 0, currency: 'THB' }, netSubtotal: { amountInCents: 0, currency: 'THB' }, totalTax: { amountInCents: 0, currency: 'THB' }, grandTotal: { amountInCents: 0, currency: 'THB' }, totalItemsCount: 0 },
+      payments: [],
+      isOfflineSubmission: true,
+    },
+  };
+
+  const unauthenticated = await fetch(`${base}/api/v1/sync/outbox`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(syncBody) });
   assert.equal(unauthenticated.status, 401);
 
-  const forbidden = await fetch(`${base}/api/v1/orders/00000000-0000-4000-8000-000000002108/refund`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ storeId: ids.store }) });
+  const forbidden = await fetch(`${base}/api/v1/sync/outbox`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(syncBody) });
   assert.equal(forbidden.status, 403);
 
-  await grantRefund();
-  const scopeDenied = await fetch(`${base}/api/v1/orders/00000000-0000-4000-8000-000000002108/refund`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ storeId: ids.otherStore }) });
-  assert.equal(scopeDenied.status, 403);
+  await grantPermission('pos.checkout');
+  const scopeDenied = await fetch(`${base}/api/v1/sync/outbox`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...syncBody, payload: { ...syncBody.payload, storeId: ids.otherStore } }) });
+  assert.equal(scopeDenied.status, 409);
+
+  const unsupported = await fetch(`${base}/api/v1/sync/outbox`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ type: 'shift_movement', idempotencyKey: 'offline-runtime-idem-02', payload: {} }) });
+  assert.equal(unsupported.status, 400);
 
   const health = await fetch(`${base}/api/v1/health`, { headers: { authorization: `Bearer ${token}` } });
   assert.equal(health.status, 200);
