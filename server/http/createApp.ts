@@ -21,6 +21,7 @@ export type BackendBoundaryOptions = {
   authenticateRequest: AuthenticateRequest;
   authorizeRequest?: AuthorizeRequest;
   configureRoutes?: (app: express.Express) => void;
+  isPublicRequest?: (request: Request) => boolean;
 };
 
 const sendError = (
@@ -72,8 +73,13 @@ const attachRequestId = (request: Request, response: Response, next: NextFunctio
   next();
 };
 
-const authenticate = (authenticator: AuthenticateRequest) => {
+const authenticate = (authenticator: AuthenticateRequest, isPublicRequest?: (request: Request) => boolean) => {
   return async (request: Request, response: Response, next: NextFunction): Promise<void> => {
+    if (isPublicRequest?.(request) === true) {
+      next();
+      return;
+    }
+
     try {
       const principal: RequestPrincipal | null = await authenticator(request);
       if (!principal) {
@@ -98,7 +104,7 @@ export const createApp = (options: BackendBoundaryOptions) => {
   app.use(express.json({ limit: '1mb' }));
   app.use(attachRequestId);
   app.locals.prodxAuthorize = options.authorizeRequest;
-  app.use(authenticate(options.authenticateRequest));
+  app.use(authenticate(options.authenticateRequest, options.isPublicRequest));
 
   app.get('/api/v1/health', (_request, response) => {
     response.json({ status: 'ok' });
