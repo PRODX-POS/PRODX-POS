@@ -48,10 +48,9 @@ export const createVoidRefundService = (db: TransactionalSqlExecutor) => ({
     const authorizedByUserId = nonBlank(input.authorizedByUserId, 'Authorizing user');
     const amount = requestMoney(input.refundAmount);
     if (!['cash', 'card', 'qr_digital'].includes(input.refundMethod)) throw new VoidRefundValidationError('Unsupported refund method.');
-    if (input.refundAmount.currency !== 'THB') throw new VoidRefundValidationError('Refund currency must be THB.');
 
     return db.transaction(async tx => {
-      const cached = (await tx.query(`SELECT r.id,r.amount::text,r.method,r.reason,r.created_at,o.status,o.grand_total_amount::text,o.currency FROM prodx_refunds r JOIN prodx_orders o ON o.id=r.order_id WHERE r.store_id=$1 AND r.idempotency_key=$2`, [input.storeId, idempotencyKey])).rows[0];
+      const cached = (await tx.query(`SELECT r.id,r.amount::text,r.method,o.status,o.currency FROM prodx_refunds r JOIN prodx_orders o ON o.id=r.order_id WHERE r.store_id=$1 AND r.idempotency_key=$2`, [input.storeId, idempotencyKey])).rows[0];
       if (cached) return { id: cached.id, amountInCents: Number(moneyToCents(cached.amount)), currency: cached.currency, method: cached.method, status: cached.status, idempotencyCached: true };
 
       const order = (await tx.query(`SELECT * FROM prodx_orders WHERE id=$1 AND store_id=$2 FOR UPDATE`, [input.orderId, input.storeId])).rows[0];
@@ -66,12 +65,12 @@ export const createVoidRefundService = (db: TransactionalSqlExecutor) => ({
       if (amount > remaining) throw new VoidRefundConflictError('Refund amount exceeds the remaining refundable amount.');
 
       const refundId = crypto.randomUUID();
-      const inserted = (await tx.query(`INSERT INTO prodx_refunds(id,organization_id,store_id,order_id,idempotency_key,amount,method,reason,authorized_by_user_id,terminal_reference) SELECT $1,organization_id,$2,id,$3,$4,$5,$6,$7,$8 FROM prodx_orders WHERE id=$9 AND store_id=$2 ON CONFLICT(store_id,idempotency_key) DO NOTHING RETURNING id,amount::text,method,currency,created_at`, [refundId, input.storeId, idempotencyKey, centsToMoney(amount), input.refundMethod, reason, authorizedByUserId, input.terminalReference ?? null, order.id])).rows[0];
+      const inserted = (await tx.query(`INSERT INTO prodx_refunds(id,organization_id,store_id,order_id,idempotency_key,amount,method,reason,authorized_by_user_id,terminal_reference) SELECT $1,organization_id,$2,id,$3,$4,$5,$6,$7,$8 FROM prodx_orders WHERE id=$9 AND store_id=$2 ON CONFLICT(store_id,idempotency_key) DO NOTHING RETURNING id,amount::text,method,created_at`, [refundId, input.storeId, idempotencyKey, centsToMoney(amount), input.refundMethod, reason, authorizedByUserId, input.terminalReference ?? null, order.id])).rows[0];
       if (!inserted) throw new VoidRefundConflictError('Refund idempotency conflict could not be resolved.');
 
       for (const item of input.restockItems ?? []) {
         if (!Number.isInteger(item.quantity) || item.quantity <= 0) throw new VoidRefundValidationError('Restock quantity must be positive.');
-        const stock = (await tx.query(`UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 AND current_stock+$1 >= 0 RETURNING current_stock`, [item.quantity, item.productId, input.storeId])).rows[0];
+        const stock = (await tx.query(`UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 RETURNING current_stock`, [item.quantity, item.productId, input.storeId])).rows[0];
         if (!stock) throw new VoidRefundConflictError('Restock product does not exist in the authenticated store.');
         await tx.query(`INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'refund_restock',$7,$8)`, [crypto.randomUUID(), order.organization_id, input.storeId, item.productId, item.quantity, stock.current_stock, inserted.id, authorizedByUserId]);
       }
@@ -110,7 +109,7 @@ export const createVoidRefundService = (db: TransactionalSqlExecutor) => ({
       for (const item of items) {
         const stock = (await tx.query(`UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 RETURNING current_stock`, [item.quantity, item.product_id, input.storeId])).rows[0];
         if (!stock) throw new VoidRefundConflictError('Void inventory reversal product is missing.');
-        await tx.query(`INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'refund_restock',$7,$8)`, [crypto.randomUUID(), order.organization_id, input.storeId, item.product_id, item.quantity, stock.current_stock, inserted.id, authorizedByUserId]);
+        await tx.query(`INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'void_reversal',$7,$8)`, [crypto.randomUUID(), order.organization_id, input.storeId, item.product_id, item.quantity, stock.current_stock, inserted.id, authorizedByUserId]);
       }
       await tx.query(`UPDATE prodx_orders SET status='voided' WHERE id=$1 AND store_id=$2`, [order.id, input.storeId]);
       await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,$4,$5,'order_void','critical',$6::jsonb)`, [crypto.randomUUID(), order.organization_id, input.storeId, order.register_id, authorizedByUserId, JSON.stringify({ orderId: order.id, voidId: inserted.id, reason })]);
