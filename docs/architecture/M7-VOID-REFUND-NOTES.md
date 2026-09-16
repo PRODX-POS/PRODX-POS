@@ -1,0 +1,1 @@
+M7 implementation has code and PostgreSQL integration coverage on this branch. CI and real database execution remain required evidence. Card/QR processor-side reversal is intentionally not claimed by the database event. HTTP production-runtime wiring depends on the authenticated runtime composition milestone. Independent review remains required before merge.
