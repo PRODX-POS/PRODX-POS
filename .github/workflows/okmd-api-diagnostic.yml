@@ -3,6 +3,7 @@ name: OKMD API Diagnostic
 on:
   issue_comment:
     types: [created]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,11 +17,16 @@ concurrency:
 jobs:
   diagnostic:
     if: >-
-      github.event.issue.pull_request &&
-      startsWith(github.event.comment.body, '/okmd-api-test') &&
-      (github.event.comment.author_association == 'OWNER' ||
-       github.event.comment.author_association == 'MEMBER' ||
-       github.event.comment.author_association == 'COLLABORATOR')
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.issue.pull_request &&
+        startsWith(github.event.comment.body, '/okmd-api-test') &&
+        (
+          github.event.comment.author_association == 'OWNER' ||
+          github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'COLLABORATOR'
+        )
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -66,13 +72,35 @@ jobs:
               status = exc.code
               raw = exc.read().decode('utf-8', 'replace')
           except Exception as exc:
-              print(json.dumps({'http_status': None, 'error_type': type(exc).__name__, 'error': str(exc)}, ensure_ascii=False))
+              result = {
+                  'http_status': None,
+                  'model_requested': model,
+                  'error_type': type(exc).__name__,
+                  'error': str(exc),
+              }
+              print(json.dumps(result, ensure_ascii=False, indent=2))
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+                  summary.write('# OKMD API Diagnostic\n\n')
+                  summary.write('```json\n')
+                  summary.write(json.dumps(result, ensure_ascii=False, indent=2))
+                  summary.write('\n```\n')
               raise SystemExit(1)
 
           try:
               body = json.loads(raw)
           except json.JSONDecodeError:
-              print(json.dumps({'http_status': status, 'error': 'Non-JSON response', 'response_preview': raw[:2000]}, ensure_ascii=False))
+              result = {
+                  'http_status': status,
+                  'model_requested': model,
+                  'error': 'Non-JSON response',
+                  'response_preview': raw[:4000],
+              }
+              print(json.dumps(result, ensure_ascii=False, indent=2))
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+                  summary.write('# OKMD API Diagnostic\n\n')
+                  summary.write('```json\n')
+                  summary.write(json.dumps(result, ensure_ascii=False, indent=2))
+                  summary.write('\n```\n')
               raise SystemExit(1)
 
           choices = body.get('choices') or []
@@ -95,16 +123,21 @@ jobs:
 
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
               summary.write('# OKMD API Diagnostic\n\n')
+              summary.write('## Request\n\n')
+              summary.write('- **Endpoint:** `POST ' + base + '/chat/completions`\n')
+              summary.write('- **Model:** `' + model + '`\n')
+              summary.write('- **Authentication:** `Bearer` via `OKMD_AI_API_KEY` (secret value redacted)\n\n')
+              summary.write('## Response\n\n')
               summary.write('```json\n')
               summary.write(json.dumps(result, ensure_ascii=False, indent=2))
               summary.write('\n```\n')
 
           if status != 200 or not choices:
-              raise SystemExit('OKMD chat/completions did not return choices; inspect diagnostic output above.')
+              raise SystemExit('OKMD chat/completions did not return choices; inspect the Actions summary above.')
           PY
 
       - name: Comment diagnostic result
-        if: always()
+        if: always() && github.event_name == 'issue_comment'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.issue.number }}
