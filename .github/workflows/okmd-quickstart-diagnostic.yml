@@ -1,0 +1,92 @@
+name: OKMD Quickstart Diagnostic
+
+on:
+  push:
+    branches: [test/okmd-direct-gate]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  okmd-quickstart-chat-completions:
+    name: OKMD Quickstart /chat/completions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Run OKMD Quickstart request exactly as documented
+        shell: bash
+        env:
+          OKMD_AI_API_KEY: ${{ secrets.OKMD_AI_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$OKMD_AI_API_KEY"
+
+          response_file=$(mktemp)
+          trap 'rm -f "$response_file"' EXIT
+
+          echo '=== OKMD QUICKSTART REQUEST ==='
+          echo 'POST https://gen.ai.kku.ac.th/okmd/api/v1/chat/completions'
+          echo 'Content-Type: application/json'
+          echo 'Authorization: Bearer [REDACTED]'
+          echo 'Body:'
+          cat <<'JSON'
+          {
+            "model": "gemini-2.5-flash",
+            "messages": [
+              {"role": "user", "content": "สวัสดี"}
+            ]
+          }
+          JSON
+
+          curl -s -w '\n%{http_code}' https://gen.ai.kku.ac.th/okmd/api/v1/chat/completions \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer $OKMD_AI_API_KEY" \
+            -d '{
+              "model": "gemini-2.5-flash",
+              "messages": [
+                {"role": "user", "content": "สวัสดี"}
+              ]
+            }' > "$response_file"
+
+          http_status=$(tail -n 1 "$response_file")
+          response_body=$(sed '$d' "$response_file")
+
+          echo '=== OKMD QUICKSTART HTTP STATUS ==='
+          printf '%s\n' "$http_status"
+          echo '=== OKMD QUICKSTART RESPONSE BODY START ==='
+          printf '%s\n' "$response_body"
+          echo '=== OKMD QUICKSTART RESPONSE BODY END ==='
+
+          {
+            echo '## OKMD Quickstart /chat/completions Diagnostic'
+            echo
+            echo '- Endpoint: https://gen.ai.kku.ac.th/okmd/api/v1/chat/completions'
+            echo '- Model: gemini-2.5-flash'
+            echo '- Request contract: OKMD Quickstart example'
+            echo "- HTTP status: $http_status"
+            echo '- Response body:'
+            echo
+            echo '```text'
+            printf '%s\n' "$response_body"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          case "$http_status" in
+            2??)
+              if jq -e '.choices[0].message.content | type == "string" and length > 0' "$response_file" >/dev/null 2>&1; then
+                echo 'OKMD Quickstart completion returned usable chat content.'
+              elif printf '%s' "$response_body" | grep -Fq 'User not found.'; then
+                echo 'OKMD Quickstart returned HTTP 2xx but the response contains User not found.'
+                exit 1
+              else
+                echo 'OKMD Quickstart returned HTTP 2xx but no usable chat completion content was found.'
+                exit 1
+              fi
+              ;;
+            *)
+              echo "OKMD Quickstart request failed with HTTP status $http_status."
+              exit 1
+              ;;
+          esac
