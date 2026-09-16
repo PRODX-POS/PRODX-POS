@@ -16,10 +16,16 @@ const cents = (value: unknown, field: string): bigint => {
 };
 
 const numeric = (n: bigint): string => `${n / 100n}.${(n % 100n).toString().padStart(2, '0')}`;
+
+// PostgreSQL NUMERIC values are normally returned by node-postgres as strings,
+// but zero-valued expressions such as COALESCE(SUM(...), 0) can be rendered
+// without a decimal fraction. Accept 0/12/12.3/12.30 while still rejecting
+// malformed or over-precision monetary values at the application boundary.
 const dbCents = (v: unknown): bigint => {
-  const m = /^(\d+)\.(\d{2})$/.exec(String(v));
-  if (!m) throw new RefundVoidValidationError('Database monetary value is invalid.');
-  return BigInt(m[1]) * 100n + BigInt(m[2]);
+  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(String(v));
+  if (!match) throw new RefundVoidValidationError('Database monetary value is invalid.');
+  const fraction = (match[2] ?? '').padEnd(2, '0');
+  return BigInt(match[1]) * 100n + BigInt(fraction || '0');
 };
 
 const getOrder = async (db: SqlQueryExecutor, storeId: string, orderId: string, lock: boolean): Promise<DbRow> => {
