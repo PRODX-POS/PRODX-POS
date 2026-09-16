@@ -22,7 +22,7 @@ const nonBlank = (value: unknown, field: string): string => {
   if (typeof value !== 'string' || value.trim().length === 0) throw new VoidRefundValidationError(`${field} is required.`);
   return value.trim();
 };
-const fingerprint = (value: unknown): string => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const fingerprint = (value: unknown): string => JSON.stringify(value);
 
 type RefundInput = {
   storeId: string; orderId: string; idempotencyKey: string;
