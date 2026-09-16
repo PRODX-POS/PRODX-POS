@@ -155,6 +155,12 @@ test('PostgreSQL M7 void/refund integrity scenarios', async t => {
   assert.equal(voidCached.idempotencyCached, true);
   await assert.rejects(refunds.voidOrder({ ...voidRequest, reason: 'Different reason' }));
 
+  const otherSale = await checkout.checkout(req('m7-reversal-scope', '00000000-0000-4000-8000-000000002013'));
+  const reversalId = (await pool.query('SELECT id FROM prodx_payment_reversals WHERE order_id=$1', [voidSale.order.id])).rows[0].id;
+  await assert.rejects(pool.query('UPDATE prodx_payment_reversals SET order_id=$2 WHERE id=$1', [reversalId, otherSale.order.id]));
+  await assert.rejects(pool.query('UPDATE prodx_payment_reversals SET amount=amount-1 WHERE id=$1', [reversalId]));
+  await assert.rejects(pool.query("UPDATE prodx_payment_reversals SET method='card' WHERE id=$1", [reversalId]));
+
   await clean();
   await seed();
   const concurrentRefundSale = await checkout.checkout(req('m7-concurrent-refund', '00000000-0000-4000-8000-000000002010'));
