@@ -19,8 +19,12 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> => (
   typeof value === 'object' && value !== null && !Array.isArray(value)
 );
 
-const requiredString = (value: unknown): string | null => (
+const requiredNonBlankString = (value: unknown): string | null => (
   typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+);
+
+const requiredSecret = (value: unknown): string | null => (
+  typeof value === 'string' && value.length > 0 ? value : null
 );
 
 const createAuthorizationSnapshotLoader = (db: ReturnType<typeof asSqlExecutor>) => async (
@@ -87,9 +91,9 @@ export const createProductionApp = () => {
           return;
         }
 
-        const username = requiredString(request.body.username);
-        const password = requiredString(request.body.password);
-        const deviceId = requiredString(request.body.deviceId);
+        const username = requiredNonBlankString(request.body.username);
+        const password = requiredSecret(request.body.password);
+        const deviceId = requiredNonBlankString(request.body.deviceId);
         if (!username || !password || !deviceId) {
           response.status(400).json({
             error: { code: 'INVALID_REQUEST', message: 'username, password, and deviceId are required.', requestId: request.id },
