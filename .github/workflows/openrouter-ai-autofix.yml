@@ -1,0 +1,169 @@
+name: OpenRouter AI Autonomous Remediation
+
+on:
+  workflow_run:
+    workflows: ["OpenRouter AI Review Dispatch"]
+    types: [completed]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
+  actions: read
+
+concurrency:
+  group: openrouter-ai-autofix-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  autofix:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.event == 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Resolve and validate pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          payload="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}")"
+          pr_number="$(printf '%s' "$payload" | jq -r '.pull_requests[0].number // empty')"
+          [[ -n "$pr_number" ]] || { echo 'No pull request is associated with this review run.' >&2; exit 1; }
+          pr="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${pr_number}")"
+          head_repo="$(printf '%s' "$pr" | jq -r '.head.repo.full_name')"
+          head_ref="$(printf '%s' "$pr" | jq -r '.head.ref')"
+          head_sha="$(printf '%s' "$pr" | jq -r '.head.sha')"
+          [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo 'Autofix is restricted to repository-owned pull requests.' >&2; exit 1; }
+          [[ "$head_ref" != 'main' ]] || { echo 'Refusing to autofix the default branch.' >&2; exit 1; }
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          fetch-depth: 0
+
+      - name: Verify latest AI decision is FAIL
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" > comments.json
+          decision="$(jq -r '[.[] | select(.body | contains("<!-- prodx-openrouter-review -->"))] | sort_by(.created_at) | last | .body // ""' comments.json | sed -n 's/.*\*\*Decision:\*\* `\([^`]*\)`.*/\1/p')"
+          [[ "$decision" == 'FAIL' ]] || { echo "Latest OpenRouter decision is '$decision'; nothing to fix."; exit 1; }
+
+      - name: Build sanitized source snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}.diff" -H 'Accept: application/vnd.github.v3.diff' > pr.diff
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          source = Path('pr.diff').read_text(encoding='utf-8', errors='replace')
+          blocks = re.split(r'(?=^diff --git )', source, flags=re.MULTILINE)
+          sensitive = re.compile(r'(^|/)(?:\.env(?:\..*)?|.*(?:secret|credential|password|token).*)$|\.(?:pem|key|p12|pfx)$', re.I)
+          patterns = [
+            (re.compile(r'(Authorization:\s*Bearer\s+)[^\s]+', re.I), r'\1[REDACTED]'),
+            (re.compile(r'((?:api[_-]?key|access[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*["\']?)[^\s"\'&,]+', re.I), r'\1[REDACTED]'),
+            (re.compile(r'gh[pousr]_[A-Za-z0-9_]{20,}'), '[REDACTED_GITHUB_TOKEN]'),
+          ]
+          allowed=[]
+          for block in blocks:
+            m=re.search(r'^diff --git a/(.*?) b/(.*?)$', block, re.M)
+            path=m.group(2) if m else 'unknown'
+            if sensitive.search(path): continue
+            for p,r in patterns: block=p.sub(r,block)
+            allowed.append(block)
+          result=''.join(allowed)
+          if len(result.encode())>120000: result=result.encode()[:120000].decode('utf-8','ignore')+'\n[DIFF TRUNCATED]\n'
+          if not result.strip(): raise SystemExit('No reviewable source diff remained.')
+          Path('sanitized.diff').write_text(result,encoding='utf-8')
+          PY
+
+      - name: Request minimal patch from OpenRouter
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PREFERRED_MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          [[ -n "${OPENROUTER_API_KEY:-}" ]] || { echo 'OPENROUTER_API_KEY is not configured.' >&2; exit 1; }
+          python3 - <<'PY'
+          import json, os, urllib.request
+          from pathlib import Path
+          diff=Path('sanitized.diff').read_text(encoding='utf-8')
+          system='''You are the autonomous remediation engineer for PRODX-POS. Produce the smallest safe unified diff that fixes only the current FAIL findings in the supplied PR. Preserve financial integrity, inventory integrity, store isolation, server authority, authentication/authorization, idempotency, auditability, database invariants, offline safety, and CI gates. Never weaken tests or security. Do not change workflow permissions, secrets, deployment policy, migrations, or protected-branch policy. Return ONLY a unified diff suitable for `git apply --check`. If no safe patch can be produced, return exactly NO_SAFE_PATCH.'''
+          user=f'PR #{os.environ["PR_NUMBER"]}\n\nCurrent PR diff:\n```diff\n{diff}\n```'
+          models=urllib.request.Request('https://openrouter.ai/api/v1/models',headers={'Authorization':'Bearer '+os.environ['OPENROUTER_API_KEY']})
+          with urllib.request.urlopen(models,timeout=60) as r: advertised=json.load(r)
+          preferred=os.environ.get('PREFERRED_MODEL_ID','')
+          ids=[x.get('id') for x in advertised.get('data',[]) if x.get('id')]
+          model=preferred if preferred in ids else next((x for x in ids if x.endswith(':free')), 'openrouter/free')
+          payload={'model':model,'messages':[{'role':'system','content':system},{'role':'user','content':user}],'temperature':0,'max_tokens':8000,'stream':False}
+          req=urllib.request.Request('https://openrouter.ai/api/v1/chat/completions',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+os.environ['OPENROUTER_API_KEY'],'Content-Type':'application/json','HTTP-Referer':'https://github.com/'+os.environ['GITHUB_REPOSITORY'],'X-Title':'PRODX-POS Autonomous Remediation'},method='POST')
+          with urllib.request.urlopen(req,timeout=180) as r: body=json.load(r)
+          content=body.get('choices',[{}])[0].get('message',{}).get('content','').strip()
+          if content.startswith('```'):
+            content=content.strip('`')
+            if content.startswith('diff\n'): content=content[5:]
+          if content != 'NO_SAFE_PATCH' and not content.startswith('diff --git '): raise SystemExit('OpenRouter did not return a valid unified diff.')
+          Path('ai-fix.patch').write_text(content,encoding='utf-8')
+          PY
+
+      - name: Apply and validate patch
+        run: |
+          set -euo pipefail
+          if [[ "$(cat ai-fix.patch)" == 'NO_SAFE_PATCH' ]]; then echo 'No safe patch produced; leaving PR unchanged.'; exit 0; fi
+          git apply --check --whitespace=error ai-fix.patch
+          git apply --whitespace=error ai-fix.patch
+          changed="$(git diff --name-only)"
+          [[ -n "$changed" ]] || { echo 'Patch changed nothing.' >&2; exit 1; }
+          if printf '%s\n' "$changed" | grep -E '(^|/)(\.github/workflows/|\.env|.*\.(pem|key|p12|pfx)$)' >/dev/null; then
+            echo 'Autofix attempted to modify protected/sensitive paths.' >&2
+            git reset --hard HEAD
+            exit 1
+          fi
+
+      - name: Deterministic validation
+        run: |
+          set -euo pipefail
+          corepack enable
+          bun --version
+          bun install --frozen-lockfile
+          bun run lint
+          bun run server:check
+          bun run server:test
+          bun run server:test:integration
+          bun run theme:validate
+          bun run build
+
+      - name: Commit remediation to PR branch
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
+        run: |
+          set -euo pipefail
+          git config user.name 'prodx-autofix[bot]'
+          git config user.email 'prodx-autofix[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(ai): apply verified autonomous remediation'
+          git push origin "HEAD:${HEAD_REF}"
+
+      - name: Report remediation result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          body='<!-- prodx-openrouter-autofix -->\n## PRODX-POS Autonomous Remediation\n\nThe guarded remediation loop attempted a minimal patch from the latest OpenRouter FAIL finding. Changes are accepted only when the deterministic lint, typecheck, server tests, integration tests, theme validation, and production build all pass.\n\nIf no safe patch was possible or validation failed, the PR is intentionally left unchanged.'
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$body" >/dev/null

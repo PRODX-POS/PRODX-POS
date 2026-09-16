@@ -1,0 +1,1 @@
+Implementation is intentionally not marked Production Ready until CI, real PostgreSQL execution, runtime integration, processor integration, and independent review are evidenced.

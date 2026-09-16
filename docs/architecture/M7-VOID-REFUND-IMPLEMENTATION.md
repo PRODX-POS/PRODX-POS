@@ -1,0 +1,1 @@
+M7 adds transactional PostgreSQL void/refund persistence, bounded refund/restock behavior, payment reversals for voids, inventory ledger reversal, cash refund movements, audit events, idempotency constraints, HTTP permission-gated routes, and PostgreSQL integration coverage. Runtime composition and CI execution remain verification gates.
