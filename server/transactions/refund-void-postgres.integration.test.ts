@@ -25,8 +25,9 @@ const request = (key:string): CheckoutRequest => ({
 
 async function clean(){
   if(!pool)return;
+  await pool.query('TRUNCATE prodx_audit_log');
   for(const q of [
-    ['DELETE FROM prodx_cash_movements WHERE shift_id=$1',[id.shift]],['DELETE FROM prodx_audit_log WHERE store_id=$1',[id.store]],['DELETE FROM prodx_refund_items WHERE store_id=$1',[id.store]],['DELETE FROM prodx_order_adjustments WHERE store_id=$1',[id.store]],['DELETE FROM prodx_payments WHERE store_id=$1',[id.store]],['DELETE FROM prodx_order_items WHERE store_id=$1',[id.store]],['DELETE FROM prodx_inventory_ledger WHERE store_id=$1',[id.store]],['DELETE FROM prodx_orders WHERE store_id=$1',[id.store]],['DELETE FROM prodx_shifts WHERE id=$1',[id.shift]],['DELETE FROM prodx_products WHERE id=$1',[id.product]],['DELETE FROM prodx_categories WHERE id=$1',[id.cat]],['DELETE FROM prodx_registers WHERE id=$1',[id.reg]],['DELETE FROM prodx_store_memberships WHERE store_id=$1',[id.store]],['DELETE FROM prodx_users WHERE id=$1',[id.user]],['DELETE FROM prodx_stores WHERE id=$1',[id.store]],['DELETE FROM prodx_organizations WHERE id=$1',[id.org]]]) await pool.query(q[0] as string,q[1] as string[]);
+    ['DELETE FROM prodx_cash_movements WHERE shift_id=$1',[id.shift]],['DELETE FROM prodx_refund_items WHERE store_id=$1',[id.store]],['DELETE FROM prodx_order_adjustments WHERE store_id=$1',[id.store]],['DELETE FROM prodx_payments WHERE store_id=$1',[id.store]],['DELETE FROM prodx_order_items WHERE store_id=$1',[id.store]],['DELETE FROM prodx_inventory_ledger WHERE store_id=$1',[id.store]],['DELETE FROM prodx_orders WHERE store_id=$1',[id.store]],['DELETE FROM prodx_shifts WHERE id=$1',[id.shift]],['DELETE FROM prodx_products WHERE id=$1',[id.product]],['DELETE FROM prodx_categories WHERE id=$1',[id.cat]],['DELETE FROM prodx_registers WHERE id=$1',[id.reg]],['DELETE FROM prodx_store_memberships WHERE store_id=$1',[id.store]],['DELETE FROM prodx_users WHERE id=$1',[id.user]],['DELETE FROM prodx_stores WHERE id=$1',[id.store]],['DELETE FROM prodx_organizations WHERE id=$1',[id.org]]]) await pool.query(q[0] as string,q[1] as string[]);
 }
 async function seed(){
   if(!pool)throw new Error('DATABASE_URL required'); await clean();
@@ -62,4 +63,10 @@ test('PostgreSQL refund/void are authoritative, idempotent, atomic and bounded',
   const voidCached=await adjustments.void({storeId:id.store,orderId:sale2.order.id,reason:'Duplicate sale',authorizedByUserId:id.user,idempotencyKey:'void-1'}); assert.equal(voidCached.idempotencyCached,true);
   await assert.rejects(adjustments.void({storeId:id.store,orderId:sale2.order.id,reason:'Different request',authorizedByUserId:id.user,idempotencyKey:'void-1'}));
   assert.equal((await pool.query("SELECT count(*)::int n FROM prodx_order_adjustments WHERE order_id=$1",[sale2.order.id])).rows[0].n,1);
+
+  const audit = (await pool.query("SELECT id FROM prodx_audit_log WHERE store_id=$1 ORDER BY created_at DESC LIMIT 1", [id.store])).rows[0];
+  assert.ok(audit?.id);
+  await assert.rejects(pool.query('UPDATE prodx_audit_log SET details=details || $1::jsonb WHERE id=$2', [JSON.stringify({tampered:true}), audit.id]));
+  await assert.rejects(pool.query('DELETE FROM prodx_audit_log WHERE id=$1', [audit.id]));
+  assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_audit_log WHERE id=$1',[audit.id])).rows[0].n,1);
 });
