@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS prodx_order_adjustments (
   CONSTRAINT prodx_adjustments_store_org_fk FOREIGN KEY (store_id, organization_id) REFERENCES prodx_stores(id, organization_id) ON DELETE RESTRICT,
   CONSTRAINT prodx_adjustments_order_store_fk FOREIGN KEY (order_id, store_id) REFERENCES prodx_orders(id, store_id) ON DELETE RESTRICT,
   CONSTRAINT prodx_adjustments_user_org_fk FOREIGN KEY (authorized_by_user_id, organization_id) REFERENCES prodx_users(id, organization_id) ON DELETE RESTRICT,
+  CONSTRAINT prodx_adjustments_user_store_membership_fk FOREIGN KEY (organization_id, store_id, authorized_by_user_id) REFERENCES prodx_store_memberships(organization_id, store_id, user_id) ON DELETE RESTRICT,
   CONSTRAINT prodx_adjustments_action_valid CHECK (action IN ('refund','void')),
   CONSTRAINT prodx_adjustments_amount_valid CHECK (amount > 0),
   CONSTRAINT prodx_adjustments_refund_method_valid CHECK ((action='refund' AND refund_method IN ('cash','card','qr_digital')) OR (action='void' AND refund_method IS NULL)),
