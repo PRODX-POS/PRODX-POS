@@ -5,6 +5,7 @@ import { hashSessionToken, createSessionIssuer } from '../auth/session';
 import { createPostgresAuthenticationRepository } from '../auth/postgres-repository';
 import { createPostgresPool, asSqlExecutor } from '../db/postgres';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
+import { registerCheckoutRoute } from './checkout-route';
 import { registerVoidRefundRoutes } from './void-refund-route';
 
 const bearerToken = (request: Request): string | null => {
@@ -50,7 +51,10 @@ export const createProductionApp = () => {
   const app = createApp({
     authenticateRequest,
     authorizeRequest,
-    configureRoutes: current => registerVoidRefundRoutes(current, db),
+    configureRoutes: current => {
+      registerCheckoutRoute(current, db);
+      registerVoidRefundRoutes(current, db);
+    },
   });
 
   return { app, pool, tokenHash: hashSessionToken };
