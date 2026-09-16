@@ -6,75 +6,11 @@ import { createCheckoutService } from './checkout-service';
 import { createVoidRefundService } from './void-refund-service';
 import type { CheckoutRequest } from '../../src/adapters/types';
 
-const url = process.env.DATABASE_URL;
-const pool = url ? createPostgresPool({ connectionString: url, max: 8 }) : null;
-const db = pool ? createTransactionalPostgresExecutor(pool) : null;
-const id = {
-  org:'00000000-0000-4000-8000-000000002001', store:'00000000-0000-4000-8000-000000002002', user:'00000000-0000-4000-8000-000000002003',
-  reg:'00000000-0000-4000-8000-000000002004', shift:'00000000-0000-4000-8000-000000002005', cat:'00000000-0000-4000-8000-000000002006', product:'00000000-0000-4000-8000-000000002007', payment:'00000000-0000-4000-8000-000000002008'
-};
-const checkoutRequest = (key:string, paymentId=id.payment): CheckoutRequest => ({
-  idempotencyKey:key, storeId:id.store, registerId:id.reg, cashierId:id.user,
-  items:[{lineId:`line-${key}`,product:{id:id.product,storeId:id.store,sku:'M7-1',barcode:'M7-1',name:'M7 Product',categoryId:id.cat,price:{amountInCents:1000,currency:'THB'},costPrice:{amountInCents:500,currency:'THB'},taxRateBps:0,currentStock:20,reorderPoint:1,unitOfMeasure:'each'},quantity:2,unitPrice:{amountInCents:1000,currency:'THB'},discountBps:0,lineSubtotal:{amountInCents:2000,currency:'THB'},lineTax:{amountInCents:0,currency:'THB'},lineTotal:{amountInCents:2000,currency:'THB'}}],
-  totals:{grossSubtotal:{amountInCents:2000,currency:'THB'},itemDiscounts:{amountInCents:0,currency:'THB'},orderDiscount:{amountInCents:0,currency:'THB'},netSubtotal:{amountInCents:2000,currency:'THB'},totalTax:{amountInCents:0,currency:'THB'},grandTotal:{amountInCents:2000,currency:'THB'},totalItemsCount:2},
-  payments:[{id:paymentId,method:'cash',amount:{amountInCents:2000,currency:'THB'},tenderedCash:{amountInCents:2000,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'},timestamp:'2026-09-16T00:00:00.000Z'}],
-});
+const url=process.env.DATABASE_URL;const pool=url?createPostgresPool({connectionString:url,max:8}):null;const db=pool?createTransactionalPostgresExecutor(pool):null;
+const id={org:'00000000-0000-4000-8000-000000002001',store:'00000000-0000-4000-8000-000000002002',user:'00000000-0000-4000-8000-000000002003',reg:'00000000-0000-4000-8000-000000002004',shift:'00000000-0000-4000-8000-000000002005',cat:'00000000-0000-4000-8000-000000002006',product:'00000000-0000-4000-8000-000000002007',payment:'00000000-0000-4000-8000-000000002008'};
+const req=(key:string,paymentId=id.payment):CheckoutRequest=>({idempotencyKey:key,storeId:id.store,registerId:id.reg,cashierId:id.user,items:[{lineId:`line-${key}`,product:{id:id.product,storeId:id.store,sku:'M7-1',barcode:'M7-1',name:'M7 Product',categoryId:id.cat,price:{amountInCents:1000,currency:'THB'},costPrice:{amountInCents:500,currency:'THB'},taxRateBps:0,currentStock:20,reorderPoint:1,unitOfMeasure:'each'},quantity:2,unitPrice:{amountInCents:1000,currency:'THB'},discountBps:0,lineSubtotal:{amountInCents:2000,currency:'THB'},lineTax:{amountInCents:0,currency:'THB'},lineTotal:{amountInCents:2000,currency:'THB'}}],totals:{grossSubtotal:{amountInCents:2000,currency:'THB'},itemDiscounts:{amountInCents:0,currency:'THB'},orderDiscount:{amountInCents:0,currency:'THB'},netSubtotal:{amountInCents:2000,currency:'THB'},totalTax:{amountInCents:0,currency:'THB'},grandTotal:{amountInCents:2000,currency:'THB'},totalItemsCount:2},payments:[{id:paymentId,method:'cash',amount:{amountInCents:2000,currency:'THB'},tenderedCash:{amountInCents:2000,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'},timestamp:'2026-09-16T00:00:00.000Z'}]});
+async function clean(){if(!pool)return;for(const q of [['DELETE FROM prodx_payment_reversals WHERE store_id=$1',[id.store]],['DELETE FROM prodx_refunds WHERE store_id=$1',[id.store]],['DELETE FROM prodx_voids WHERE store_id=$1',[id.store]],['DELETE FROM prodx_cash_movements WHERE shift_id=$1',[id.shift]],['DELETE FROM prodx_audit_log WHERE store_id=$1',[id.store]],['DELETE FROM prodx_payments WHERE store_id=$1',[id.store]],['DELETE FROM prodx_order_items WHERE store_id=$1',[id.store]],['DELETE FROM prodx_inventory_ledger WHERE store_id=$1',[id.store]],['DELETE FROM prodx_orders WHERE store_id=$1',[id.store]],['DELETE FROM prodx_shifts WHERE id=$1',[id.shift]],['DELETE FROM prodx_products WHERE id=$1',[id.product]],['DELETE FROM prodx_categories WHERE id=$1',[id.cat]],['DELETE FROM prodx_registers WHERE id=$1',[id.reg]],['DELETE FROM prodx_store_memberships WHERE store_id=$1',[id.store]],['DELETE FROM prodx_users WHERE id=$1',[id.user]],['DELETE FROM prodx_stores WHERE id=$1',[id.store]],['DELETE FROM prodx_organizations WHERE id=$1',[id.org]]] as Array<[string,string[]]>)await pool.query(q[0],q[1]);}
+async function seed(){if(!pool)throw new Error('DATABASE_URL required');await clean();await pool.query('INSERT INTO prodx_organizations(id,code,name) VALUES($1,$2,$3)',[id.org,'m7-org','M7']);await pool.query("INSERT INTO prodx_stores(id,organization_id,code,name,business_timezone) VALUES($1,$2,'m7','M7 Store','Asia/Bangkok')",[id.store,id.org]);await pool.query('INSERT INTO prodx_users(id,organization_id,username,display_name) VALUES($1,$2,$3,$4)',[id.user,id.org,'m7-user','M7 User']);await pool.query('INSERT INTO prodx_store_memberships(organization_id,store_id,user_id) VALUES($1,$2,$3)',[id.org,id.store,id.user]);await pool.query('INSERT INTO prodx_registers(id,organization_id,store_id,code,name) VALUES($1,$2,$3,$4,$5)',[id.reg,id.org,id.store,'M7','M7 Register']);await pool.query("INSERT INTO prodx_shifts(id,organization_id,store_id,register_id,cashier_id,opening_float_amount,currency) VALUES($1,$2,$3,$4,$5,0,'THB')",[id.shift,id.org,id.store,id.reg,id.user]);await pool.query('INSERT INTO prodx_categories(id,organization_id,store_id,name,slug) VALUES($1,$2,$3,$4,$5)',[id.cat,id.org,id.store,'M7','m7']);await pool.query("INSERT INTO prodx_products(id,organization_id,store_id,category_id,sku,barcode,name,price_amount,cost_price_amount,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure) VALUES($1,$2,$3,$4,'M7-1','M7-1','M7 Product',10,5,'THB',0,20,1,'each')",[id.product,id.org,id.store,id.cat]);}
 
-async function clean() {
-  if (!pool) return;
-  for (const q of [
-    ['DELETE FROM prodx_payment_reversals WHERE store_id=$1',[id.store]],
-    ['DELETE FROM prodx_refunds WHERE store_id=$1',[id.store]], ['DELETE FROM prodx_voids WHERE store_id=$1',[id.store]],
-    ['DELETE FROM prodx_cash_movements WHERE shift_id=$1',[id.shift]], ['DELETE FROM prodx_audit_log WHERE store_id=$1',[id.store]],
-    ['DELETE FROM prodx_payments WHERE store_id=$1',[id.store]], ['DELETE FROM prodx_order_items WHERE store_id=$1',[id.store]],
-    ['DELETE FROM prodx_inventory_ledger WHERE store_id=$1',[id.store]], ['DELETE FROM prodx_orders WHERE store_id=$1',[id.store]],
-    ['DELETE FROM prodx_shifts WHERE id=$1',[id.shift]], ['DELETE FROM prodx_products WHERE id=$1',[id.product]],
-    ['DELETE FROM prodx_categories WHERE id=$1',[id.cat]], ['DELETE FROM prodx_registers WHERE id=$1',[id.reg]],
-    ['DELETE FROM prodx_store_memberships WHERE store_id=$1',[id.store]], ['DELETE FROM prodx_users WHERE id=$1',[id.user]],
-    ['DELETE FROM prodx_stores WHERE id=$1',[id.store]], ['DELETE FROM prodx_organizations WHERE id=$1',[id.org]],
-  ] as Array<[string,string[]]>) await pool.query(q[0],q[1]);
-}
-
-async function seed() {
-  if (!pool) throw new Error('DATABASE_URL required');
-  await clean();
-  await pool.query('INSERT INTO prodx_organizations(id,code,name) VALUES($1,$2,$3)',[id.org,'m7-org','M7']);
-  await pool.query("INSERT INTO prodx_stores(id,organization_id,code,name,business_timezone) VALUES($1,$2,'m7','M7 Store','Asia/Bangkok')",[id.store,id.org]);
-  await pool.query('INSERT INTO prodx_users(id,organization_id,username,display_name) VALUES($1,$2,$3,$4)',[id.user,id.org,'m7-user','M7 User']);
-  await pool.query('INSERT INTO prodx_store_memberships(organization_id,store_id,user_id) VALUES($1,$2,$3)',[id.org,id.store,id.user]);
-  await pool.query('INSERT INTO prodx_registers(id,organization_id,store_id,code,name) VALUES($1,$2,$3,$4,$5)',[id.reg,id.org,id.store,'M7','M7 Register']);
-  await pool.query("INSERT INTO prodx_shifts(id,organization_id,store_id,register_id,cashier_id,opening_float_amount,currency) VALUES($1,$2,$3,$4,$5,0,'THB')",[id.shift,id.org,id.store,id.reg,id.user]);
-  await pool.query('INSERT INTO prodx_categories(id,organization_id,store_id,name,slug) VALUES($1,$2,$3,$4,$5)',[id.cat,id.org,id.store,'M7','m7']);
-  await pool.query("INSERT INTO prodx_products(id,organization_id,store_id,category_id,sku,barcode,name,price_amount,cost_price_amount,currency,tax_rate_bps,current_stock,reorder_point,unit_of_measure) VALUES($1,$2,$3,$4,'M7-1','M7-1','M7 Product',10,5,'THB',0,20,1,'each')",[id.product,id.org,id.store,id.cat]);
-}
-
-test('PostgreSQL M7 refund is atomic, bounded, idempotent and restores inventory',async t=>{
-  if(!pool||!db){t.skip('DATABASE_URL not configured');return;}
-  await seed();
-  t.after(async()=>{await clean();await pool.end();});
-  const checkout=createCheckoutService(db); const refunds=createVoidRefundService(db);
-  const sale=await checkout.checkout(checkoutRequest('m7-refund'));
-  assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock,18);
-  const partial=await refunds.refund({storeId:id.store,orderId:sale.order.id,idempotencyKey:'refund-1',refundAmount:{amountInCents:1000,currency:'THB'},reason:'Customer return',refundMethod:'cash',restockItems:[{productId:id.product,quantity:1}],authorizedByUserId:id.user});
-  assert.equal(partial.status,'server_confirmed');
-  assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock,19);
-  const cached=await refunds.refund({storeId:id.store,orderId:sale.order.id,idempotencyKey:'refund-1',refundAmount:{amountInCents:1000,currency:'THB'},reason:'ignored',refundMethod:'cash',restockItems:[],authorizedByUserId:id.user});
-  assert.equal(cached.idempotencyCached,true);
-  await assert.rejects(refunds.refund({storeId:id.store,orderId:sale.order.id,idempotencyKey:'refund-2',refundAmount:{amountInCents:1101,currency:'THB'},reason:'Too much',refundMethod:'cash',restockItems:[],authorizedByUserId:id.user}));
-  assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_refunds WHERE order_id=$1',[sale.order.id])).rows[0].n,1);
-});
-
-test('PostgreSQL M7 void reverses payments, cash, inventory and is idempotent',async t=>{
-  if(!pool||!db){t.skip('DATABASE_URL not configured');return;}
-  await seed();
-  t.after(async()=>{await clean();await pool.end();});
-  const checkout=createCheckoutService(db); const refunds=createVoidRefundService(db);
-  const sale=await checkout.checkout(checkoutRequest('m7-void','00000000-0000-4000-8000-000000002009'));
-  const result=await refunds.voidOrder({storeId:id.store,orderId:sale.order.id,idempotencyKey:'void-1',reason:'Cancelled transaction',authorizedByUserId:id.user});
-  assert.equal(result.status,'voided');
-  assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock,20);
-  assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_payment_reversals WHERE order_id=$1',[sale.order.id])).rows[0].n,1);
-  assert.equal((await pool.query("SELECT count(*)::int n FROM prodx_cash_movements WHERE shift_id=$1 AND type='cash_refund'",[id.shift])).rows[0].n,1);
-  const cached=await refunds.voidOrder({storeId:id.store,orderId:sale.order.id,idempotencyKey:'void-1',reason:'ignored',authorizedByUserId:id.user});
-  assert.equal(cached.idempotencyCached,true);
-});
+test('PostgreSQL M7 void/refund integrity scenarios',async t=>{if(!pool||!db){t.skip('DATABASE_URL not configured');return;}t.after(async()=>{await clean();await pool.end();});const checkout=createCheckoutService(db);const refunds=createVoidRefundService(db);await seed();const sale=await checkout.checkout(req('m7-refund'));assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock,18);const partial=await refunds.refund({storeId:id.store,orderId:sale.order.id,idempotencyKey:'refund-1',refundAmount:{amountInCents:1000,currency:'THB'},reason:'Customer return',refundMethod:'cash',restockItems:[{productId:id.product,quantity:1}],authorizedByUserId:id.user});assert.equal(partial.status,'server_confirmed');assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock,19);const cached=await refunds.refund({storeId:id.store,orderId:sale.order.id,idempotencyKey:'refund-1',refundAmount:{amountInCents:1000,currency:'THB'},reason:'ignored',refundMethod:'cash',restockItems:[],authorizedByUserId:id.user});assert.equal(cached.idempotencyCached,true);await assert.rejects(refunds.refund({storeId:id.store,orderId:sale.order.id,idempotencyKey:'refund-2',refundAmount:{amountInCents:1101,currency:'THB'},reason:'Too much',refundMethod:'cash',restockItems:[],authorizedByUserId:id.user}));assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_refunds WHERE order_id=$1',[sale.order.id])).rows[0].n,1);
+await clean();await seed();const voidSale=await checkout.checkout(req('m7-void','00000000-0000-4000-8000-000000002009'));const result=await refunds.voidOrder({storeId:id.store,orderId:voidSale.order.id,idempotencyKey:'void-1',reason:'Cancelled transaction',authorizedByUserId:id.user});assert.equal(result.status,'voided');assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock,20);assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_payment_reversals WHERE order_id=$1',[voidSale.order.id])).rows[0].n,1);assert.equal((await pool.query("SELECT count(*)::int n FROM prodx_cash_movements WHERE shift_id=$1 AND type='cash_refund'",[id.shift])).rows[0].n,2);const voidCached=await refunds.voidOrder({storeId:id.store,orderId:voidSale.order.id,idempotencyKey:'void-1',reason:'ignored',authorizedByUserId:id.user});assert.equal(voidCached.idempotencyCached,true);});
