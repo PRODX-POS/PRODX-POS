@@ -7,7 +7,7 @@ ALTER TABLE prodx_orders
   DROP CONSTRAINT IF EXISTS prodx_orders_idempotency_fingerprint_valid;
 ALTER TABLE prodx_orders
   ADD CONSTRAINT prodx_orders_idempotency_fingerprint_valid
-  CHECK (idempotency_fingerprint IS NULL OR length(btrim(idempotency_fingerprint)) = 64);
+  CHECK (idempotency_fingerprint IS NULL OR idempotency_fingerprint ~ '^[0-9a-f]{64}$');
 
 CREATE INDEX IF NOT EXISTS prodx_orders_store_idempotency_fingerprint_idx
   ON prodx_orders(store_id, idempotency_fingerprint);
