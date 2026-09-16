@@ -114,3 +114,31 @@ test('authorization is explicit and evaluated after authentication', async () =>
     await server.close();
   }
 });
+
+test('only explicitly marked public requests bypass authentication', async () => {
+  const app = createApp({
+    authenticateRequest: () => null,
+    isPublicRequest: (request) => request.path === '/api/v1/public-test',
+    configureRoutes: (configuredApp) => {
+      configuredApp.get('/api/v1/public-test', (_request, response) => {
+        response.json({ ok: true });
+      });
+      configuredApp.get('/api/v1/private-test', (_request, response) => {
+        response.json({ ok: true });
+      });
+    },
+  });
+  const server = await start(app);
+
+  try {
+    const publicResponse = await fetch(`${server.baseUrl}/api/v1/public-test`);
+    assert.equal(publicResponse.status, 200);
+    assert.deepEqual(await publicResponse.json(), { ok: true });
+
+    const privateResponse = await fetch(`${server.baseUrl}/api/v1/private-test`);
+    assert.equal(privateResponse.status, 401);
+    assert.equal((await privateResponse.json()).error.code, 'UNAUTHENTICATED');
+  } finally {
+    await server.close();
+  }
+});
