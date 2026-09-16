@@ -9,13 +9,18 @@ import type { CheckoutRequest } from '../../src/adapters/types';
 const url = process.env.DATABASE_URL;
 const pool = url ? createPostgresPool({ connectionString: url, max: 8 }) : null;
 const db = pool ? createTransactionalPostgresExecutor(pool) : null;
-const id = { org:'00000000-0000-4000-8000-000000001101', store:'00000000-0000-4000-8000-000000001102', user:'00000000-0000-4000-8000-000000001104', reg:'00000000-0000-4000-8000-000000001105', shift:'00000000-0000-4000-8000-000000001106', cat:'00000000-0000-4000-8000-000000001107', product:'00000000-0000-4000-8000-000000001108', payment:'00000000-0000-4000-8000-000000001109' };
+const id = { org:'00000000-0000-4000-8000-000000001101', store:'00000000-0000-4000-8000-000000001102', user:'00000000-0000-4000-8000-000000001104', reg:'00000000-0000-4000-8000-000000001105', shift:'00000000-0000-4000-8000-000000001106', cat:'00000000-0000-4000-8000-000000001107', product:'00000000-0000-4000-8000-000000001108' };
+
+const paymentIdByRequestKey: Record<string, string> = {
+  'rv-sale': '00000000-0000-4000-8000-000000001109',
+  'rv-void': '00000000-0000-4000-8000-000000001110',
+};
 
 const request = (key:string): CheckoutRequest => ({
   idempotencyKey:key, storeId:id.store, registerId:id.reg, cashierId:id.user,
   items:[{lineId:'line',product:{id:id.product,storeId:id.store,sku:'RV-1',barcode:'RV-1',name:'Refund Product',categoryId:id.cat,price:{amountInCents:1000,currency:'THB'},costPrice:{amountInCents:500,currency:'THB'},taxRateBps:0,currentStock:10,reorderPoint:1,unitOfMeasure:'each'},quantity:2,unitPrice:{amountInCents:1000,currency:'THB'},discountBps:0,lineSubtotal:{amountInCents:2000,currency:'THB'},lineTax:{amountInCents:0,currency:'THB'},lineTotal:{amountInCents:2000,currency:'THB'}}],
   totals:{grossSubtotal:{amountInCents:2000,currency:'THB'},itemDiscounts:{amountInCents:0,currency:'THB'},orderDiscount:{amountInCents:0,currency:'THB'},netSubtotal:{amountInCents:2000,currency:'THB'},totalTax:{amountInCents:0,currency:'THB'},grandTotal:{amountInCents:2000,currency:'THB'},totalItemsCount:2},
-  payments:[{id:id.payment,method:'cash',amount:{amountInCents:2000,currency:'THB'},tenderedCash:{amountInCents:2000,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'},timestamp:'2026-09-17T00:00:00.000Z'}]
+  payments:[{id:paymentIdByRequestKey[key] ?? `00000000-0000-4000-8000-${key.slice(-12).padStart(12,'0')}`,method:'cash',amount:{amountInCents:2000,currency:'THB'},tenderedCash:{amountInCents:2000,currency:'THB'},changeGiven:{amountInCents:0,currency:'THB'},timestamp:'2026-09-17T00:00:00.000Z'}]
 });
 
 async function clean(){
