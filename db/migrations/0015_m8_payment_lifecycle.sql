@@ -1,5 +1,8 @@
 -- PRODX POS M8 payment lifecycle foundation
 -- Payment state is server-authoritative and scoped to the order/store.
+-- The referenced payment key is explicitly unique so PostgreSQL can enforce the composite store boundary.
+CREATE UNIQUE INDEX IF NOT EXISTS prodx_payments_id_store_unique_idx ON prodx_payments(id, store_id);
+
 CREATE TABLE IF NOT EXISTS prodx_payment_attempts (
   id UUID PRIMARY KEY,
   organization_id UUID NOT NULL REFERENCES prodx_organizations(id) ON DELETE RESTRICT,
@@ -24,7 +27,6 @@ CREATE TABLE IF NOT EXISTS prodx_payment_attempts (
   CONSTRAINT prodx_payment_attempts_method_valid CHECK (method IN ('cash','card','qr_digital')),
   CONSTRAINT prodx_payment_attempts_amount_valid CHECK (amount > 0),
   CONSTRAINT prodx_payment_attempts_key_valid CHECK (length(btrim(idempotency_key)) > 0 AND length(btrim(provider)) > 0),
-  CONSTRAINT prodx_payment_attempts_id_store_unique UNIQUE (id, store_id),
   CONSTRAINT prodx_payment_attempts_store_key_unique UNIQUE (store_id, idempotency_key)
 );
 CREATE INDEX IF NOT EXISTS prodx_payment_attempts_order_idx ON prodx_payment_attempts(store_id, order_id, created_at DESC);
