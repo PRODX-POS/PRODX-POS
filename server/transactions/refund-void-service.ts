@@ -79,6 +79,11 @@ export const createRefundVoidService = (db: TransactionalSqlExecutor) => ({
         return { idempotencyCached: true, adjustment: existing };
       }
 
+      // Never report a card/QR refund as committed until an external provider settlement is actually integrated.
+      if (input.refundMethod !== 'cash') {
+        throw new RefundVoidConflictError(`External ${input.refundMethod} refund settlement is not configured; no refund was committed.`);
+      }
+
       const order = await getOrder(tx, input.storeId, input.orderId, true);
       if (!order) throw new RefundVoidConflictError('Order not found in this store.');
       if (order.currency !== input.currency) throw new RefundVoidConflictError('Refund currency does not match the order currency.');
@@ -101,11 +106,9 @@ export const createRefundVoidService = (db: TransactionalSqlExecutor) => ({
         await tx.query(`INSERT INTO prodx_inventory_ledger(id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id) VALUES($1,$2,$3,$4,$5,$6,'refund_restock',$7,$8)`, [crypto.randomUUID(), adjustment.organization_id, input.storeId, item.productId, item.quantity, stock.current_stock, adjustmentId, input.authorizedByUserId]);
       }
 
-      if (input.refundMethod === 'cash') {
-        const shift = (await tx.query(`SELECT id FROM prodx_shifts WHERE store_id=$1 AND cashier_id=$2 AND status='open' FOR UPDATE`, [input.storeId, input.authorizedByUserId])).rows[0];
-        if (!shift) throw new RefundVoidConflictError('An active shift for the authorizing cashier is required for a cash refund.');
-        await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'cash_refund',$5,$6,$7,$8)`, [crypto.randomUUID(), adjustment.organization_id, input.storeId, shift.id, numeric(amount), `Refund ${input.orderId}: ${reason}`, input.authorizedByUserId, input.currency]);
-      }
+      const shift = (await tx.query(`SELECT id FROM prodx_shifts WHERE store_id=$1 AND cashier_id=$2 AND status='open' FOR UPDATE`, [input.storeId, input.authorizedByUserId])).rows[0];
+      if (!shift) throw new RefundVoidConflictError('An active shift for the authorizing cashier is required for a cash refund.');
+      await tx.query(`INSERT INTO prodx_cash_movements(id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency) VALUES($1,$2,$3,$4,'cash_refund',$5,$6,$7,$8)`, [crypto.randomUUID(), adjustment.organization_id, input.storeId, shift.id, numeric(amount), `Refund ${input.orderId}: ${reason}`, input.authorizedByUserId, input.currency]);
 
       const newRefunded = refunded + amount;
       if (newRefunded === grandTotal) await tx.query(`UPDATE prodx_orders SET status='refunded' WHERE id=$1 AND store_id=$2`, [input.orderId, input.storeId]);
