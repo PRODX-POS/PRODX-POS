@@ -90,7 +90,7 @@ test('production HTTP runtime enforces authentication, permission, store scope, 
   const forbidden = await fetch(`${base}/api/v1/sync/outbox`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(syncBody) });
   assert.equal(forbidden.status, 403);
 
-  await grantPermission('pos.checkout');
+  await grantPermission('pos.sell');
   const scopeDenied = await fetch(`${base}/api/v1/sync/outbox`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ ...syncBody, payload: { ...syncBody.payload, storeId: ids.otherStore } }) });
   assert.equal(scopeDenied.status, 403);
 
