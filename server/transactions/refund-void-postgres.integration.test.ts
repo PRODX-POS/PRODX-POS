@@ -57,6 +57,11 @@ test('PostgreSQL refund/void are authoritative, idempotent, atomic and bounded',
   await assert.rejects(adjustments.refund({storeId:id.store,orderId:sale.order.id,amountInCents:500,currency:'THB',reason:'Bad restock',refundMethod:'cash',authorizedByUserId:id.user,idempotencyKey:'refund-bad',itemsToRestock:[{productId:id.product,quantity:99}]}));
   assert.equal(Number((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock),before);
 
+  const beforeExternalAttempt = await pool.query("SELECT count(*)::int n FROM prodx_order_adjustments WHERE order_id=$1", [sale.order.id]);
+  await assert.rejects(adjustments.refund({storeId:id.store,orderId:sale.order.id,amountInCents:500,currency:'THB',reason:'Card refund without provider',refundMethod:'card',authorizedByUserId:id.user,idempotencyKey:'refund-card-unconfigured',itemsToRestock:[]}), /External card refund settlement is not configured/);
+  assert.equal((await pool.query("SELECT count(*)::int n FROM prodx_order_adjustments WHERE order_id=$1", [sale.order.id])).rows[0].n, beforeExternalAttempt.rows[0].n);
+  assert.equal(Number((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock),before);
+
   const sale2=await checkout.checkout(request('rv-void')); const voided=await adjustments.void({storeId:id.store,orderId:sale2.order.id,reason:'Duplicate sale',authorizedByUserId:id.user,idempotencyKey:'void-1'}); assert.equal(voided.idempotencyCached,false);
   assert.equal((await pool.query("SELECT status FROM prodx_orders WHERE id=$1",[sale2.order.id])).rows[0].status,'voided');
   assert.equal((await pool.query("SELECT count(*)::int n FROM prodx_cash_movements WHERE shift_id=$1 AND type='cash_refund'",[id.shift])).rows[0].n,2);
