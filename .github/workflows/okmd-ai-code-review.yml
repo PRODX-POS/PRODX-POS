@@ -62,10 +62,10 @@ jobs:
           blocks = re.split(r'(?=^diff --git )', source, flags=re.MULTILINE)
           allowed = []
           excluded = []
-          sensitive_name = re.compile(r'(^|/)(?:\.env(?:\..*)?|.*(?:secret|credential|password|token).*)$|\.(?:pem|key|p12|pfx)$', re.I)
+          sensitive_name = re.compile(r'(^|/)(?:\\.env(?:\\..*)?|.*(?:secret|credential|password|token).*)$|\\.(?:pem|key|p12|pfx)$', re.I)
           secret_patterns = [
-              (re.compile(r'(Authorization:\s*Bearer\s+)[^\s]+', re.I), r'\1[REDACTED]'),
-              (re.compile(r'((?:api[_-]?key|access[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*["\']?)[^\s"\'&,]+', re.I), r'\1[REDACTED]'),
+              (re.compile(r'(Authorization:\\s*Bearer\\s+)[^\\s]+', re.I), r'\\1[REDACTED]'),
+              (re.compile(r'((?:api[_-]?key|access[_-]?token|client[_-]?secret|password|secret)\\s*[:=]\\s*["\\\']?)[^\\s"\\\'&,]+', re.I), r'\\1[REDACTED]'),
               (re.compile(r'-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----', re.S), '[REDACTED_PRIVATE_KEY]'),
               (re.compile(r'(gh[pousr]_[A-Za-z0-9_]{20,})'), '[REDACTED_GITHUB_TOKEN]'),
           ]
@@ -86,12 +86,12 @@ jobs:
           result = ''.join(allowed)
           if len(result.encode('utf-8')) > 120_000:
               result = result.encode('utf-8')[:120_000].decode('utf-8', errors='ignore')
-              result += '\n\n[DIFF TRUNCATED AT 120KB]\n'
+              result += '\\n\\n[DIFF TRUNCATED AT 120KB]\\n'
           if not result.strip():
               raise SystemExit('No reviewable source diff remained after sensitive-file filtering.')
 
           Path('sanitized.diff').write_text(result, encoding='utf-8')
-          Path('excluded-files.txt').write_text('\n'.join(sorted(set(excluded))) or 'none', encoding='utf-8')
+          Path('excluded-files.txt').write_text('\\n'.join(sorted(set(excluded))) or 'none', encoding='utf-8')
           print(f'Reviewable diff bytes: {len(result.encode("utf-8"))}')
           print(f'Excluded sensitive paths: {len(set(excluded))}')
           PY
@@ -128,7 +128,7 @@ jobs:
             exit 1
           fi
           echo "model_id=$model_id" >> "$GITHUB_OUTPUT"
-          printf '%s' "$models" | jq -r --arg selected "$model_id" '"OKMD advertised model count: \(.data | length)" , ("OKMD selected model: " + $selected)' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s' "$models" | jq -r --arg selected "$model_id" '"OKMD advertised model count: \\(.data | length)" , ("OKMD selected model: " + $selected)' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Review diff with OKMD AI
         if: steps.trust.outputs.enabled == 'true'
@@ -245,7 +245,7 @@ Sanitized unified diff:
               '## OKMD AI Code Review',
               '',
               f'**Decision:** `{decision}`',
-              f'**Provider:** `OKMD`',
+              '**Provider:** `OKMD`',
               f'**Model:** `{os.environ["MODEL_ID"]}`',
               '',
               summary or 'No summary returned.',
@@ -256,6 +256,6 @@ Sanitized unified diff:
                   def cell(v): return str(v).replace('|', '\\|').replace('\n', ' ')
                   lines.append(f'| {cell(f.get("severity"))} | `{cell(f.get("file"))}` | {cell(f.get("line", 0))} | {cell(f.get("title"))}: {cell(f.get("reason"))} | {cell(f.get("recommendation"))} |')
           body = '\n'.join(lines)
-          Path('okmd-comment.md').write_text(body, encoding='utf-8')
+          Path('okmd-comment.json').write_text(json.dumps({'body': body}, ensure_ascii=False), encoding='utf-8')
           PY
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input okmd-comment.md --header 'Accept: application/vnd.github+json' >/dev/null
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input okmd-comment.json --header 'Accept: application/vnd.github+json' >/dev/null
