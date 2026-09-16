@@ -97,6 +97,13 @@ export const createApp = (options: BackendBoundaryOptions) => {
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb' }));
   app.use(attachRequestId);
+
+  // Liveness must not depend on authentication or PostgreSQL. It is intended
+  // for process/container health checks and returns only a fixed status body.
+  app.get('/api/v1/health/live', (_request, response) => {
+    response.status(200).json({ status: 'ok' });
+  });
+
   app.locals.prodxAuthorize = options.authorizeRequest;
   app.use(authenticate(options.authenticateRequest));
 
