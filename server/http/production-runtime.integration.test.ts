@@ -1,0 +1,84 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { createPostgresPool } from '../db/postgres';
+import { hashSessionToken } from '../auth/session';
+import { createProductionApp } from './production-runtime';
+
+const url = process.env.DATABASE_URL;
+const pool = url ? createPostgresPool({ connectionString: url, max: 8 }) : null;
+const ids = {
+  org: '00000000-0000-4000-8000-000000002101',
+  store: '00000000-0000-4000-8000-000000002102',
+  otherStore: '00000000-0000-4000-8000-000000002103',
+  user: '00000000-0000-4000-8000-000000002104',
+  device: '00000000-0000-4000-8000-000000002105',
+  session: '00000000-0000-4000-8000-000000002106',
+  role: '00000000-0000-4000-8000-000000002107',
+};
+const token = 'm7-runtime-bearer-token-20260916-01';
+
+async function clean() {
+  if (!pool) return;
+  await pool.query('DELETE FROM prodx_user_roles WHERE user_id=$1', [ids.user]);
+  await pool.query('DELETE FROM prodx_sessions WHERE id=$1', [ids.session]);
+  await pool.query('DELETE FROM prodx_devices WHERE id=$1', [ids.device]);
+  await pool.query('DELETE FROM prodx_store_memberships WHERE user_id=$1', [ids.user]);
+  await pool.query('DELETE FROM prodx_roles WHERE id=$1', [ids.role]);
+  await pool.query('DELETE FROM prodx_users WHERE id=$1', [ids.user]);
+  await pool.query('DELETE FROM prodx_stores WHERE id IN ($1,$2)', [ids.store, ids.otherStore]);
+  await pool.query('DELETE FROM prodx_organizations WHERE id=$1', [ids.org]);
+}
+
+async function seed() {
+  if (!pool) throw new Error('DATABASE_URL required');
+  await clean();
+  await pool.query("INSERT INTO prodx_organizations(id,code,name) VALUES($1,'m7-runtime','M7 Runtime')", [ids.org]);
+  await pool.query("INSERT INTO prodx_stores(id,organization_id,code,name,business_timezone) VALUES($1,$3,'runtime','Runtime Store','Asia/Bangkok'),($2,$3,'other','Other Store','Asia/Bangkok')", [ids.store, ids.otherStore, ids.org]);
+  await pool.query("INSERT INTO prodx_users(id,organization_id,username,display_name,status) VALUES($1,$2,'runtime-user','Runtime User','active')", [ids.user, ids.org]);
+  await pool.query('INSERT INTO prodx_store_memberships(organization_id,store_id,user_id) VALUES($1,$2,$3)', [ids.org, ids.store, ids.user]);
+  await pool.query("INSERT INTO prodx_devices(id,organization_id,store_id,device_key,name,status) VALUES($1,$2,$3,'runtime-device','Runtime Device','active')", [ids.device, ids.org, ids.store]);
+  await pool.query("INSERT INTO prodx_sessions(id,organization_id,user_id,device_id,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,CURRENT_TIMESTAMP + interval '1 hour')", [ids.session, ids.org, ids.user, ids.device, hashSessionToken(token)]);
+  await pool.query("INSERT INTO prodx_roles(id,organization_id,role_key,name) VALUES($1,$2,'runtime-refund','Runtime Refund')", [ids.role, ids.org]);
+}
+
+async function grantRefund() {
+  if (!pool) throw new Error('DATABASE_URL required');
+  await pool.query("INSERT INTO prodx_user_roles(organization_id,user_id,role_id,store_id) VALUES($1,$2,$3,$4)", [ids.org, ids.user, ids.role, ids.store]);
+  await pool.query("INSERT INTO prodx_role_permissions(organization_id,role_id,permission_id) SELECT $1,$2,id FROM prodx_permissions WHERE permission_key='pos.refund'", [ids.org, ids.role]);
+}
+
+const request = (path: string, init: RequestInit = {}) =>
+  fetch(`http://127.0.0.1:0${path}`, init);
+
+test('production HTTP runtime enforces authentication, permission, and store scope', async t => {
+  if (!pool) {
+    t.skip('DATABASE_URL not configured');
+    return;
+  }
+  await seed();
+  const { app, pool: runtimePool } = createProductionApp();
+  const server = app.listen(0, '127.0.0.1');
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const base = `http://127.0.0.1:${address.port}`;
+  t.after(async () => {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await runtimePool.end();
+    await clean();
+    await pool.end();
+  });
+
+  const unauthenticated = await fetch(`${base}/api/v1/orders/00000000-0000-4000-8000-000000002108/refund`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  assert.equal(unauthenticated.status, 401);
+
+  const forbidden = await fetch(`${base}/api/v1/orders/00000000-0000-4000-8000-000000002108/refund`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ storeId: ids.store }) });
+  assert.equal(forbidden.status, 403);
+
+  await grantRefund();
+  const scopeDenied = await fetch(`${base}/api/v1/orders/00000000-0000-4000-8000-000000002108/refund`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ storeId: ids.otherStore }) });
+  assert.equal(scopeDenied.status, 403);
+
+  const health = await fetch(`${base}/api/v1/health`, { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(health.status, 200);
+  assert.deepEqual(await health.json(), { status: 'ok' });
+});
