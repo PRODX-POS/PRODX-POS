@@ -1,5 +1,7 @@
 -- M7 hardening: an idempotency key is scoped to one exact request shape.
--- Existing rows are backfilled from their persisted request fields; future writes require a fingerprint.
+-- pgcrypto is used only to compute a SHA-256 request fingerprint; no secrets are stored.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 ALTER TABLE prodx_refunds ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
 ALTER TABLE prodx_voids ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
 
