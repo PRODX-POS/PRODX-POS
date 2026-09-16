@@ -40,7 +40,7 @@ const asCheckoutRequest = (body: Record<string, unknown>, storeId: string, cashi
 export const registerSyncRoutes = (app: Express, db: TransactionalSqlExecutor): void => {
   const checkout = createCheckoutService(db);
 
-  app.post('/api/v1/sync/outbox', requirePermission('pos.checkout'), async (request: Request, response: Response) => {
+  app.post('/api/v1/sync/outbox', requirePermission('pos.sell'), async (request: Request, response: Response) => {
     try {
       const context = request.prodxContext;
       if (!context) return errorResponse(response, request, 500, 'REQUEST_CONTEXT_MISSING', 'Request context is required.');
