@@ -246,8 +246,15 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "OKMD API HTTP status: $http_status"
-          echo "OKMD API sanitized response: $sanitized_response"
+          echo "=== OKMD API HTTP STATUS ==="
+          echo "$http_status"
+          echo "=== SANITIZED RESPONSE BODY START ==="
+          printf '%s\n' "$sanitized_response"
+          echo "=== SANITIZED RESPONSE BODY END ==="
+          completion_content=$(printf '%s' "$sanitized_response" | jq -r '.choices[0].message.content // empty')
+          echo "=== COMPLETION CONTENT START ==="
+          printf '%s\n' "$completion_content"
+          echo "=== COMPLETION CONTENT END ==="
 
           case "$http_status" in
             2??) ;;
