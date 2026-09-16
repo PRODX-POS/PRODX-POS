@@ -1,0 +1,65 @@
+name: OKMD Direct API Gate
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  okmd-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Test OKMD API
+        env:
+          OKMD_AI_API_KEY: ${{ secrets.OKMD_AI_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          response_file="$(mktemp)"
+
+          http_status="$(
+            curl -sS \
+              -o "$response_file" \
+              -w '%{http_code}' \
+              -X POST \
+              'https://gen.ai.kku.ac.th/okmd/api/v1/chat/completions' \
+              -H "Authorization: Bearer ${OKMD_AI_API_KEY}" \
+              -H 'Content-Type: application/json' \
+              --data-raw '{
+                "model": "claude-sonnet-5",
+                "messages": [
+                  {
+                    "role": "user",
+                    "content": "Hello, please confirm that this API connection is working."
+                  }
+                ]
+              }'
+          )"
+
+          {
+            echo "## OKMD API Execution Evidence"
+            echo
+            echo "- HTTP status: \`${http_status}\`"
+            echo "- Model requested: \`claude-sonnet-5\`"
+            echo "- API key: **REDACTED**"
+            echo
+            echo "### Sanitized response"
+            sed -E \
+              -e 's/(Bearer[[:space:]]+)[^"[:space:]]+/\1[REDACTED]/gi' \
+              -e 's/("?(api[_-]?key|token|authorization|secret)"?[[:space:]]*:[[:space:]]*)"[^"]*"/\1"[REDACTED]"/gi' \
+              "$response_file"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          rm -f "$response_file"
+
+          case "$http_status" in
+            2??) ;;
+            *)
+              echo "OKMD API returned HTTP ${http_status}" >&2
+              exit 1
+              ;;
+          esac
+          
