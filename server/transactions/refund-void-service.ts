@@ -49,7 +49,7 @@ function ensureItems(items: RefundItem[]) {
 }
 
 function ensureRefundIdempotency(existing: any, input: { orderId: string; amount: bigint; currency: string; refundMethod: RefundMethod; reason: string }) {
-  if (existing.order_id !== input.orderId || dbCents(existing.amount) !== input.amount || existing.currency !== input.currency || existing.refund_method !== input.refundMethod || existing.reason !== input.reason) {
+  if (existing.action !== 'refund' || existing.order_id !== input.orderId || dbCents(existing.amount) !== input.amount || existing.currency !== input.currency || existing.refund_method !== input.refundMethod || existing.reason !== input.reason) {
     throw new RefundVoidConflictError('Idempotency key was already used with different refund parameters.');
   }
 }
@@ -71,16 +71,18 @@ export const createRefundVoidService = (db: TransactionalSqlExecutor) => ({
     ensureItems(input.itemsToRestock);
 
     return db.transaction(async (tx) => {
+      const existing = await getExistingByKey(tx, input.storeId, input.idempotencyKey);
+      if (existing) {
+        const order = await getOrder(tx, input.storeId, input.orderId);
+        if (!order) throw new RefundVoidConflictError('Order not found in this store.');
+        ensureRefundIdempotency(existing, { orderId: input.orderId, amount, currency: input.currency, refundMethod: input.refundMethod, reason });
+        return { idempotencyCached: true, adjustment: existing };
+      }
+
       const order = await getOrder(tx, input.storeId, input.orderId, true);
       if (!order) throw new RefundVoidConflictError('Order not found in this store.');
       if (order.currency !== input.currency) throw new RefundVoidConflictError('Refund currency does not match the order currency.');
       if (order.status !== 'server_confirmed') throw new RefundVoidConflictError(`Order is not refundable in status ${order.status}.`);
-
-      const existing = await getExistingByKey(tx, input.storeId, input.idempotencyKey);
-      if (existing) {
-        ensureRefundIdempotency(existing, { orderId: input.orderId, amount, currency: input.currency, refundMethod: input.refundMethod, reason });
-        return { idempotencyCached: true, adjustment: existing };
-      }
 
       const refunded = dbCents((await tx.query(`SELECT COALESCE(SUM(amount),0)::text AS total FROM prodx_order_adjustments WHERE store_id=$1 AND order_id=$2 AND action='refund'`, [input.storeId, input.orderId])).rows[0].total);
       const grandTotal = dbCents(order.grand_total_amount);
@@ -121,14 +123,17 @@ export const createRefundVoidService = (db: TransactionalSqlExecutor) => ({
   }) {
     const reason = ensureReason(input.reason);
     return db.transaction(async (tx) => {
-      const order = await getOrder(tx, input.storeId, input.orderId, true);
-      if (!order) throw new RefundVoidConflictError('Order not found in this store.');
-      if (order.status !== 'server_confirmed') throw new RefundVoidConflictError(`Order is not voidable in status ${order.status}.`);
       const existing = await getExistingByKey(tx, input.storeId, input.idempotencyKey);
       if (existing) {
+        const order = await getOrder(tx, input.storeId, input.orderId);
+        if (!order) throw new RefundVoidConflictError('Order not found in this store.');
         if (existing.order_id !== input.orderId || existing.action !== 'void' || existing.reason !== reason) throw new RefundVoidConflictError('Idempotency key was already used with different void parameters.');
         return { idempotencyCached: true, adjustment: existing };
       }
+
+      const order = await getOrder(tx, input.storeId, input.orderId, true);
+      if (!order) throw new RefundVoidConflictError('Order not found in this store.');
+      if (order.status !== 'server_confirmed') throw new RefundVoidConflictError(`Order is not voidable in status ${order.status}.`);
       const priorRefund = (await tx.query(`SELECT 1 FROM prodx_order_adjustments WHERE store_id=$1 AND order_id=$2 AND action='refund' LIMIT 1`, [input.storeId, input.orderId])).rows[0];
       if (priorRefund) throw new RefundVoidConflictError('A refunded order cannot be voided.');
       const adjustmentId = crypto.randomUUID();
