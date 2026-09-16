@@ -1,0 +1,1 @@
+M7 is not Production Ready until CI, real PostgreSQL execution, runtime integration, processor integration, and independent review are evidenced.

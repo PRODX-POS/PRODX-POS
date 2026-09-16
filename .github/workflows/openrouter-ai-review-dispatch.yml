@@ -1,4 +1,4 @@
-name: AI Review Dispatch
+name: OpenRouter AI Review Dispatch
 
 on:
   pull_request_target:
@@ -13,7 +13,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: ai-review-dispatch-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  group: openrouter-ai-review-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -88,10 +88,7 @@ jobs:
           if [[ -z "$model_id" ]]; then model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id | endswith(":free")) and ((.architecture.output_modalities // ["text"]) | index("text")) and ((.supported_parameters // []) | index("response_format"))) | .id' | grep -Ev 'vision|vl' | head -n1 || true)"; fi
           if [[ -z "$model_id" ]]; then model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id | endswith(":free")) and ((.architecture.output_modalities // ["text"]) | index("text"))) | .id' | grep -Ev 'vision|vl' | head -n1 || true)"; fi
           if [[ -z "$model_id" ]]; then model_id='openrouter/free'; fi
-          [[ -n "$model_id" ]] || { echo 'OpenRouter API returned no usable model.' >&2; exit 1; }
           echo "model_id=$model_id" >> "$GITHUB_OUTPUT"
-          echo "OpenRouter advertised model count: $(printf '%s' "$models" | jq '.data | length')" >> "$GITHUB_STEP_SUMMARY"
-          echo "OpenRouter selected model: $model_id" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Review diff with OpenRouter
         id: review
@@ -109,7 +106,6 @@ jobs:
           system = '''You are the independent security and architecture reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return ONLY valid JSON with exactly this shape: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH. Do not put the JSON inside markdown fences. Do not output any other text.'''
           user = f'PR #{os.environ["PR_NUMBER"]}\nSensitive paths excluded:\n{excluded}\n\nSanitized diff:\n```diff\n{diff}\n```'
           base = {'model': os.environ['OPENROUTER_MODEL_ID'], 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':6000, 'stream':False}
-
           def request(extra=None):
             payload = dict(base)
             if extra: payload.update(extra)
@@ -117,49 +113,22 @@ jobs:
             try:
               with urllib.request.urlopen(req, timeout=180) as response: return json.load(response)
             except urllib.error.HTTPError as exc:
-              detail = exc.read().decode('utf-8', errors='replace')[:2000]
               if extra and exc.code in {400, 422}: return request()
-              raise SystemExit(f'OpenRouter chat completion failed with HTTP {exc.code}: {detail}')
-
+              raise SystemExit(f'OpenRouter chat completion failed with HTTP {exc.code}.')
           body = request({'response_format': {'type':'json_object'}})
           message = body.get('choices', [{}])[0].get('message', {})
           candidates = []
           for value in (message.get('content'), message.get('reasoning')):
             if isinstance(value, str) and value.strip(): candidates.append(value.strip())
-            elif isinstance(value, list):
-              parts=[]
-              for item in value:
-                if isinstance(item, dict):
-                  text=item.get('text') or item.get('content')
-                  if isinstance(text,str) and text.strip(): parts.append(text.strip())
-              if parts: candidates.append('\n'.join(parts))
-          for item in message.get('reasoning_details') or []:
-            if isinstance(item, dict):
-              text=item.get('text') or item.get('content')
-              if isinstance(text,str) and text.strip(): candidates.append(text.strip())
-
           def extract_review(text):
-            text = text.strip()
-            if text.startswith('```'):
-              parts = text.split('\n', 1)
-              if len(parts) == 2: text = parts[1].rsplit('```', 1)[0].strip()
             try:
-              parsed = json.loads(text)
+              parsed = json.loads(text.strip().strip('`'))
               if isinstance(parsed, dict) and parsed.get('decision') in {'PASS','WARN','FAIL'} and isinstance(parsed.get('findings'), list): return parsed
             except (json.JSONDecodeError, AttributeError): pass
-            decoder = json.JSONDecoder()
-            for index, char in enumerate(text):
-              if char != '{': continue
-              try: parsed, _ = decoder.raw_decode(text[index:])
-              except json.JSONDecodeError: continue
-              if isinstance(parsed, dict) and parsed.get('decision') in {'PASS','WARN','FAIL'} and isinstance(parsed.get('findings'), list): return parsed
             return None
-
           review = next((r for text in candidates if (r := extract_review(text)) is not None), None)
-          if review is None:
-            raise SystemExit('OpenRouter response did not contain valid review JSON. Model returned no parseable text content.')
+          if review is None: raise SystemExit('OpenRouter response did not contain valid review JSON.')
           Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
-          print(json.dumps({'provider': body.get('provider'), 'model': body.get('model'), 'usage': body.get('usage'), 'decision': review['decision']}, ensure_ascii=False))
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out: out.write(f"decision={review['decision']}\n")
           PY
 
@@ -191,8 +160,4 @@ jobs:
         run: |
           set -euo pipefail
           decision="$(jq -r '.decision' ai-review.json)"
-          case "$decision" in
-            PASS|WARN) echo "OpenRouter decision: $decision" ;;
-            FAIL) echo 'OpenRouter AI review found CRITICAL/HIGH findings.' >&2; exit 1 ;;
-            *) echo 'Invalid OpenRouter decision.' >&2; exit 1 ;;
-          esac
+          case "$decision" in PASS|WARN) echo "OpenRouter decision: $decision" ;; FAIL) exit 1 ;; *) exit 1 ;; esac

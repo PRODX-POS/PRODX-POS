@@ -1,0 +1,1 @@
+M7 code, migration, route boundary and PostgreSQL integration tests are implemented on this branch. Current evidence state: implementation present; automated execution pending; independent review pending; production runtime integration pending.

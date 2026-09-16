@@ -2,18 +2,18 @@
 
 This directory contains the server-side, provider-neutral AI boundary for PRODX.
 
-## OKMD configuration
+## OpenRouter configuration
 
 Set these values in the deployment environment or secret manager:
 
 ```text
-OKMD_AI_BASE_URL=https://gen.ai.kku.ac.th/okmd/api/v1
-OKMD_AI_API_KEY=<secret>
-OKMD_AI_DEFAULT_MODEL=gemini-2.5-flash-lite
-OKMD_AI_TIMEOUT_MS=30000
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_API_KEY=<secret>
+OPENROUTER_DEFAULT_MODEL=openrouter/free
+OPENROUTER_TIMEOUT_MS=30000
 ```
 
-`OKMD_AI_API_KEY` must never be committed, bundled into the browser, returned by a
+`OPENROUTER_API_KEY` must never be committed, bundled into the browser, returned by a
 frontend endpoint, or written to logs.
 
 ## Request flow
@@ -21,24 +21,20 @@ frontend endpoint, or written to logs.
 ```text
 PRODX UI
   -> authenticated PRODX backend
-  -> AIProvider / OKMDProvider
-  -> OKMD /chat/completions
+  -> AIProvider / OpenRouterProvider
+  -> OpenRouter /chat/completions
 ```
 
 The provider adapter deliberately lives outside `src/` so the browser bundle cannot
-import it accidentally. The adapter also enforces HTTPS, validates basic request
-bounds, applies a request timeout, and avoids copying provider response bodies into
-errors.
+import it accidentally. The adapter enforces HTTPS, validates basic request bounds,
+applies a request timeout, and avoids copying provider response bodies into errors.
 
 ## Production integration boundary
 
-The current repository is a React/Vite application. Its existing authentication
-adapter already points the browser at a separate production authentication backend.
-Therefore this change adds the provider adapter and server contract, but does not
-expose an unauthenticated `/api/ai` route. The production API route must be attached
-to the authenticated backend boundary so organization/user authorization, rate
-limits, quota policy, audit logging, and data-redaction rules are enforced before an
-AI request leaves PRODX.
+The repository must keep the OpenRouter credential server-side. An authenticated
+backend route is required to enforce organization/user authorization, rate limits,
+quota policy, audit logging, and data-redaction rules before an AI request leaves
+PRODX. The provider adapter alone is not evidence that this production route is wired.
 
 ## Verification
 

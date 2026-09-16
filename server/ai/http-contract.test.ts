@@ -6,34 +6,15 @@ import { AIBackendBoundary } from './backend-boundary';
 import { createAIHttpAdapter } from './http-contract';
 
 function provider(onCall: () => void): AIProvider {
-  return {
-    name: 'okmd',
-    async chat(request) {
-      onCall();
-      return { provider: 'okmd', model: request.model, raw: {} };
-    },
-  };
+  return { name: 'openrouter', async chat(request) { onCall(); return { provider: 'openrouter', model: request.model, raw: {} }; } };
 }
 
 test('HTTP adapter derives authorization from verified principal and delegates to boundary', async () => {
   let calls = 0;
-  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'okmd'));
+  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'openrouter'));
   const boundary = new AIBackendBoundary(core);
   const adapter = createAIHttpAdapter();
-
-  const response = await adapter.handle(
-    {
-      body: { messages: [{ role: 'user', content: 'hello' }] },
-      principal: {
-        userId: 'user-1',
-        organizationId: 'org-1',
-        storeId: 'store-1',
-        permissions: ['ai:use'],
-      },
-    },
-    boundary,
-  );
-
-  assert.equal(response.provider, 'okmd');
+  const response = await adapter.handle({ body: { messages: [{ role: 'user', content: 'hello' }] }, principal: { userId: 'user-1', organizationId: 'org-1', storeId: 'store-1', permissions: ['ai:use'] } }, boundary);
+  assert.equal(response.provider, 'openrouter');
   assert.equal(calls, 1);
 });

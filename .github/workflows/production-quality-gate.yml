@@ -67,7 +67,7 @@ jobs:
           done
 
       - name: Backend boundary tests
-        run: bun run server:test
+        run: bun run server:test --test-concurrency=1
 
       - name: PostgreSQL foundation and migration gate
         shell: bash
