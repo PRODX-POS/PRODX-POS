@@ -47,9 +47,6 @@ async function grantRefund() {
   await pool.query("INSERT INTO prodx_role_permissions(organization_id,role_id,permission_id) SELECT $1,$2,id FROM prodx_permissions WHERE permission_key='pos.refund'", [ids.org, ids.role]);
 }
 
-const request = (path: string, init: RequestInit = {}) =>
-  fetch(`http://127.0.0.1:0${path}`, init);
-
 test('production HTTP runtime enforces authentication, permission, and store scope', async t => {
   if (!pool) {
     t.skip('DATABASE_URL not configured');
@@ -58,6 +55,10 @@ test('production HTTP runtime enforces authentication, permission, and store sco
   await seed();
   const { app, pool: runtimePool } = createProductionApp();
   const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', resolve);
+    server.once('error', reject);
+  });
   const address = server.address();
   assert.ok(address && typeof address === 'object');
   const base = `http://127.0.0.1:${address.port}`;
