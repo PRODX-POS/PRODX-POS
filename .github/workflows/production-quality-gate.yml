@@ -194,7 +194,6 @@ jobs:
             exit 1
           fi
 
-  # trigger fresh run for updated secret
   okmd-api-diagnostic:
     name: okmd-api-diagnostic
     runs-on: ubuntu-latest
@@ -202,10 +201,11 @@ jobs:
     permissions:
       contents: read
     env:
+      OKMD_MODELS_URL: https://gen.ai.kku.ac.th/okmd/api/v1/models
       OKMD_API_URL: https://gen.ai.kku.ac.th/okmd/api/v1/chat/completions
       OKMD_MODEL: gemini-2.5-flash-lite
     steps:
-      - name: Call OKMD API and record sanitized execution evidence
+      - name: Discover OKMD models and record sanitized execution evidence
         shell: bash
         env:
           OKMD_AI_API_KEY: ${{ secrets.OKMD_AI_API_KEY }}
@@ -213,32 +213,24 @@ jobs:
           set -euo pipefail
           test -n "$OKMD_AI_API_KEY"
 
-          request_body=$(mktemp)
           response_body=$(mktemp)
-          trap 'rm -f "$request_body" "$response_body"' EXIT
-
-          jq -n \
-            --arg model "$OKMD_MODEL" \
-            '{model:$model,messages:[{role:"user",content:"Hello, please confirm that this API connection is working."}]}' \
-            > "$request_body"
+          trap 'rm -f "$response_body"' EXIT
 
           http_status=$(curl --silent --show-error --location \
             --connect-timeout 10 --max-time 60 \
-            --request POST "$OKMD_API_URL" \
+            --request GET "$OKMD_MODELS_URL" \
             --header "Authorization: Bearer $OKMD_AI_API_KEY" \
-            --header 'Content-Type: application/json' \
-            --data-binary "@$request_body" \
+            --header 'Accept: application/json' \
             --output "$response_body" \
             --write-out '%{http_code}')
 
-          sanitized_response=$(jq -c 'del(.usage,.system_fingerprint) | if .choices then .choices = (.choices | map({index,finish_reason,message:{role:.message.role,content:.message.content}})) else . end' "$response_body" 2>/dev/null || cat "$response_body")
+          sanitized_response=$(jq -c . "$response_body" 2>/dev/null || cat "$response_body")
           sanitized_response=$(printf '%s' "$sanitized_response" | sed -E 's/(Bearer[[:space:]]+)[^[:space:]\"'"'"']+/\1[REDACTED]/Ig; s/((api[_-]?key|authorization|token)[[:space:]]*[:=][[:space:]]*[\"'"'"']?)[^,}\"'"'"']+/\1[REDACTED]/Ig')
 
           {
-            echo '## OKMD API Diagnostic'
+            echo '## OKMD API Model Discovery Diagnostic'
             echo
-            echo "- Endpoint: $OKMD_API_URL"
-            echo "- Model requested: $OKMD_MODEL"
+            echo "- Endpoint: $OKMD_MODELS_URL"
             echo "- HTTP status: $http_status"
             echo '- Sanitized response:'
             echo
@@ -247,25 +239,23 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "=== OKMD API HTTP STATUS ==="
+          echo "=== OKMD /models HTTP STATUS ==="
           echo "$http_status"
-          echo "=== SANITIZED RESPONSE BODY START ==="
+          echo "=== OKMD /models RESPONSE JSON START ==="
           printf '%s\n' "$sanitized_response"
-          echo "=== SANITIZED RESPONSE BODY END ==="
-          completion_content=$(printf '%s' "$sanitized_response" | jq -r '.choices[0].message.content // empty')
-          echo "=== COMPLETION CONTENT START ==="
-          printf '%s\n' "$completion_content"
-          echo "=== COMPLETION CONTENT END ==="
+          echo "=== OKMD /models RESPONSE JSON END ==="
 
           case "$http_status" in
             2??) ;;
             *)
-              echo "OKMD API diagnostic failed with HTTP status $http_status."
+              echo "OKMD /models diagnostic failed with HTTP status $http_status."
               exit 1
               ;;
           esac
 
-          if ! printf '%s' "$sanitized_response" | jq -e '.choices[0].message.content | type == "string" and length > 0' >/dev/null 2>&1; then
-            echo "OKMD API returned HTTP 2xx but no usable chat completion content."
+          if ! jq -e . "$response_body" >/dev/null 2>&1; then
+            echo "OKMD /models returned HTTP 2xx but the response is not valid JSON."
             exit 1
           fi
+
+          echo "OKMD /models endpoint returned HTTP 2xx with valid JSON."
