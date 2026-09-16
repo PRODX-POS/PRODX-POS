@@ -24,20 +24,6 @@ const nonBlank = (value: unknown, field: string): string => {
 };
 const fingerprint = (value: unknown): string => crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
-const refundFingerprint = (input: RefundInput, amount: bigint): string => fingerprint({
-  orderId: input.orderId,
-  amount: centsToMoney(amount),
-  method: input.refundMethod,
-  reason: input.reason.trim(),
-  authorizedByUserId: input.authorizedByUserId.trim(),
-  terminalReference: input.terminalReference ?? null,
-});
-const voidFingerprint = (input: VoidInput): string => fingerprint({
-  orderId: input.orderId,
-  reason: input.reason.trim(),
-  authorizedByUserId: input.authorizedByUserId.trim(),
-});
-
 type RefundInput = {
   storeId: string; orderId: string; idempotencyKey: string;
   refundAmount: { amountInCents: number; currency: string };
@@ -47,6 +33,21 @@ type RefundInput = {
 };
 type VoidInput = { storeId: string; orderId: string; idempotencyKey: string; reason: string; authorizedByUserId: string };
 
+const refundFingerprint = (input: RefundInput, amount: bigint, restockItems: readonly { productId: string; quantity: number }[]): string => fingerprint({
+  amount: centsToMoney(amount),
+  authorizedByUserId: input.authorizedByUserId.trim(),
+  method: input.refundMethod,
+  orderId: input.orderId,
+  reason: input.reason.trim(),
+  restockItems: [...restockItems].sort((a, b) => a.productId.localeCompare(b.productId)).map(item => ({ productId: item.productId, quantity: item.quantity })),
+  terminalReference: input.terminalReference ?? null,
+});
+const voidFingerprint = (input: VoidInput): string => fingerprint({
+  authorizedByUserId: input.authorizedByUserId.trim(),
+  orderId: input.orderId,
+  reason: input.reason.trim(),
+});
+
 export const createVoidRefundService = (db: TransactionalSqlExecutor) => ({
   async refund(input: RefundInput) {
     const idempotencyKey = nonBlank(input.idempotencyKey, 'Idempotency key');
@@ -54,7 +55,8 @@ export const createVoidRefundService = (db: TransactionalSqlExecutor) => ({
     const authorizedByUserId = nonBlank(input.authorizedByUserId, 'Authorizing user');
     const amount = requestMoney(input.refundAmount);
     if (!['cash', 'card', 'qr_digital'].includes(input.refundMethod)) throw new VoidRefundValidationError('Unsupported refund method.');
-    const requestFingerprint = refundFingerprint(input, amount);
+    const restocks = input.restockItems ?? [];
+    const requestFingerprint = refundFingerprint(input, amount, restocks);
 
     return db.transaction(async tx => {
       const cached = (await tx.query(`SELECT r.id,r.amount::text,r.method,r.request_fingerprint,o.status,o.currency FROM prodx_refunds r JOIN prodx_orders o ON o.id=r.order_id WHERE r.store_id=$1 AND r.idempotency_key=$2`, [input.storeId, idempotencyKey])).rows[0] as DbRow | undefined;
@@ -73,7 +75,6 @@ export const createVoidRefundService = (db: TransactionalSqlExecutor) => ({
       if (paid !== moneyToCents(order.grand_total_amount)) throw new VoidRefundConflictError('Order payment state is inconsistent.');
       if (amount > paid - refunded) throw new VoidRefundConflictError('Refund amount exceeds the remaining refundable amount.');
 
-      const restocks = input.restockItems ?? [];
       const sold = (await tx.query(`SELECT product_id,SUM(quantity)::int AS quantity FROM prodx_order_items WHERE order_id=$1 GROUP BY product_id`, [order.id])).rows as DbRow[];
       const soldByProduct = new Map(sold.map(row => [String(row.product_id), Number(row.quantity)]));
       const requestedByProduct = new Map<string, number>();
@@ -85,7 +86,8 @@ export const createVoidRefundService = (db: TransactionalSqlExecutor) => ({
       }
 
       const refundId = crypto.randomUUID();
-      const inserted = (await tx.query(`INSERT INTO prodx_refunds(id,organization_id,store_id,order_id,idempotency_key,request_fingerprint,amount,method,reason,authorized_by_user_id,terminal_reference) SELECT $1,organization_id,$2,id,$3,$4,$5,$6,$7,$8,$9,$10 FROM prodx_orders WHERE id=$11 AND store_id=$2 ON CONFLICT(store_id,idempotency_key) DO NOTHING RETURNING id,amount::text,method`, [refundId, input.storeId, idempotencyKey, requestFingerprint, centsToMoney(amount), input.refundMethod, reason, authorizedByUserId, input.terminalReference ?? null, order.id])).rows[0] as DbRow | undefined;
+      const persistedRestocks = [...restocks].sort((a, b) => a.productId.localeCompare(b.productId));
+      const inserted = (await tx.query(`INSERT INTO prodx_refunds(id,organization_id,store_id,order_id,idempotency_key,request_fingerprint,restock_items,amount,method,reason,authorized_by_user_id,terminal_reference) SELECT $1,organization_id,$2,id,$3,$4,$5::jsonb,$6,$7,$8,$9,$10 FROM prodx_orders WHERE id=$11 AND store_id=$2 ON CONFLICT(store_id,idempotency_key) DO NOTHING RETURNING id,amount::text,method`, [refundId, input.storeId, idempotencyKey, requestFingerprint, JSON.stringify(persistedRestocks.map(item => ({ productId: item.productId, quantity: item.quantity }))), centsToMoney(amount), input.refundMethod, reason, authorizedByUserId, input.terminalReference ?? null, order.id])).rows[0] as DbRow | undefined;
       if (!inserted) throw new VoidRefundConflictError('Refund idempotency conflict could not be resolved.');
 
       for (const item of restocks) {
@@ -127,7 +129,7 @@ export const createVoidRefundService = (db: TransactionalSqlExecutor) => ({
       const paid = payments.reduce((sum, p) => sum + moneyToCents(p.amount), 0n);
       if (paid !== moneyToCents(order.grand_total_amount)) throw new VoidRefundConflictError('Order payment state is inconsistent.');
       const voidId = crypto.randomUUID();
-      const inserted = (await tx.query(`INSERT INTO prodx_voids(id,organization_id,store_id,order_id,idempotency_key,request_fingerprint,reason,authorized_by_user_id) SELECT $1,organization_id,$2,id,$3,$4,$5,$6,$7 FROM prodx_orders WHERE id=$8 AND store_id=$2 ON CONFLICT(store_id,idempotency_key) DO NOTHING RETURNING id`, [voidId, input.storeId, idempotencyKey, requestFingerprint, reason, authorizedByUserId, order.id])).rows[0] as DbRow | undefined;
+      const inserted = (await tx.query(`INSERT INTO prodx_voids(id,organization_id,store_id,order_id,idempotency_key,request_fingerprint,reason,authorized_by_user_id) SELECT $1,organization_id,$2,id,$3,$4,$5,$6 FROM prodx_orders WHERE id=$7 AND store_id=$2 ON CONFLICT(store_id,idempotency_key) DO NOTHING RETURNING id`, [voidId, input.storeId, idempotencyKey, requestFingerprint, reason, authorizedByUserId, order.id])).rows[0] as DbRow | undefined;
       if (!inserted) throw new VoidRefundConflictError('Void idempotency conflict could not be resolved.');
 
       for (const payment of payments) {
