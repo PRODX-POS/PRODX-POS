@@ -119,7 +119,7 @@ jobs:
             ('00000000-0000-0000-0000-000000000031', '00000000-0000-0000-0000-000000000001', 'cashier', 'Cashier'),
             ('00000000-0000-0000-0000-000000000032', '00000000-0000-0000-0000-000000000002', 'cashier', 'Cashier');
           INSERT INTO prodx_store_memberships (organization_id, store_id, user_id)
-          VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000021', '00000000-0000-0000-0000-000000000011');
+          VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011');
           INSERT INTO prodx_user_roles (organization_id, user_id, role_id, store_id)
           VALUES ('00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000031', '00000000-0000-0000-0000-000000000021');
           INSERT INTO prodx_role_permissions (organization_id, role_id, permission_id)
@@ -193,3 +193,66 @@ jobs:
             echo "Direct mock authentication import detected in AuthContext."
             exit 1
           fi
+
+  okmd-api-diagnostic:
+    name: okmd-api-diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      OKMD_API_URL: https://gen.ai.kku.ac.th/okmd/api/v1/chat/completions
+      OKMD_MODEL: claude-sonnet-5
+    steps:
+      - name: Call OKMD API and record sanitized execution evidence
+        shell: bash
+        env:
+          OKMD_AI_API_KEY: ${{ secrets.OKMD_AI_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$OKMD_AI_API_KEY"
+
+          request_body=$(mktemp)
+          response_body=$(mktemp)
+          trap 'rm -f "$request_body" "$response_body"' EXIT
+
+          jq -n \
+            --arg model "$OKMD_MODEL" \
+            '{model:$model,messages:[{role:"user",content:"Hello, please confirm that this API connection is working."}]}' \
+            > "$request_body"
+
+          http_status=$(curl --silent --show-error --location \
+            --connect-timeout 10 --max-time 60 \
+            --request POST "$OKMD_API_URL" \
+            --header "Authorization: Bearer $OKMD_AI_API_KEY" \
+            --header 'Content-Type: application/json' \
+            --data-binary "@$request_body" \
+            --output "$response_body" \
+            --write-out '%{http_code}')
+
+          sanitized_response=$(jq -c 'del(.usage,.system_fingerprint) | if .choices then .choices = (.choices | map({index,finish_reason,message:{role:.message.role,content:.message.content}})) else . end' "$response_body" 2>/dev/null || cat "$response_body")
+          sanitized_response=$(printf '%s' "$sanitized_response" | sed -E 's/(Bearer[[:space:]]+)[^[:space:]\"'"'"']+/\1[REDACTED]/Ig; s/((api[_-]?key|authorization|token)[[:space:]]*[:=][[:space:]]*[\"'"'"']?)[^,}\"'"'"']+/\1[REDACTED]/Ig')
+
+          {
+            echo '## OKMD API Diagnostic'
+            echo
+            echo "- Endpoint: \\`$OKMD_API_URL\\`"
+            echo "- Model requested: \\`$OKMD_MODEL\\`"
+            echo "- HTTP status: \\`$http_status\\`"
+            echo '- Sanitized response:'
+            echo
+            echo '```json'
+            printf '%s\n' "$sanitized_response"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "OKMD API HTTP status: $http_status"
+          echo "OKMD API response recorded in Step Summary (sanitized)."
+
+          case "$http_status" in
+            2??) ;;
+            *)
+              echo "OKMD API diagnostic failed with HTTP status $http_status."
+              exit 1
+              ;;
+          esac
