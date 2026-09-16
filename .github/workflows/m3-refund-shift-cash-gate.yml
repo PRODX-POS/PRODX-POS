@@ -34,27 +34,30 @@ jobs:
     env:
       DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version: '1.1.38'
       - run: bun install --frozen-lockfile
       - name: Apply PostgreSQL migrations
         shell: bash
         run: |
+          set -euo pipefail
           for migration in db/migrations/*.sql; do
             PGPASSWORD=prodx psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
           done
       - name: Type check backend
         run: bunx tsc --noEmit -p tsconfig.server.json
       - name: Server mutation unit tests
-        run: bunx vitest run server/transactions/void-refund-shift-cash.service.test.ts
+        run: bunx tsx --test server/transactions/void-refund-shift-cash.service.test.ts
       - name: Verify refund invariant is installed
         run: |
-          PGPASSWORD=prodx psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT 1 FROM pg_trigger WHERE tgname='prodx_refund_total_invariant';"
+          set -euo pipefail
+          test "$(PGPASSWORD=prodx psql "$DATABASE_URL" -Atc "SELECT count(*) FROM pg_trigger WHERE tgname='prodx_refund_total_invariant';")" = "1"
       - name: Verify migration idempotency
         shell: bash
         run: |
+          set -euo pipefail
           before=$(PGPASSWORD=prodx psql "$DATABASE_URL" -Atc "SELECT count(*) FROM prodx_schema_migrations;")
           for migration in db/migrations/*.sql; do
             PGPASSWORD=prodx psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
