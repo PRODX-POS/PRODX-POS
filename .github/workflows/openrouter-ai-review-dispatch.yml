@@ -1,0 +1,198 @@
+name: OpenRouter AI Review Dispatch
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: openrouter-ai-review-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/ai-review') && (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Resolve pull request
+        id: pr
+        env:
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          COMMENT_PR: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          pr_number="${EVENT_PR:-${COMMENT_PR:-}}"
+          [[ -n "$pr_number" ]] || { echo 'A pull-request context is required.' >&2; exit 1; }
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+
+      - name: Verify repository-owned pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          head_repo="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.repo.full_name')"
+          [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo 'AI review is restricted to repository-owned pull requests.' >&2; exit 1; }
+
+      - name: Fetch and sanitize pull request diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --header "Authorization: Bearer $GH_TOKEN" --header 'Accept: application/vnd.github.v3.diff' --header 'X-GitHub-Api-Version: 2022-11-28' "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}.diff" > pr.diff
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          source = Path('pr.diff').read_text(encoding='utf-8', errors='replace')
+          blocks = re.split(r'(?=^diff --git )', source, flags=re.MULTILINE)
+          allowed, excluded = [], []
+          sensitive = re.compile(r'(^|/)(?:\.env(?:\..*)?|.*(?:secret|credential|password|token).*)$|\.(?:pem|key|p12|pfx)$', re.I)
+          patterns = [(re.compile(r'(Authorization:\s*Bearer\s+)[^\s]+', re.I), r'\1[REDACTED]'), (re.compile(r'((?:api[_-]?key|access[_-]?token|client[_-]?secret|password|secret)\s*[:=]\s*["\']?)[^\s"\'&,]+', re.I), r'\1[REDACTED]'), (re.compile(r'-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----', re.S), '[REDACTED_PRIVATE_KEY]'), (re.compile(r'gh[pousr]_[A-Za-z0-9_]{20,}'), '[REDACTED_GITHUB_TOKEN]')]
+          for block in blocks:
+            if not block.strip(): continue
+            m = re.search(r'^diff --git a/(.*?) b/(.*?)$', block, re.M)
+            path = m.group(2) if m else 'unknown'
+            if sensitive.search(path): excluded.append(path); continue
+            for pattern, replacement in patterns: block = pattern.sub(replacement, block)
+            allowed.append(block)
+          result = ''.join(allowed)
+          if len(result.encode()) > 120000: result = result.encode()[:120000].decode('utf-8', errors='ignore') + '\n\n[DIFF TRUNCATED AT 120KB]\n'
+          if not result.strip(): raise SystemExit('No reviewable source diff remained after sensitive-file filtering.')
+          Path('sanitized.diff').write_text(result, encoding='utf-8')
+          Path('excluded-files.txt').write_text('\n'.join(sorted(set(excluded))) or 'none', encoding='utf-8')
+          PY
+
+      - name: Select free OpenRouter model from advertised models
+        id: model
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PREFERRED_MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID }}
+        run: |
+          set -euo pipefail
+          [[ -n "${OPENROUTER_API_KEY:-}" ]] || { echo 'OPENROUTER_API_KEY is not configured.' >&2; exit 1; }
+          models="$(curl --fail --silent --show-error --header "Authorization: Bearer $OPENROUTER_API_KEY" --header 'Accept: application/json' https://openrouter.ai/api/v1/models)"
+          model_id=''
+          if [[ -n "${PREFERRED_MODEL_ID:-}" ]] && printf '%s' "$models" | jq -e --arg id "$PREFERRED_MODEL_ID" '.data[] | select(.id == $id)' >/dev/null; then model_id="$PREFERRED_MODEL_ID"; fi
+          if [[ -z "$model_id" ]]; then model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id | endswith(":free")) and ((.architecture.output_modalities // ["text"]) | index("text")) and ((.supported_parameters // []) | index("response_format"))) | .id' | grep -Ev 'vision|vl' | head -n1 || true)"; fi
+          if [[ -z "$model_id" ]]; then model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id | endswith(":free")) and ((.architecture.output_modalities // ["text"]) | index("text"))) | .id' | grep -Ev 'vision|vl' | head -n1 || true)"; fi
+          if [[ -z "$model_id" ]]; then model_id='openrouter/free'; fi
+          [[ -n "$model_id" ]] || { echo 'OpenRouter API returned no usable model.' >&2; exit 1; }
+          echo "model_id=$model_id" >> "$GITHUB_OUTPUT"
+          echo "OpenRouter advertised model count: $(printf '%s' "$models" | jq '.data | length')" >> "$GITHUB_STEP_SUMMARY"
+          echo "OpenRouter selected model: $model_id" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Review diff with OpenRouter
+        id: review
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL_ID: ${{ steps.model.outputs.model_id }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, urllib.request, urllib.error
+          from pathlib import Path
+          diff = Path('sanitized.diff').read_text(encoding='utf-8')
+          excluded = Path('excluded-files.txt').read_text(encoding='utf-8')
+          system = '''You are the independent security and architecture reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return ONLY valid JSON with exactly this shape: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH. Do not put the JSON inside markdown fences. Do not output any other text.'''
+          user = f'PR #{os.environ["PR_NUMBER"]}\nSensitive paths excluded:\n{excluded}\n\nSanitized diff:\n```diff\n{diff}\n```'
+          base = {'model': os.environ['OPENROUTER_MODEL_ID'], 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':6000, 'stream':False}
+
+          def request(extra=None):
+            payload = dict(base)
+            if extra: payload.update(extra)
+            req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=json.dumps(payload).encode(), headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/' + os.environ['GITHUB_REPOSITORY'], 'X-Title':'PRODX-POS OpenRouter AI Code Review'}, method='POST')
+            try:
+              with urllib.request.urlopen(req, timeout=180) as response: return json.load(response)
+            except urllib.error.HTTPError as exc:
+              detail = exc.read().decode('utf-8', errors='replace')[:2000]
+              if extra and exc.code in {400, 422}: return request()
+              raise SystemExit(f'OpenRouter chat completion failed with HTTP {exc.code}: {detail}')
+
+          body = request({'response_format': {'type':'json_object'}})
+          message = body.get('choices', [{}])[0].get('message', {})
+          candidates = []
+          for value in (message.get('content'), message.get('reasoning')):
+            if isinstance(value, str) and value.strip(): candidates.append(value.strip())
+            elif isinstance(value, list):
+              parts=[]
+              for item in value:
+                if isinstance(item, dict):
+                  text=item.get('text') or item.get('content')
+                  if isinstance(text,str) and text.strip(): parts.append(text.strip())
+              if parts: candidates.append('\n'.join(parts))
+          for item in message.get('reasoning_details') or []:
+            if isinstance(item, dict):
+              text=item.get('text') or item.get('content')
+              if isinstance(text,str) and text.strip(): candidates.append(text.strip())
+
+          def extract_review(text):
+            text = text.strip()
+            if text.startswith('```'):
+              parts = text.split('\n', 1)
+              if len(parts) == 2: text = parts[1].rsplit('```', 1)[0].strip()
+            try:
+              parsed = json.loads(text)
+              if isinstance(parsed, dict) and parsed.get('decision') in {'PASS','WARN','FAIL'} and isinstance(parsed.get('findings'), list): return parsed
+            except (json.JSONDecodeError, AttributeError): pass
+            decoder = json.JSONDecoder()
+            for index, char in enumerate(text):
+              if char != '{': continue
+              try: parsed, _ = decoder.raw_decode(text[index:])
+              except json.JSONDecodeError: continue
+              if isinstance(parsed, dict) and parsed.get('decision') in {'PASS','WARN','FAIL'} and isinstance(parsed.get('findings'), list): return parsed
+            return None
+
+          review = next((r for text in candidates if (r := extract_review(text)) is not None), None)
+          if review is None:
+            raise SystemExit('OpenRouter response did not contain valid review JSON. Model returned no parseable text content.')
+          Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
+          print(json.dumps({'provider': body.get('provider'), 'model': body.get('model'), 'usage': body.get('usage'), 'decision': review['decision']}, ensure_ascii=False))
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out: out.write(f"decision={review['decision']}\n")
+          PY
+
+      - name: Post OpenRouter review to pull request
+        if: always() && steps.review.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          MODEL_ID: ${{ steps.model.outputs.model_id }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          review = json.loads(Path('ai-review.json').read_text(encoding='utf-8'))
+          lines = ['<!-- prodx-openrouter-review -->','## PRODX-POS OpenRouter AI Code Review','',f'**Decision:** `{review["decision"]}`','**Provider:** `OpenRouter`',f'**Model:** `{os.environ["MODEL_ID"]}`','',review.get('summary','No summary returned.')]
+          findings = review.get('findings', [])
+          if findings:
+            lines += ['', '| Severity | File | Line | Finding | Recommendation |','|---|---|---:|---|---|']
+            for f in findings:
+              cell=lambda v: str(v).replace('|','\\|').replace('\n',' ')
+              lines.append(f'| {cell(f.get("severity"))} | `{cell(f.get("file"))}` | {cell(f.get("line",0))} | {cell(f.get("title"))}: {cell(f.get("reason"))} | {cell(f.get("recommendation"))} |')
+          Path('openrouter-comment.json').write_text(json.dumps({'body':'\n'.join(lines)}, ensure_ascii=False), encoding='utf-8')
+          PY
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input openrouter-comment.json --header 'Accept: application/vnd.github+json' >/dev/null
+
+      - name: Enforce OpenRouter decision
+        if: always() && steps.review.outcome == 'success'
+        run: |
+          set -euo pipefail
+          decision="$(jq -r '.decision' ai-review.json)"
+          case "$decision" in
+            PASS|WARN) echo "OpenRouter decision: $decision" ;;
+            FAIL) echo 'OpenRouter AI review found CRITICAL/HIGH findings.' >&2; exit 1 ;;
+            *) echo 'Invalid OpenRouter decision.' >&2; exit 1 ;;
+          esac
