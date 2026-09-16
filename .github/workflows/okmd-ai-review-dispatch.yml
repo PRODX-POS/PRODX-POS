@@ -200,3 +200,12 @@ jobs:
             FAIL) echo 'OpenRouter AI review found CRITICAL/HIGH findings.' >&2; exit 1 ;;
             *) echo 'Invalid OpenRouter decision.' >&2; exit 1 ;;
           esac
+
+      - name: Submit automated approval
+        if: steps.review.outcome == 'success' && steps.review.outputs.decision == 'PASS'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          gh pr review "$PR_NUMBER" --approve --body "PRODX OpenRouter AI Review: PASS. Approval submitted by GitHub Actions automation after deterministic gates and OpenRouter review passed."
