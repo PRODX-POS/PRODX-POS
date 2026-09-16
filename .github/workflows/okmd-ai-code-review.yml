@@ -258,4 +258,6 @@ Sanitized unified diff:
           body = '\n'.join(lines)
           Path('okmd-comment.md').write_text(body, encoding='utf-8')
           PY
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input okmd-comment.md --header 'Accept: application/vnd.github+json' >/dev/null
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --raw-field body="$(cat okmd-comment.md)" \
+            --header 'Accept: application/vnd.github+json' >/dev/null

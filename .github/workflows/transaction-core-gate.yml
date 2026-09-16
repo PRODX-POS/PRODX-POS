@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   transaction-core:
-    name: PostgreSQL checkout integrity
+    name: PostgreSQL transaction integrity
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -59,14 +59,19 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0007_m2_transaction_core';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0008_m2_transaction_store_membership';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0012_m2_refund_void_transactions';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0013_m2_refund_currency';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0014_m2_void_inventory_reason';
           SELECT 1 FROM information_schema.columns WHERE table_name='prodx_products' AND column_name='price_amount' AND data_type='numeric' AND numeric_precision=12 AND numeric_scale=2;
           SELECT 1 FROM information_schema.columns WHERE table_name='prodx_orders' AND column_name='grand_total_amount' AND data_type='numeric' AND numeric_precision=12 AND numeric_scale=2;
           SELECT 1 FROM information_schema.columns WHERE table_name='prodx_payments' AND column_name='amount' AND data_type='numeric' AND numeric_precision=12 AND numeric_scale=2;
+          SELECT 1 FROM information_schema.columns WHERE table_name='prodx_order_adjustments' AND column_name='currency' AND is_nullable='NO';
           SELECT 1 FROM pg_constraint WHERE conname='prodx_orders_store_idempotency_unique';
           SELECT 1 FROM pg_constraint WHERE conname='prodx_orders_cashier_store_membership_fk';
           SELECT 1 FROM pg_constraint WHERE conname='prodx_inventory_user_store_membership_fk';
+          SELECT 1 FROM pg_constraint WHERE conname='prodx_adjustments_store_idempotency_unique';
           SQL
-      - name: PostgreSQL checkout integration tests
+      - name: PostgreSQL transaction integration tests
         run: bun run server:test:integration
       - name: Re-apply migrations to verify idempotency
         shell: bash
