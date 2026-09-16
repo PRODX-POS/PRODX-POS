@@ -45,8 +45,8 @@ test('PostgreSQL refund/void are authoritative, idempotent, atomic and bounded',
   assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock,9);
   assert.equal((await pool.query("SELECT count(*)::int n FROM prodx_cash_movements WHERE shift_id=$1 AND type='cash_refund'",[id.shift])).rows[0].n,1);
   const cached=await adjustments.refund({storeId:id.store,orderId:sale.order.id,amountInCents:1000,currency:'THB',reason:'Customer returned one unit',refundMethod:'cash',authorizedByUserId:id.user,idempotencyKey:'refund-1',itemsToRestock:[{productId:id.product,quantity:1}]}); assert.equal(cached.idempotencyCached,true);
-  await assert.rejects(adjustments.refund({storeId:id.store,orderId:sale.order.id,amountInCents:900,currency:'THB',reason:'Different request',refundMethod:'cash',authorizedByUserId:id.user,idempotencyKey:'refund-1'}));
-  await assert.rejects(adjustments.refund({storeId:id.store,orderId:sale.order.id,amountInCents:1100,currency:'THB',reason:'Too much',refundMethod:'cash',authorizedByUserId:id.user,idempotencyKey:'refund-over'}));
+  await assert.rejects(adjustments.refund({storeId:id.store,orderId:sale.order.id,amountInCents:900,currency:'THB',reason:'Different request',refundMethod:'cash',authorizedByUserId:id.user,idempotencyKey:'refund-1',itemsToRestock:[]}));
+  await assert.rejects(adjustments.refund({storeId:id.store,orderId:sale.order.id,amountInCents:1100,currency:'THB',reason:'Too much',refundMethod:'cash',authorizedByUserId:id.user,idempotencyKey:'refund-over',itemsToRestock:[]}));
   const before=Number((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock);
   await assert.rejects(adjustments.refund({storeId:id.store,orderId:sale.order.id,amountInCents:500,currency:'THB',reason:'Bad restock',refundMethod:'cash',authorizedByUserId:id.user,idempotencyKey:'refund-bad',itemsToRestock:[{productId:id.product,quantity:99}]}));
   assert.equal(Number((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock),before);
