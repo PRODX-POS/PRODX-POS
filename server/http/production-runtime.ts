@@ -6,6 +6,7 @@ import { createPostgresAuthenticationRepository } from '../auth/postgres-reposit
 import { createPostgresPool, asSqlExecutor } from '../db/postgres';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
 import { registerCheckoutRoute } from './checkout-route';
+import { registerSyncRoutes } from './sync-route';
 import { registerVoidRefundRoutes } from './void-refund-route';
 
 const bearerToken = (request: Request): string | null => {
@@ -53,6 +54,7 @@ export const createProductionApp = () => {
     authorizeRequest,
     configureRoutes: current => {
       registerCheckoutRoute(current, db);
+      registerSyncRoutes(current, db);
       registerVoidRefundRoutes(current, db);
     },
   });
