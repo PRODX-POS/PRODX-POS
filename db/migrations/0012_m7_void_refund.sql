@@ -43,6 +43,16 @@ CREATE TABLE IF NOT EXISTS prodx_voids (
 CREATE INDEX IF NOT EXISTS prodx_refunds_order_idx ON prodx_refunds(organization_id, store_id, order_id, created_at);
 CREATE INDEX IF NOT EXISTS prodx_voids_order_idx ON prodx_voids(organization_id, store_id, order_id, created_at);
 
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname='prodx_inventory_reason_valid') THEN
+    ALTER TABLE prodx_inventory_ledger DROP CONSTRAINT prodx_inventory_reason_valid;
+  END IF;
+  ALTER TABLE prodx_inventory_ledger ADD CONSTRAINT prodx_inventory_reason_valid
+    CHECK (reason IN ('sale_deduction','refund_restock','void_reversal','purchase_received','transfer_in','transfer_out','audit_count_adjustment','damaged_write_off'));
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION prodx_validate_refund_invariants()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -67,6 +77,6 @@ END;
 $$;
 
 DROP TRIGGER IF EXISTS prodx_refund_invariant ON prodx_refunds;
-CREATE CONSTRAINT TRIGGER prodx_refund_invariant AFTER INSERT OR UPDATE OR DELETE ON prodx_refunds DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION prodx_validate_refund_invariants();
+CREATE CONSTRAINT TRIGGER prodx_refund_invariant AFTER INSERT OR UPDATE ON prodx_refunds DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION prodx_validate_refund_invariants();
 
 INSERT INTO prodx_schema_migrations(version) VALUES ('0012_m7_void_refund') ON CONFLICT(version) DO NOTHING;
