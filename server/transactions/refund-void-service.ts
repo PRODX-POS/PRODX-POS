@@ -87,7 +87,7 @@ export const createRefundVoidService = (db: TransactionalSqlExecutor) => ({
       if (refunded + amount > grandTotal) throw new RefundVoidConflictError('Refund exceeds the remaining refundable amount.');
 
       const adjustmentId = crypto.randomUUID();
-      const adjustment = (await tx.query(`INSERT INTO prodx_order_adjustments(id,organization_id,store_id,order_id,action,amount,refund_method,reason,idempotency_key,authorized_by_user_id) SELECT $1,organization_id,$2,$3,'refund',$4,$5,$6,$7,$8 FROM prodx_orders WHERE id=$3 RETURNING *`, [adjustmentId, input.storeId, input.orderId, numeric(amount), input.refundMethod, reason, input.idempotencyKey, input.authorizedByUserId])).rows[0];
+      const adjustment = (await tx.query(`INSERT INTO prodx_order_adjustments(id,organization_id,store_id,order_id,action,amount,currency,refund_method,reason,idempotency_key,authorized_by_user_id) SELECT $1,organization_id,$2,$3,'refund',$4,$5,$6,$7,$8,$9 FROM prodx_orders WHERE id=$3 RETURNING *`, [adjustmentId, input.storeId, input.orderId, numeric(amount), input.currency, input.refundMethod, reason, input.idempotencyKey, input.authorizedByUserId])).rows[0];
       if (!adjustment) throw new RefundVoidConflictError('Refund could not be created.');
 
       for (const item of input.itemsToRestock) {
@@ -132,7 +132,7 @@ export const createRefundVoidService = (db: TransactionalSqlExecutor) => ({
       const priorRefund = (await tx.query(`SELECT 1 FROM prodx_order_adjustments WHERE store_id=$1 AND order_id=$2 AND action='refund' LIMIT 1`, [input.storeId, input.orderId])).rows[0];
       if (priorRefund) throw new RefundVoidConflictError('A refunded order cannot be voided.');
       const adjustmentId = crypto.randomUUID();
-      const adjustment = (await tx.query(`INSERT INTO prodx_order_adjustments(id,organization_id,store_id,order_id,action,amount,reason,idempotency_key,authorized_by_user_id) SELECT $1,organization_id,$2,$3,'void',grand_total_amount,$4,$5,$6 FROM prodx_orders WHERE id=$3 RETURNING *`, [adjustmentId, input.storeId, input.orderId, reason, input.idempotencyKey, input.authorizedByUserId])).rows[0];
+      const adjustment = (await tx.query(`INSERT INTO prodx_order_adjustments(id,organization_id,store_id,order_id,action,amount,currency,reason,idempotency_key,authorized_by_user_id) SELECT $1,organization_id,$2,$3,'void',grand_total_amount,currency,$4,$5,$6 FROM prodx_orders WHERE id=$3 RETURNING *`, [adjustmentId, input.storeId, input.orderId, reason, input.idempotencyKey, input.authorizedByUserId])).rows[0];
       if (!adjustment) throw new RefundVoidConflictError('Void could not be created.');
       const items = (await tx.query(`SELECT product_id, quantity FROM prodx_order_items WHERE store_id=$1 AND order_id=$2`, [input.storeId, input.orderId])).rows;
       for (const item of items) {
