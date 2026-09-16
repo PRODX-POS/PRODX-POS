@@ -1,0 +1,115 @@
+name: OKMD API Diagnostic
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+concurrency:
+  group: okmd-api-diagnostic-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  diagnostic:
+    if: >-
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/okmd-api-test') &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Test OKMD API
+        env:
+          OKMD_BASE_URL: https://gen.ai.kku.ac.th/okmd/api/v1
+          OKMD_API_KEY: ${{ secrets.OKMD_AI_API_KEY }}
+          OKMD_MODEL_ID: claude-sonnet-5
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${OKMD_API_KEY:-}" || { echo 'OKMD_AI_API_KEY is not configured.' >&2; exit 1; }
+          python3 - <<'PY'
+          import json, os, urllib.error, urllib.request
+
+          base = os.environ['OKMD_BASE_URL']
+          key = os.environ['OKMD_API_KEY']
+          model = os.environ['OKMD_MODEL_ID']
+          payload = json.dumps({
+              'model': model,
+              'messages': [{
+                  'role': 'user',
+                  'content': 'Hello, please confirm that this API connection is working.'
+              }],
+              'stream': False,
+          }).encode()
+          req = urllib.request.Request(
+              base + '/chat/completions',
+              data=payload,
+              headers={
+                  'Authorization': 'Bearer ' + key,
+                  'Content-Type': 'application/json',
+                  'Accept': 'application/json',
+              },
+              method='POST',
+          )
+
+          try:
+              with urllib.request.urlopen(req, timeout=180) as response:
+                  status = response.status
+                  raw = response.read().decode('utf-8', 'replace')
+          except urllib.error.HTTPError as exc:
+              status = exc.code
+              raw = exc.read().decode('utf-8', 'replace')
+          except Exception as exc:
+              print(json.dumps({'http_status': None, 'error_type': type(exc).__name__, 'error': str(exc)}, ensure_ascii=False))
+              raise SystemExit(1)
+
+          try:
+              body = json.loads(raw)
+          except json.JSONDecodeError:
+              print(json.dumps({'http_status': status, 'error': 'Non-JSON response', 'response_preview': raw[:2000]}, ensure_ascii=False))
+              raise SystemExit(1)
+
+          choices = body.get('choices') or []
+          answer = None
+          if choices:
+              message = choices[0].get('message') or {}
+              answer = message.get('content')
+
+          result = {
+              'http_status': status,
+              'model_requested': model,
+              'model_returned': body.get('model'),
+              'provider': body.get('provider'),
+              'answer': answer,
+              'error': body.get('error'),
+              'usage': body.get('usage'),
+              'has_choices': bool(choices),
+          }
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
+              summary.write('# OKMD API Diagnostic\n\n')
+              summary.write('```json\n')
+              summary.write(json.dumps(result, ensure_ascii=False, indent=2))
+              summary.write('\n```\n')
+
+          if status != 200 or not choices:
+              raise SystemExit('OKMD chat/completions did not return choices; inspect diagnostic output above.')
+          PY
+
+      - name: Comment diagnostic result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --field body='OKMD API diagnostic run completed. See the Actions job summary/log for sanitized API evidence. No API key is printed.' >/dev/null
