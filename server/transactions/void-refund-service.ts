@@ -72,6 +72,10 @@ export const createVoidRefundService = (db: TransactionalSqlExecutor) => ({
       if (cached) return cachedRefund(cached, requestFingerprint);
       const order = (await tx.query(`SELECT * FROM prodx_orders WHERE id=$1 AND store_id=$2 FOR UPDATE`, [input.orderId, input.storeId])).rows[0] as DbRow | undefined;
       if (!order) throw new VoidRefundConflictError('Order does not exist in the authenticated store.');
+
+      const lockedCached = (await tx.query(`SELECT r.id,r.amount::text,r.method,r.request_fingerprint,o.status,o.currency FROM prodx_refunds r JOIN prodx_orders o ON o.id=r.order_id WHERE r.store_id=$1 AND r.idempotency_key=$2`, [input.storeId, idempotencyKey])).rows[0] as DbRow | undefined;
+      if (lockedCached) return cachedRefund(lockedCached, requestFingerprint);
+
       if (order.status === 'voided') throw new VoidRefundConflictError('A voided order cannot be refunded.');
       if (order.status === 'refunded') throw new VoidRefundConflictError('Order has already been fully refunded.');
       if (input.refundAmount.currency !== order.currency) throw new VoidRefundValidationError('Refund currency must match order currency.');
@@ -128,6 +132,10 @@ export const createVoidRefundService = (db: TransactionalSqlExecutor) => ({
       if (cached) return cachedVoid(cached, requestFingerprint);
       const order = (await tx.query(`SELECT * FROM prodx_orders WHERE id=$1 AND store_id=$2 FOR UPDATE`, [input.orderId, input.storeId])).rows[0] as DbRow | undefined;
       if (!order) throw new VoidRefundConflictError('Order does not exist in the authenticated store.');
+
+      const lockedCached = (await tx.query(`SELECT v.id,v.request_fingerprint,o.status FROM prodx_voids v JOIN prodx_orders o ON o.id=v.order_id WHERE v.store_id=$1 AND v.idempotency_key=$2`, [input.storeId, idempotencyKey])).rows[0] as DbRow | undefined;
+      if (lockedCached) return cachedVoid(lockedCached, requestFingerprint);
+
       if (order.status !== 'server_confirmed') throw new VoidRefundConflictError('Only a server-confirmed order can be voided.');
       const refunded = moneyToCents((await tx.query(`SELECT COALESCE(SUM(amount),0)::text AS amount FROM prodx_refunds WHERE order_id=$1`, [order.id])).rows[0].amount);
       if (refunded !== 0n) throw new VoidRefundConflictError('A partially refunded order cannot be voided.');
