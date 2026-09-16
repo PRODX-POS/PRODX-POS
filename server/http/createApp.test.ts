@@ -20,7 +20,21 @@ const start = async (app: ReturnType<typeof createApp>) => {
   };
 };
 
-test('rejects requests when backend authentication does not produce a verified principal', async () => {
+test('exposes liveness without requiring backend authentication', async () => {
+  const app = createApp({ authenticateRequest: () => null });
+  const server = await start(app);
+
+  try {
+    const response = await fetch(`${server.baseUrl}/api/v1/health/live`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('x-request-id')?.length, 36);
+    assert.deepEqual(await response.json(), { status: 'ok' });
+  } finally {
+    await server.close();
+  }
+});
+
+test('rejects protected health endpoint when backend authentication does not produce a verified principal', async () => {
   const app = createApp({ authenticateRequest: () => null });
   const server = await start(app);
 
