@@ -60,9 +60,12 @@ jobs:
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0007_m2_transaction_core';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0008_m2_transaction_store_membership';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0012_m2_refund_void_transactions';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0013_m2_refund_currency';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0014_m2_void_inventory_reason';
           SELECT 1 FROM information_schema.columns WHERE table_name='prodx_products' AND column_name='price_amount' AND data_type='numeric' AND numeric_precision=12 AND numeric_scale=2;
           SELECT 1 FROM information_schema.columns WHERE table_name='prodx_orders' AND column_name='grand_total_amount' AND data_type='numeric' AND numeric_precision=12 AND numeric_scale=2;
           SELECT 1 FROM information_schema.columns WHERE table_name='prodx_payments' AND column_name='amount' AND data_type='numeric' AND numeric_precision=12 AND numeric_scale=2;
+          SELECT 1 FROM information_schema.columns WHERE table_name='prodx_order_adjustments' AND column_name='currency' AND is_nullable='NO';
           SELECT 1 FROM pg_constraint WHERE conname='prodx_orders_store_idempotency_unique';
           SELECT 1 FROM pg_constraint WHERE conname='prodx_orders_cashier_store_membership_fk';
           SELECT 1 FROM pg_constraint WHERE conname='prodx_inventory_user_store_membership_fk';
