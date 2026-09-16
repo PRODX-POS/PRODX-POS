@@ -1,6 +1,5 @@
 import crypto from 'node:crypto';
-import { db } from '../db/client';
-import type { DbTransaction } from '../db/transaction';
+import type { SqlQueryExecutor, TransactionalSqlExecutor } from '../db/transaction';
 
 export type RefundMethod = 'cash' | 'card' | 'qr_digital';
 export type RefundItem = { productId: string; quantity: number };
@@ -26,12 +25,12 @@ function dbCents(value: unknown) {
   return BigInt(match[1]) * 100n + BigInt(fraction);
 }
 
-async function getOrder(tx: DbTransaction, storeId: string, orderId: string, forUpdate = false) {
+async function getOrder(tx: SqlQueryExecutor, storeId: string, orderId: string, forUpdate = false) {
   const result = await tx.query(`SELECT * FROM prodx_orders WHERE id=$1 AND store_id=$2${forUpdate ? ' FOR UPDATE' : ''}`, [orderId, storeId]);
   return result.rows[0];
 }
 
-async function getExistingByKey(tx: DbTransaction, storeId: string, idempotencyKey: string) {
+async function getExistingByKey(tx: SqlQueryExecutor, storeId: string, idempotencyKey: string) {
   return (await tx.query(`SELECT * FROM prodx_order_adjustments WHERE store_id=$1 AND idempotency_key=$2`, [storeId, idempotencyKey])).rows[0];
 }
 
@@ -55,7 +54,7 @@ function ensureRefundIdempotency(existing: any, input: { orderId: string; amount
   }
 }
 
-export const refundVoidService = {
+export const createRefundVoidService = (db: TransactionalSqlExecutor) => ({
   async refund(input: {
     storeId: string;
     orderId: string;
@@ -65,11 +64,11 @@ export const refundVoidService = {
     reason: string;
     authorizedByUserId: string;
     idempotencyKey: string;
-    items: RefundItem[];
+    itemsToRestock: RefundItem[];
   }) {
     const amount = cents(input.amountInCents);
     const reason = ensureReason(input.reason);
-    ensureItems(input.items);
+    ensureItems(input.itemsToRestock);
 
     return db.transaction(async (tx) => {
       const order = await getOrder(tx, input.storeId, input.orderId, true);
@@ -91,7 +90,7 @@ export const refundVoidService = {
       const adjustment = (await tx.query(`INSERT INTO prodx_order_adjustments(id,organization_id,store_id,order_id,action,amount,refund_method,reason,idempotency_key,authorized_by_user_id) SELECT $1,organization_id,$2,$3,'refund',$4,$5,$6,$7,$8 FROM prodx_orders WHERE id=$3 RETURNING *`, [adjustmentId, input.storeId, input.orderId, numeric(amount), input.refundMethod, reason, input.idempotencyKey, input.authorizedByUserId])).rows[0];
       if (!adjustment) throw new RefundVoidConflictError('Refund could not be created.');
 
-      for (const item of input.items) {
+      for (const item of input.itemsToRestock) {
         const sold = (await tx.query(`SELECT quantity FROM prodx_order_items WHERE order_id=$1 AND store_id=$2 AND product_id=$3`, [input.orderId, input.storeId, item.productId])).rows[0];
         if (!sold || item.quantity > sold.quantity) throw new RefundVoidConflictError('Restock quantity exceeds the quantity sold on the order.');
         const stock = (await tx.query(`UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 RETURNING current_stock`, [item.quantity, item.productId, input.storeId])).rows[0];
@@ -108,7 +107,7 @@ export const refundVoidService = {
 
       const newRefunded = refunded + amount;
       if (newRefunded === grandTotal) await tx.query(`UPDATE prodx_orders SET status='refunded' WHERE id=$1 AND store_id=$2`, [input.orderId, input.storeId]);
-      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,(SELECT register_id FROM prodx_orders WHERE id=$4),$5,'order_refund_committed','warn',$6::jsonb)`, [crypto.randomUUID(), adjustment.organization_id, input.storeId, input.orderId, input.authorizedByUserId, JSON.stringify({ orderId: input.orderId, adjustmentId, amount: numeric(amount), refundMethod: input.refundMethod, idempotencyKey: input.idempotencyKey, restockedItems: input.items })]);
+      await tx.query(`INSERT INTO prodx_audit_log(id,organization_id,store_id,register_id,user_id,action,severity,details) VALUES($1,$2,$3,(SELECT register_id FROM prodx_orders WHERE id=$4),$5,'order_refund_committed','warn',$6::jsonb)`, [crypto.randomUUID(), adjustment.organization_id, input.storeId, input.orderId, input.authorizedByUserId, JSON.stringify({ orderId: input.orderId, adjustmentId, amount: numeric(amount), refundMethod: input.refundMethod, idempotencyKey: input.idempotencyKey, restockedItems: input.itemsToRestock })]);
       return { idempotencyCached: false, adjustment };
     });
   },
@@ -152,4 +151,4 @@ export const refundVoidService = {
       return { idempotencyCached: false, adjustment };
     });
   },
-};
+});
