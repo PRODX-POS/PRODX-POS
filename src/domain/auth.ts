@@ -1,9 +1,9 @@
 /**
  * PRODX POS Domain - Auth, Tenant & RBAC Module
  *
- * Authentication secrets are never seeded in client source. Production
- * authentication is authoritative in the backend; this module only stores
- * explicitly provisioned local state for offline/UX support.
+ * Authentication credentials are server-authoritative. The browser must never
+ * persist, hash, validate, or mutate staff passwords. This module stores only
+ * non-secret local UX/offline state.
  */
 
 export type Role = 'admin' | 'manager' | 'cashier';
@@ -114,7 +114,6 @@ export const DEFAULT_STAFF_DIRECTORY: User[] = [
 export const STAFF_STORAGE_KEY = 'prodx_pos_staff_directory';
 export const ROLE_PERMS_STORAGE_KEY = 'prodx_pos_role_permissions';
 export const STAFF_PINS_STORAGE_KEY = 'prodx_pos_staff_pins';
-export const STAFF_PASSWORDS_STORAGE_KEY = 'prodx_pos_staff_passwords';
 
 export function getStoredStaffDirectory(): User[] {
   try { const raw = localStorage.getItem(STAFF_STORAGE_KEY); if (raw) return JSON.parse(raw); } catch (e) { console.error('Failed to parse staff directory from storage', e); }
@@ -140,22 +139,7 @@ export function getStoredStaffPins(): Record<string, string> {
 }
 
 export function saveStoredStaffPins(pins: Record<string, string>): void {
-  try { localStorage.setItem(STAFF_PINS_STORAGE_KEY, JSON.stringify(pins)); } catch (e) { console.error('Failed to save staff pins to storage', e); }
-}
-
-export function getStoredStaffPasswords(): Record<string, string> {
-  try { const raw = localStorage.getItem(STAFF_PASSWORDS_STORAGE_KEY); if (raw) return JSON.parse(raw); } catch (e) { console.error('Failed to parse staff passwords from storage', e); }
-  return {};
-}
-
-export function saveStoredStaffPasswords(passwords: Record<string, string>): void {
-  try { localStorage.setItem(STAFF_PASSWORDS_STORAGE_KEY, JSON.stringify(passwords)); } catch (e) { console.error('Failed to save staff passwords to storage', e); }
-}
-
-export function updateStaffPassword(userId: string, newPassword: string): void {
-  const current = getStoredStaffPasswords();
-  current[userId] = newPassword;
-  saveStoredStaffPasswords(current);
+  try { localStorage.setItem(STAFF_PINS_STORAGE_KEY, JSON.stringify(pins)); } catch (e) { console.error('Failed to save staff pins from storage', e); }
 }
 
 export function hasPermission(user: User, permission: Permission): boolean { return user.permissions.includes(permission); }
