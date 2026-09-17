@@ -3,7 +3,7 @@
  * The backend is authoritative for credentials, sessions, and authorization.
  */
 import { IAuthApi, LoginRequest, AuthSessionResponse } from './types';
-import { SessionContext, Store, Organization, User } from '../domain/auth';
+import { SessionContext, Store } from '../domain/auth';
 
 const AUTH_API_BASE_URL = import.meta.env.VITE_AUTH_API_BASE_URL;
 function requireBaseUrl(): string {
@@ -21,7 +21,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 const hydrateSession = async (raw: AuthSessionResponse): Promise<SessionContext> => {
-  const session = await request<SessionContext>('/auth/session', {
+  const session = await request<SessionContext>('/api/v1/auth/session', {
     headers: { Authorization: `Bearer ${raw.token}` },
   });
   if (!session) throw new Error('Authentication API returned an invalid session.');
@@ -34,9 +34,9 @@ const hydrateSession = async (raw: AuthSessionResponse): Promise<SessionContext>
 export const productionAuthApi: IAuthApi = {
   login: async (req: LoginRequest) => {
     const raw = await request<AuthSessionResponse>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(req) });
-    return { raw, context: await hydrateSession(raw) } as unknown as never;
+    return hydrateSession(raw) as unknown as Promise<SessionContext>;
   },
-  logout: () => request<void>('/auth/logout', { method: 'POST' }),
+  logout: () => request<void>('/api/v1/auth/logout', { method: 'POST' }),
   verifySession: (token: string) => request<SessionContext | null>('/api/v1/auth/session', { headers: { Authorization: `Bearer ${token}` } }),
-  getStores: (orgSlug: string) => request<readonly Store[]>(`/organizations/${encodeURIComponent(orgSlug)}/stores`),
+  getStores: (orgSlug: string) => request<readonly Store[]>(`/api/v1/organizations/${encodeURIComponent(orgSlug)}/stores`),
 };
