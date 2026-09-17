@@ -20,19 +20,28 @@ const start = async (app: ReturnType<typeof createApp>) => {
   };
 };
 
-test('rejects requests when backend authentication does not produce a verified principal', async () => {
-  const app = createApp({ authenticateRequest: () => null });
+test('health endpoint is public while protected application routes reject missing authentication', async () => {
+  const app = createApp({
+    authenticateRequest: () => null,
+    configureRoutes: (configuredApp) => {
+      configuredApp.get('/api/v1/protected-health-test', (_request, response) => response.json({ ok: true }));
+    },
+  });
   const server = await start(app);
 
   try {
-    const response = await fetch(`${server.baseUrl}/api/v1/health`);
-    assert.equal(response.status, 401);
-    assert.equal(response.headers.get('x-request-id')?.length, 36);
-    assert.deepEqual(await response.json(), {
+    const health = await fetch(`${server.baseUrl}/api/v1/health`);
+    assert.equal(health.status, 200);
+    assert.deepEqual(await health.json(), { status: 'ok' });
+
+    const protectedResponse = await fetch(`${server.baseUrl}/api/v1/protected-health-test`);
+    assert.equal(protectedResponse.status, 401);
+    assert.equal(protectedResponse.headers.get('x-request-id')?.length, 36);
+    assert.deepEqual(await protectedResponse.json(), {
       error: {
         code: 'UNAUTHENTICATED',
         message: 'Authentication is required.',
-        requestId: response.headers.get('x-request-id'),
+        requestId: protectedResponse.headers.get('x-request-id'),
       },
     });
   } finally {
