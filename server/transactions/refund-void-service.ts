@@ -25,6 +25,21 @@ function dbCents(value: unknown) {
   return BigInt(match[1]) * 100n + BigInt(fraction);
 }
 
+function fingerprint(input: { orderId: string; amount: bigint; currency: string; refundMethod: RefundMethod; reason: string; itemsToRestock: RefundItem[] }) {
+  const canonicalItems = [...input.itemsToRestock]
+    .sort((a, b) => a.productId.localeCompare(b.productId))
+    .map((item) => `${item.productId}:${item.quantity}`)
+    .join('|');
+  return crypto.createHash('sha256').update([
+    input.orderId,
+    input.amount.toString(),
+    input.currency,
+    input.refundMethod,
+    input.reason,
+    canonicalItems,
+  ].join('\u001f')).digest('hex');
+}
+
 async function getOrder(tx: SqlQueryExecutor, storeId: string, orderId: string, forUpdate = false) {
   const result = await tx.query(`SELECT * FROM prodx_orders WHERE id=$1 AND store_id=$2${forUpdate ? ' FOR UPDATE' : ''}`, [orderId, storeId]);
   return result.rows[0];
@@ -48,8 +63,9 @@ function ensureItems(items: RefundItem[]) {
   }
 }
 
-function ensureRefundIdempotency(existing: any, input: { orderId: string; amount: bigint; currency: string; refundMethod: RefundMethod; reason: string }) {
-  if (existing.action !== 'refund' || existing.order_id !== input.orderId || dbCents(existing.amount) !== input.amount || existing.currency !== input.currency || existing.refund_method !== input.refundMethod || existing.reason !== input.reason) {
+function ensureRefundIdempotency(existing: any, input: { orderId: string; amount: bigint; currency: string; refundMethod: RefundMethod; reason: string; itemsToRestock: RefundItem[] }) {
+  const expected = fingerprint(input);
+  if (existing.action !== 'refund' || existing.order_id !== input.orderId || dbCents(existing.amount) !== input.amount || existing.currency !== input.currency || existing.refund_method !== input.refundMethod || existing.reason !== input.reason || existing.request_fingerprint !== expected) {
     throw new RefundVoidConflictError('Idempotency key was already used with different refund parameters.');
   }
 }
@@ -69,13 +85,14 @@ export const createRefundVoidService = (db: TransactionalSqlExecutor) => ({
     const amount = cents(input.amountInCents);
     const reason = ensureReason(input.reason);
     ensureItems(input.itemsToRestock);
+    const requestFingerprint = fingerprint({ orderId: input.orderId, amount, currency: input.currency, refundMethod: input.refundMethod, reason, itemsToRestock: input.itemsToRestock });
 
     return db.transaction(async (tx) => {
       const existing = await getExistingByKey(tx, input.storeId, input.idempotencyKey);
       if (existing) {
         const order = await getOrder(tx, input.storeId, input.orderId);
         if (!order) throw new RefundVoidConflictError('Order not found in this store.');
-        ensureRefundIdempotency(existing, { orderId: input.orderId, amount, currency: input.currency, refundMethod: input.refundMethod, reason });
+        ensureRefundIdempotency(existing, { orderId: input.orderId, amount, currency: input.currency, refundMethod: input.refundMethod, reason, itemsToRestock: input.itemsToRestock });
         return { idempotencyCached: true, adjustment: existing };
       }
 
@@ -90,16 +107,30 @@ export const createRefundVoidService = (db: TransactionalSqlExecutor) => ({
       if (order.status !== 'server_confirmed') throw new RefundVoidConflictError(`Order is not refundable in status ${order.status}.`);
 
       const refunded = dbCents((await tx.query(`SELECT COALESCE(SUM(amount),0)::text AS total FROM prodx_order_adjustments WHERE store_id=$1 AND order_id=$2 AND action='refund'`, [input.storeId, input.orderId])).rows[0].total);
+      const paid = dbCents((await tx.query(`SELECT COALESCE(SUM(amount),0)::text AS total FROM prodx_payments WHERE store_id=$1 AND order_id=$2 AND currency=$3`, [input.storeId, input.orderId, input.currency])).rows[0].total);
       const grandTotal = dbCents(order.grand_total_amount);
       if (refunded + amount > grandTotal) throw new RefundVoidConflictError('Refund exceeds the remaining refundable amount.');
+      if (refunded + amount > paid) throw new RefundVoidConflictError('Refund exceeds the captured payment amount.');
+
+      if (input.itemsToRestock.length > 0) {
+        const values = (await tx.query(`SELECT product_id, quantity, line_total_amount::text AS line_total FROM prodx_order_items WHERE store_id=$1 AND order_id=$2 AND product_id = ANY($3::uuid[])`, [input.storeId, input.orderId, input.itemsToRestock.map((item) => item.productId)])).rows;
+        if (values.length !== input.itemsToRestock.length) throw new RefundVoidConflictError('Every restocked product must be present on the original order.');
+        const byProduct = new Map(values.map((row: any) => [row.product_id, row]));
+        let expected = 0n;
+        for (const item of input.itemsToRestock) {
+          const row: any = byProduct.get(item.productId);
+          if (!row || item.quantity > Number(row.quantity)) throw new RefundVoidConflictError('Restock quantity exceeds the quantity sold on the order.');
+          const lineTotal = dbCents(row.line_total);
+          expected += (lineTotal * BigInt(item.quantity) + BigInt(Math.floor(Number(row.quantity) / 2))) / BigInt(row.quantity);
+        }
+        if (expected !== amount) throw new RefundVoidConflictError('Refund amount must reconcile exactly to the value of restocked order items.');
+      }
 
       const adjustmentId = crypto.randomUUID();
-      const adjustment = (await tx.query(`INSERT INTO prodx_order_adjustments(id,organization_id,store_id,order_id,action,amount,currency,refund_method,reason,idempotency_key,authorized_by_user_id) SELECT $1,organization_id,$2,$3,'refund',$4,$5,$6,$7,$8,$9 FROM prodx_orders WHERE id=$3 RETURNING *`, [adjustmentId, input.storeId, input.orderId, numeric(amount), input.currency, input.refundMethod, reason, input.idempotencyKey, input.authorizedByUserId])).rows[0];
+      const adjustment = (await tx.query(`INSERT INTO prodx_order_adjustments(id,organization_id,store_id,order_id,action,amount,currency,refund_method,reason,idempotency_key,authorized_by_user_id,request_fingerprint) SELECT $1,organization_id,$2,$3,'refund',$4,$5,$6,$7,$8,$9,$10 FROM prodx_orders WHERE id=$3 RETURNING *`, [adjustmentId, input.storeId, input.orderId, numeric(amount), input.currency, input.refundMethod, reason, input.idempotencyKey, input.authorizedByUserId, requestFingerprint])).rows[0];
       if (!adjustment) throw new RefundVoidConflictError('Refund could not be created.');
 
       for (const item of input.itemsToRestock) {
-        const sold = (await tx.query(`SELECT quantity FROM prodx_order_items WHERE order_id=$1 AND store_id=$2 AND product_id=$3`, [input.orderId, input.storeId, item.productId])).rows[0];
-        if (!sold || item.quantity > sold.quantity) throw new RefundVoidConflictError('Restock quantity exceeds the quantity sold on the order.');
         const stock = (await tx.query(`UPDATE prodx_products SET current_stock=current_stock+$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2 AND store_id=$3 RETURNING current_stock`, [item.quantity, item.productId, input.storeId])).rows[0];
         if (!stock) throw new RefundVoidConflictError('Refund product is not available in this store.');
         await tx.query(`INSERT INTO prodx_refund_items(id,organization_id,store_id,adjustment_id,order_id,product_id,quantity) SELECT $1,organization_id,$2,$3,$4,$5,$6 FROM prodx_orders WHERE id=$4`, [crypto.randomUUID(), input.storeId, adjustmentId, input.orderId, item.productId, item.quantity]);
