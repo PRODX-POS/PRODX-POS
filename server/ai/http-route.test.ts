@@ -20,7 +20,7 @@ function makeApp(allowed: boolean) {
 
   const providerCalls = { count: 0 };
   const provider: AIProvider = {
-    name: 'okmd',
+    name: 'test-provider',
     async chat(request) {
       providerCalls.count += 1;
       return { model: request.model ?? 'test-model', choices: [{ message: { role: 'assistant', content: 'ok' } }], raw: { secret: 'must-not-leak' } };
@@ -73,7 +73,7 @@ test('AI HTTP route uses gateway authorization, audit, and never returns provide
   const body = await response.json() as Record<string, unknown>;
   assert.equal(body.requestId, 'test-request');
   assert.equal(body.raw, undefined);
-  assert.equal(body.provider, 'okmd');
+  assert.equal(body.provider, 'test-provider');
   const audit = app.locals.aiAudit as Array<Record<string, unknown>>;
   assert.equal(audit.length, 1);
   assert.equal(audit[0]?.allowed, true);
