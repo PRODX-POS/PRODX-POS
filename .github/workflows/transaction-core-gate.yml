@@ -62,6 +62,9 @@ jobs:
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0012_m2_refund_void_transactions';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0013_m2_refund_currency';
           SELECT 1 FROM prodx_schema_migrations WHERE version = '0014_m2_void_inventory_reason';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0015_m2_refund_integrity';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0015_m2_audit_immutability';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0016_m2_refund_reconciliation';
           SELECT 1 FROM information_schema.columns WHERE table_name='prodx_products' AND column_name='price_amount' AND data_type='numeric' AND numeric_precision=12 AND numeric_scale=2;
           SELECT 1 FROM information_schema.columns WHERE table_name='prodx_orders' AND column_name='grand_total_amount' AND data_type='numeric' AND numeric_precision=12 AND numeric_scale=2;
           SELECT 1 FROM information_schema.columns WHERE table_name='prodx_payments' AND column_name='amount' AND data_type='numeric' AND numeric_precision=12 AND numeric_scale=2;
