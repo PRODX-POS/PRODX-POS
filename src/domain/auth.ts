@@ -56,7 +56,7 @@ export interface SessionContext {
   readonly currentUser: User;
   readonly token: string;
   readonly expiresAt: string;
-  readonly sessionId?: string;
+  readonly sessionId: string;
 }
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
@@ -121,7 +121,7 @@ export function getStoredRolePermissions(): Record<Role, Permission[]> {
 }
 
 export function saveStoredRolePermissions(matrix: Record<Role, Permission[]>): void {
-  try { localStorage.setItem(ROLE_PERMS_STORAGE_KEY, JSON.stringify(matrix)); } catch (e) { console.error('Failed to save role permissions to storage', e); }
+  try { localStorage.setItem(ROLE_PERMS_STORAGE_KEY, JSON.stringify(matrix)); } catch (e) { console.error('Failed to save role permissions from storage', e); }
 }
 
 export function getStoredStaffPins(): Record<string, string> {
