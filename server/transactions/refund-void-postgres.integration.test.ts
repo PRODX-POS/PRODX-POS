@@ -73,7 +73,7 @@ test('PostgreSQL refund/void are authoritative, idempotent, atomic and bounded',
   const multiItem2='00000000-0000-4000-8000-000000001114';
   try {
     await client.query('BEGIN');
-    await client.query("INSERT INTO prodx_order_adjustments(id,organization_id,store_id,order_id,action,amount,refund_method,reason,idempotency_key,authorized_by_user_id) VALUES($1,$2,$3,$4,'refund',20,'cash','Multi-item DB reconciliation','db-multi-1',$5)",[multiAdjustment,id.org,id.store,multiSale.order.id,id.user]);
+    await client.query("INSERT INTO prodx_order_adjustments(id,organization_id,store_id,order_id,action,amount,refund_method,reason,idempotency_key,authorized_by_user_id,currency) VALUES($1,$2,$3,$4,'refund',20,'cash','Multi-item DB reconciliation','db-multi-1',$5,'THB')",[multiAdjustment,id.org,id.store,multiSale.order.id,id.user]);
     await client.query("INSERT INTO prodx_refund_items(id,organization_id,store_id,adjustment_id,order_id,product_id,quantity) VALUES($1,$2,$3,$4,$5,$6,1)",[multiItem1,id.org,id.store,multiAdjustment,multiSale.order.id,id.product]);
     await client.query("INSERT INTO prodx_refund_items(id,organization_id,store_id,adjustment_id,order_id,product_id,quantity) VALUES($1,$2,$3,$4,$5,$6,1)",[multiItem2,id.org,id.store,multiAdjustment,multiSale.order.id,id.product]);
     await client.query('COMMIT');
