@@ -94,21 +94,17 @@ export const registerSyncRoute = (
       const fp = fingerprint(command);
       const existing = (
         await db.query(
-          'SELECT * FROM prodx_sync_commands WHERE store_id=$1 AND command_id=$2 LIMIT 1',
-          [context.principal.storeId, command.commandId]
+          'SELECT * FROM prodx_sync_commands WHERE store_id=$1 AND (command_id=$2 OR idempotency_key=$3) LIMIT 1',
+          [context.principal.storeId, command.commandId, command.idempotencyKey]
         )
       ).rows[0];
 
       if (existing) {
-        if (existing.request_fingerprint !== fp) {
-          await db.query(
-            "UPDATE prodx_sync_commands SET status='conflict',last_error=$1,updated_at=CURRENT_TIMESTAMP WHERE store_id=$2 AND command_id=$3",
-            ['The commandId is already bound to a different payload.', context.principal.storeId, command.commandId]
-          );
+        if (existing.command_id !== command.commandId || existing.request_fingerprint !== fp) {
           response.status(409).json({
             error: {
               code: 'SYNC_COMMAND_CONFLICT',
-              message: 'The commandId is already bound to a different payload.',
+              message: 'The command identity is already bound to a different payload.',
               requestId: request.id,
             },
           });
@@ -150,10 +146,6 @@ export const registerSyncRoute = (
       persistedCommand = inserted.rows[0];
 
       if (persistedCommand.request_fingerprint !== fp) {
-        await db.query(
-          "UPDATE prodx_sync_commands SET status='conflict',last_error=$1,updated_at=CURRENT_TIMESTAMP WHERE store_id=$2 AND command_id=$3",
-          ['The commandId is already bound to a different payload.', context.principal.storeId, command.commandId]
-        );
         response.status(409).json({
           error: {
             code: 'SYNC_COMMAND_CONFLICT',
@@ -178,10 +170,14 @@ export const registerSyncRoute = (
       });
     } catch (error) {
       if (persistedCommand) {
-        await db.query(
-          "UPDATE prodx_sync_commands SET status='failed',last_error=$1,updated_at=CURRENT_TIMESTAMP WHERE store_id=$2 AND command_id=$3 AND status='processing'",
-          [error instanceof Error ? error.message : 'Synchronization failed.', persistedCommand.store_id, persistedCommand.command_id]
-        );
+        try {
+          await db.query(
+            "UPDATE prodx_sync_commands SET status='failed',last_error=$1,updated_at=CURRENT_TIMESTAMP WHERE store_id=$2 AND command_id=$3 AND status='processing'",
+            [error instanceof Error ? error.message : 'Synchronization failed.', persistedCommand.store_id, persistedCommand.command_id]
+          );
+        } catch {
+          // Preserve the original checkout error; the command remains observable for recovery.
+        }
       }
 
       if (error instanceof CheckoutValidationError) {
