@@ -29,7 +29,8 @@ test('PostgreSQL authorizer binds organization, user, store, and exact permissio
   const db: SqlExecutor = {
     query: async <T extends Record<string, unknown>>(_sql, suppliedParameters) => {
       parameters = suppliedParameters ?? [];
-      return [{ allowed: true }] as T[];
+      const rows: AuthorizationRow[] = [{ allowed: true }];
+      return rows as unknown as T[];
     },
   };
 
@@ -41,7 +42,8 @@ test('PostgreSQL authorizer binds organization, user, store, and exact permissio
 test('PostgreSQL authorizer fails closed when the database does not grant the permission', async () => {
   const db: SqlExecutor = {
     query: async <T extends Record<string, unknown>>(_sql, _parameters) => {
-      return [{ allowed: false }] as T[];
+      const rows: AuthorizationRow[] = [{ allowed: false }];
+      return rows as unknown as T[];
     },
   };
 
