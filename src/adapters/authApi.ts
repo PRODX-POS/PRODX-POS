@@ -6,10 +6,12 @@ import { IAuthApi, LoginRequest, AuthSessionResponse } from './types';
 import { SessionContext, Store } from '../domain/auth';
 
 const AUTH_API_BASE_URL = import.meta.env.VITE_AUTH_API_BASE_URL;
+
 function requireBaseUrl(): string {
   if (!AUTH_API_BASE_URL) throw new Error('Production authentication is not configured: VITE_AUTH_API_BASE_URL is missing.');
   return AUTH_API_BASE_URL.replace(/\/$/, '');
 }
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${requireBaseUrl()}${path}`, {
     ...init,
@@ -34,7 +36,7 @@ const hydrateSession = async (raw: AuthSessionResponse): Promise<SessionContext>
 export const productionAuthApi: IAuthApi = {
   login: async (req: LoginRequest) => {
     const raw = await request<AuthSessionResponse>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(req) });
-    return hydrateSession(raw) as unknown as Promise<SessionContext>;
+    return hydrateSession(raw);
   },
   logout: () => request<void>('/api/v1/auth/logout', { method: 'POST' }),
   verifySession: (token: string) => request<SessionContext | null>('/api/v1/auth/session', { headers: { Authorization: `Bearer ${token}` } }),
