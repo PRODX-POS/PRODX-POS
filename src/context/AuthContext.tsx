@@ -7,7 +7,7 @@
  */
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
-  User, Store, Organization, SessionContext, Permission, Role, hasPermission,
+  User, Store, SessionContext, Permission, Role, hasPermission,
   getStoredStaffDirectory, saveStoredStaffDirectory, getStoredRolePermissions,
   ROLE_PERMISSIONS,
 } from '../domain/auth';
@@ -33,7 +33,6 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const STORAGE_KEY = 'prodx_pos_session'; const TIMEOUT_STORAGE_KEY = 'prodx_pos_inactivity_timeout'; const CUSTOM_STORE_KEY = 'prodx_custom_store_profile';
 
-type PersistedSession = Omit<SessionContext, 'token'>;
 function persistSession(session: SessionContext): void {
   const { token: _token, ...safeSession } = session;
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(safeSession)); } catch (err) { console.error('[AuthContext] Failed to persist non-secret session state:', err); }
@@ -47,7 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [inactivityTimeoutMinutes, setInactivityTimeoutMinutesState] = useState<number>(() => { try { const stored = localStorage.getItem(TIMEOUT_STORAGE_KEY); if (stored !== null) return Number(stored); } catch {} return 5; });
   const lastActivityRef = useRef(Date.now());
 
-  useEffect(() => { async function restoreSession() { try { const raw = localStorage.getItem(STORAGE_KEY); const storedCustomStore = localStorage.getItem(CUSTOM_STORE_KEY); const customStoreOverrides = storedCustomStore ? JSON.parse(storedCustomStore) : null; if (raw) { const parsed = JSON.parse(raw) as PersistedSession; const verified = await authApi.verifySession(); if (verified) { const finalStore = customStoreOverrides ? { ...verified.currentStore, ...customStoreOverrides } : verified.currentStore; setSession({ ...verified, currentStore: finalStore }); } else localStorage.removeItem(STORAGE_KEY); } } catch (err) { console.error('[AuthContext] Session restore error:', err); localStorage.removeItem(STORAGE_KEY); } finally { setIsLoading(false); } } restoreSession(); }, []);
+  useEffect(() => { async function restoreSession() { try { const raw = localStorage.getItem(STORAGE_KEY); const storedCustomStore = localStorage.getItem(CUSTOM_STORE_KEY); const customStoreOverrides = storedCustomStore ? JSON.parse(storedCustomStore) : null; if (raw) { const verified = await authApi.verifySession(); if (verified) { const finalStore = customStoreOverrides ? { ...verified.currentStore, ...customStoreOverrides } : verified.currentStore; setSession({ ...verified, currentStore: finalStore }); persistSession({ ...verified, currentStore: finalStore }); } else localStorage.removeItem(STORAGE_KEY); } } catch (err) { console.error('[AuthContext] Session restore error:', err); localStorage.removeItem(STORAGE_KEY); } finally { setIsLoading(false); } } restoreSession(); }, []);
   useEffect(() => { if (!session || isLocked) return; const handleActivity = () => { lastActivityRef.current = Date.now(); }; const events = ['mousemove','mousedown','keydown','touchstart','scroll']; events.forEach(ev => window.addEventListener(ev, handleActivity, { passive: true })); const timer = setInterval(() => { if (!isLocked && session && inactivityTimeoutMinutes > 0 && Date.now() - lastActivityRef.current >= inactivityTimeoutMinutes * 60 * 1000) setIsLocked(true); }, 10000); return () => { events.forEach(ev => window.removeEventListener(ev, handleActivity)); clearInterval(timer); }; }, [session, isLocked, inactivityTimeoutMinutes]);
   const login = async (req: LoginRequest) => { setIsLoading(true); try { const newSession = await authApi.login(req); setSession(newSession); setIsLocked(false); lastActivityRef.current = Date.now(); persistSession(newSession); } finally { setIsLoading(false); } };
   const logout = async () => { setIsLoading(true); try { await authApi.logout(); setSession(null); setIsLocked(false); localStorage.removeItem(STORAGE_KEY); } finally { setIsLoading(false); } };
@@ -57,13 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const switchDemoRole = (_role: Role) => { return; };
   const can = (permission: Permission) => { if (!session?.currentUser) return false; const rolePerms = rolePermissions[session.currentUser.role] || []; return rolePerms.includes(permission) || hasPermission(session.currentUser, permission); };
   const lockSystem = () => { if (session) setIsLocked(true); };
-  const unlockSystem = async (pinOrPassword: string) => {
-    if (!session || !pinOrPassword.trim()) return false;
-    try {
-      const reauthenticated = await authApi.login({ organizationSlug: session.organization.slug, storeCode: session.currentStore.code, registerId: session.registerId, emailOrPin: session.currentUser.email, passwordOrPin: pinOrPassword.trim() });
-      setSession(reauthenticated); setIsLocked(false); lastActivityRef.current = Date.now(); persistSession(reauthenticated); return true;
-    } catch { return false; }
-  };
+  const unlockSystem = async (pinOrPassword: string) => { if (!session || !pinOrPassword.trim()) return false; try { const reauthenticated = await authApi.login({ organizationSlug: session.organization.slug, storeCode: session.currentStore.code, registerId: session.registerId, emailOrPin: session.currentUser.email, passwordOrPin: pinOrPassword.trim() }); setSession(reauthenticated); setIsLocked(false); lastActivityRef.current = Date.now(); persistSession(reauthenticated); return true; } catch { return false; } };
   const setInactivityTimeoutMinutes = (mins: number) => { setInactivityTimeoutMinutesState(mins); try { localStorage.setItem(TIMEOUT_STORAGE_KEY, String(mins)); } catch {} };
   const addStaffUser = (payload: AddStaffPayload): User => { const id = `usr-${payload.role}-${Date.now().toString(36)}`; const rolePerms = rolePermissions[payload.role] || []; const newUser: User = { id, name: payload.name.trim(), email: payload.email.trim(), role: payload.role, employeeCode: payload.employeeCode.trim().toUpperCase(), permissions: rolePerms, isActive: payload.isActive !== false }; const nextUsers = [...staffUsers, newUser]; setStaffUsers(nextUsers); saveStoredStaffDirectory(nextUsers); return newUser; };
   const updateStaffUser = (id: string, updates: Partial<User> & { pin?: string }) => { const { pin: _pin, ...safeUpdates } = updates; const nextUsers = staffUsers.map(u => u.id === id ? { ...u, ...safeUpdates, role: safeUpdates.role || u.role, permissions: safeUpdates.permissions || (safeUpdates.role ? rolePermissions[safeUpdates.role] : u.permissions) } : u); setStaffUsers(nextUsers); saveStoredStaffDirectory(nextUsers); if (session?.currentUser.id === id) { const updatedUser = nextUsers.find(u => u.id === id); if (updatedUser) { const updatedSession = { ...session, currentUser: updatedUser }; setSession(updatedSession); persistSession(updatedSession); } } };
@@ -73,7 +66,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const switchActiveUser = (userOrId: User | string) => { if (!session) return; const target = typeof userOrId === 'string' ? staffUsers.find(u => u.id === userOrId) : userOrId; if (!target) return; const updatedUser = { ...target, permissions: rolePermissions[target.role] || target.permissions }; const updatedSession = { ...session, currentUser: updatedUser }; setSession(updatedSession); persistSession(updatedSession); };
   const updateRolePermissions = (role: Role, perms: Permission[]) => { const nextMatrix = { ...rolePermissions, [role]: perms }; setRolePermissions(nextMatrix); saveStoredRolePermissions(nextMatrix); if (session?.currentUser.role === role) { const updatedSession = { ...session, currentUser: { ...session.currentUser, permissions: perms } }; setSession(updatedSession); persistSession(updatedSession); } };
   const resetRolePermissions = () => { const defaults = { admin:[...ROLE_PERMISSIONS.admin], manager:[...ROLE_PERMISSIONS.manager], cashier:[...ROLE_PERMISSIONS.cashier] }; setRolePermissions(defaults); saveStoredRolePermissions(defaults); if (session) { const updatedSession = { ...session, currentUser:{...session.currentUser, permissions:defaults[session.currentUser.role]} }; setSession(updatedSession); persistSession(updatedSession); } };
-  // Legacy PIN APIs are intentionally fail-closed until a server-side credential endpoint exists.
   const getStaffPin = (_userId: string) => '';
   const setStaffPin = (_userId: string, _pin: string) => { console.warn('[AuthContext] Client-side PIN storage is disabled; use the Authentication Server.'); };
   const addCustomPermissionSet = (setPayload: Omit<CustomPermissionSet,'id'|'createdAt'|'updatedAt'>) => { const id = `pset-custom-${Date.now()}`; const now = new Date().toISOString(); const newSet = { ...setPayload, id, createdAt: now, updatedAt: now }; const next=[...customPermissionSets,newSet]; setCustomPermissionSets(next); saveStoredCustomPermissionSets(next); return newSet; };
