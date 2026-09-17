@@ -1,7 +1,7 @@
 name: OpenRouter AI Code Review
 
 on:
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   issue_comment:
     types: [created]
@@ -14,13 +14,13 @@ permissions:
 
 concurrency:
   group: openrouter-ai-review-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   review:
     name: OpenRouter AI Code Review
     if: >-
-      github.event_name == 'pull_request_target' ||
+      github.event_name == 'pull_request' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request && startsWith(github.event.comment.body, '/ai-review') && (github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'COLLABORATOR'))
     runs-on: ubuntu-latest
@@ -38,15 +38,22 @@ jobs:
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
 
       - name: Verify repository-owned pull request
+        id: trust
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
           set -euo pipefail
           head_repo="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.repo.full_name')"
-          [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo 'AI review is restricted to repository-owned pull requests.' >&2; exit 1; }
+          if [[ "$head_repo" == "$GITHUB_REPOSITORY" ]]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'OpenRouter review is skipped for fork pull requests; no repository secret is exposed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Fetch and sanitize pull request diff
+        if: steps.trust.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
@@ -77,6 +84,7 @@ jobs:
 
       - name: Resolve OpenRouter review model
         id: model
+        if: steps.trust.outputs.enabled == 'true'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PREFERRED_MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID }}
@@ -97,6 +105,7 @@ jobs:
 
       - name: Review diff with OpenRouter
         id: review
+        if: steps.trust.outputs.enabled == 'true'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL_ID: ${{ steps.model.outputs.model_id }}
@@ -111,10 +120,13 @@ jobs:
           excluded = Path('excluded-files.txt').read_text(encoding='utf-8')
           system = '''You are the independent security, architecture, database, CI/CD, and financial-integrity reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return ONLY valid JSON with exactly this shape: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH. Do not put the JSON inside markdown fences. Do not output any other text.'''
           user = f'PR #{os.environ["PR_NUMBER"]}\nSensitive paths excluded:\n{excluded}\n\nSanitized diff:\n```diff\n{diff}\n```'
+          primary = os.environ['OPENROUTER_MODEL_ID']
           fallbacks = [m.strip() for m in os.environ.get('OPENROUTER_FALLBACK_MODELS','').split(',') if m.strip()]
-          base = {'model': os.environ['OPENROUTER_MODEL_ID'], 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':6000, 'stream':False, 'response_format': {'type':'json_object'}}
-          if fallbacks: base['models'] = fallbacks
-          if os.environ['OPENROUTER_MODEL_ID'] in {'openrouter/auto-beta','openrouter/auto'}:
+          base = {'model': primary, 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':6000, 'stream':False, 'response_format': {'type':'json_object'}}
+          if fallbacks:
+            chain = [primary] + [m for m in fallbacks if m != primary]
+            base['models'] = chain
+          if primary in {'openrouter/auto-beta','openrouter/auto'}:
             base['plugins'] = [{'id':'auto-router','cost_tier':'max'}]
 
           req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=json.dumps(base).encode(), headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/' + os.environ['GITHUB_REPOSITORY'], 'X-Title':'PRODX-POS AI Code Review'}, method='POST')
@@ -126,8 +138,15 @@ jobs:
 
           message = body.get('choices', [{}])[0].get('message', {})
           text = message.get('content')
+          if isinstance(text, list):
+            parts = [item.get('text') or item.get('content') for item in text if isinstance(item, dict)]
+            text = '\n'.join(part for part in parts if isinstance(part, str) and part.strip())
           if not isinstance(text, str) or not text.strip():
             raise SystemExit('OpenRouter response did not contain review content.')
+          text = text.strip()
+          if text.startswith('```'):
+            segments = text.split('\n', 1)
+            if len(segments) == 2: text = segments[1].rsplit('```', 1)[0].strip()
           try:
             review = json.loads(text)
           except json.JSONDecodeError as exc:
@@ -151,7 +170,7 @@ jobs:
           import json, os
           from pathlib import Path
           review = json.loads(Path('ai-review.json').read_text(encoding='utf-8'))
-          lines = ['<!-- prodx-openrouter-review -->','## PRODX-POS OpenRouter AI Code Review','',f'**Decision:** `{review["decision"]}`','**Model:** `{os.environ["MODEL_ID"]}`','',review.get('summary','No summary returned.')]
+          lines = ['<!-- prodx-openrouter-review -->','## PRODX-POS OpenRouter AI Code Review','',f'**Decision:** `{review["decision"]}`','**Provider:** `OpenRouter`',f'**Model:** `{os.environ["MODEL_ID"]}`','',review.get('summary','No summary returned.')]
           findings = review.get('findings', [])
           if findings:
             lines += ['', '| Severity | File | Line | Finding | Recommendation |','|---|---|---:|---|---|']
