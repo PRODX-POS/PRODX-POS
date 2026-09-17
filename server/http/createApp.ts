@@ -20,7 +20,9 @@ declare global {
 export type BackendBoundaryOptions = {
   authenticateRequest: AuthenticateRequest;
   authorizeRequest?: AuthorizeRequest;
+  configurePublicRoutes?: (app: express.Express) => void;
   configureRoutes?: (app: express.Express) => void;
+  readinessCheck?: () => Promise<boolean> | boolean;
 };
 
 const sendError = (
@@ -97,6 +99,31 @@ export const createApp = (options: BackendBoundaryOptions) => {
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb' }));
   app.use(attachRequestId);
+
+  // Liveness must not depend on authentication or PostgreSQL. It is intended
+  // for process/container health checks and returns only a fixed status body.
+  app.get('/api/v1/health/live', (_request, response) => {
+    response.status(200).json({ status: 'ok' });
+  });
+
+  // Readiness is public because orchestrators need to decide whether this
+  // process can receive traffic before a user session exists. The callback
+  // must perform a real dependency check (normally PostgreSQL SELECT 1).
+  app.get('/api/v1/health/ready', async (request, response) => {
+    try {
+      const ready = options.readinessCheck ? await options.readinessCheck() : false;
+      if (!ready) {
+        sendError(response, 503, 'NOT_READY', 'The service is not ready to receive traffic.', request.id);
+        return;
+      }
+      response.status(200).json({ status: 'ok' });
+    } catch {
+      sendError(response, 503, 'NOT_READY', 'The service is not ready to receive traffic.', request.id);
+    }
+  });
+
+  options.configurePublicRoutes?.(app);
+
   app.locals.prodxAuthorize = options.authorizeRequest;
   app.use(authenticate(options.authenticateRequest));
 
