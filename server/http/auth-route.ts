@@ -27,6 +27,17 @@ const resolveLoginScope = async (db: SqlExecutor, organizationSlug: string, stor
   return row ? { organizationId: row.organization_id, storeId: row.store_id, deviceId: row.device_id } : null;
 };
 
+const resolveUserId = async (db: SqlExecutor, username: string, organizationId: string): Promise<string | null> => {
+  const rows = await db.query<{ user_id: string }>(
+    `SELECT id AS user_id
+       FROM prodx_users
+      WHERE lower(username) = lower($1) AND organization_id = $2 AND status = 'active'
+      LIMIT 1`,
+    [username, organizationId],
+  );
+  return rows[0]?.user_id ?? null;
+};
+
 const userBelongsToStore = async (db: SqlExecutor, organizationId: string, userId: string, storeId: string): Promise<boolean> => {
   const rows = await db.query<{ allowed: boolean }>(
     `SELECT EXISTS (
@@ -63,6 +74,12 @@ export const registerAuthRoute = (app: Express, authentication: SessionIssuer, d
       return;
     }
 
+    const userId = await resolveUserId(db, body.emailOrPin.trim(), scope.organizationId);
+    if (!userId || !(await userBelongsToStore(db, scope.organizationId, userId, scope.storeId))) {
+      response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Authentication failed.', requestId: request.id } });
+      return;
+    }
+
     const session = await authentication.authenticateCredentials({
       username: body.emailOrPin.trim(),
       password: body.passwordOrPin,
@@ -74,26 +91,13 @@ export const registerAuthRoute = (app: Express, authentication: SessionIssuer, d
       return;
     }
 
-    const authenticatedUserRows = await db.query<{ user_id: string }>(
-      `SELECT id AS user_id
-         FROM prodx_users
-        WHERE lower(username) = lower($1) AND organization_id = $2 AND status = 'active'
-        LIMIT 1`,
-      [body.emailOrPin.trim(), scope.organizationId],
-    );
-    const authenticatedUser = authenticatedUserRows[0];
-    if (!authenticatedUser || !(await userBelongsToStore(db, scope.organizationId, authenticatedUser.user_id, scope.storeId))) {
-      response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Authentication failed.', requestId: request.id } });
-      return;
-    }
-
     response.status(200).json({
       token: session.token,
       sessionId: session.sessionId,
       expiresAt: session.expiresAt.toISOString(),
       organizationId: scope.organizationId,
       storeId: scope.storeId,
-      userId: authenticatedUser.user_id,
+      userId,
       registerId: body.registerId.trim(),
     });
   });
