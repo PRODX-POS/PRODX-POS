@@ -76,7 +76,7 @@ test('M2 PostgreSQL authentication enforces tenant, token-hash, lockout, audit, 
   assert.equal(await authentication.authenticateCredentials(valid), null);
   await pool.query('UPDATE prodx_devices SET status = \'active\' WHERE id = $1', [ids.deviceA]);
 
-  await pool.query('UPDATE prodx_sessions SET expires_at = CURRENT_TIMESTAMP - INTERVAL \'1 minute\' WHERE id = $1', [result.sessionId]);
+  await pool.query('UPDATE prodx_sessions SET issued_at = CURRENT_TIMESTAMP - INTERVAL \'2 minutes\', expires_at = CURRENT_TIMESTAMP - INTERVAL \'1 minute\' WHERE id = $1', [result.sessionId]);
   assert.equal(await authentication.authenticateBearer(result.token), null);
   const fresh = await authentication.authenticateCredentials(valid); assert.ok(fresh);
   await pool.query('UPDATE prodx_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = $1', [fresh.sessionId]);
