@@ -1,0 +1,46 @@
+name: OpenCode OpenRouter Config Check
+
+on:
+  pull_request:
+    paths:
+      - 'opencode.json'
+      - '.devcontainer/**'
+      - '.github/workflows/opencode-openrouter-config.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'opencode.json'
+      - '.devcontainer/**'
+      - '.github/workflows/opencode-openrouter-config.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate OpenCode OpenRouter configuration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate config shape and secret hygiene
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f opencode.json
+          node -e '
+            const fs = require("fs");
+            const c = JSON.parse(fs.readFileSync("opencode.json", "utf8"));
+            if (c.provider?.openrouter?.options?.baseURL !== "https://openrouter.ai/api/v1") process.exit(1);
+            if (c.model !== "openrouter/auto") process.exit(1);
+            if (!c.provider?.openrouter?.models?.auto) process.exit(1);
+          '
+          if grep -nE '(sk-[A-Za-z0-9_-]{20,}|OPENROUTER_API_KEY[[:space:]]*[:=][[:space:]]*["'"'"']?[^$[:space:]]+)' opencode.json; then
+            echo 'Secret-like credential found in opencode.json'
+            exit 1
+          fi
+
+      - name: Validate OpenCode CLI config parsing
+        run: |
+          npm install --global @opencode/cli
+          opencode --version
