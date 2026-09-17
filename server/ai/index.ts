@@ -20,8 +20,8 @@ export { AI_CAPABILITIES, AI_NON_AUTHORITATIVE_DOMAINS, DEFAULT_AI_CAPABILITY_PO
 export type { AICapability, AICapabilityPolicy, AINonAuthoritativeDomain } from './capabilities';
 export { AI_AUTHORITY_RULE } from './capability-contract';
 export type { AIAuthoritativeDomain } from './capability-contract';
-export { OKMDProvider } from './okmdProvider';
-export type { OKMDProviderConfig } from './okmdProvider';
+export { OpenRouterProvider } from './openrouterProvider';
+export type { OpenRouterProviderConfig } from './openrouterProvider';
 export { OpenAIProvider } from './openaiProvider';
 export type { OpenAIProviderConfig } from './openaiProvider';
 export type {
