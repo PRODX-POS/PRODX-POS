@@ -1,0 +1,26 @@
+name: AI Provider Hygiene
+
+on:
+  pull_request:
+    paths:
+      - '**'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  provider-hygiene:
+    name: Retired provider drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject retired provider references
+        run: |
+          set -euo pipefail
+          if git grep -n -i -E 'okmd|gen\.ai\.kku\.ac\.th' -- . ':!docs/legacy/**'; then
+            echo 'Retired OKMD provider references detected in the repository.' >&2
+            exit 1
+          fi
+          echo 'No retired AI provider references detected.'
