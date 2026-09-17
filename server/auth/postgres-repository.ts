@@ -4,8 +4,8 @@ import type { AuthenticationRepository, CredentialRecord, DeviceRecord, SessionR
 export type SqlExecutor = { query<T extends Record<string, unknown>>(sql: string, parameters?: readonly unknown[]): Promise<readonly T[]>; };
 
 export const createPostgresAuthenticationRepository = (db: SqlExecutor): AuthenticationRepository => ({
-  async findCredentialByUsername(username) {
-    const rows = await db.query<CredentialRecord & { credential_type: 'password'; secret_hash: string; failed_attempts: number; locked_until: Date | null }>(`SELECT u.id AS "userId", u.organization_id AS "organizationId", u.username, u.status, c.credential_type, c.secret_hash, c.failed_attempts, c.locked_until FROM prodx_users u JOIN prodx_user_credentials c ON c.user_id = u.id WHERE lower(u.username) = lower($1) LIMIT 1`, [username]);
+  async findCredentialByUsername(username, organizationId) {
+    const rows = await db.query<CredentialRecord & { credential_type: 'password'; secret_hash: string; failed_attempts: number; locked_until: Date | null }>(`SELECT u.id AS "userId", u.organization_id AS "organizationId", u.username, u.status, c.credential_type, c.secret_hash, c.failed_attempts, c.locked_until FROM prodx_users u JOIN prodx_user_credentials c ON c.user_id = u.id WHERE lower(u.username) = lower($1) AND u.organization_id = $2 LIMIT 1`, [username, organizationId]);
     const row = rows[0];
     if (!row) return null;
     return { userId: row.userId, organizationId: row.organizationId, username: row.username, status: row.status, credentialType: row.credential_type, secretHash: row.secret_hash, failedAttempts: row.failed_attempts, lockedUntil: row.locked_until };
