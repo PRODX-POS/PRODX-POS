@@ -4,9 +4,18 @@
 ALTER TABLE prodx_order_adjustments
   ADD COLUMN IF NOT EXISTS request_fingerprint TEXT;
 
-ALTER TABLE prodx_order_adjustments
-  ADD CONSTRAINT prodx_adjustments_request_fingerprint_valid
-  CHECK (request_fingerprint IS NULL OR length(btrim(request_fingerprint)) = 64);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname='prodx_adjustments_request_fingerprint_valid'
+      AND conrelid='prodx_order_adjustments'::regclass
+  ) THEN
+    ALTER TABLE prodx_order_adjustments
+      ADD CONSTRAINT prodx_adjustments_request_fingerprint_valid
+      CHECK (request_fingerprint IS NULL OR length(btrim(request_fingerprint)) = 64);
+  END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION prodx_validate_refund_adjustment() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
