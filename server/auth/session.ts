@@ -23,7 +23,7 @@ export type AuthenticationRepository = {
   findDevice: (deviceId: string) => Promise<DeviceRecord | null>;
   touchSession: (sessionId: string, at: Date) => Promise<void>;
 };
-export type AuthenticateCredentialsInput = { username: string; password: string; deviceId: string; organizationId: string };
+export type AuthenticateCredentialsInput = { username: string; password: string; deviceId: string; organizationId?: string };
 export type SessionIssuer = {
   authenticateCredentials: (input: AuthenticateCredentialsInput) => Promise<{ token: string; sessionId: string; expiresAt: Date } | null>;
   authenticateBearer: (token: string) => Promise<AuthenticatedSession | null>;
@@ -43,13 +43,15 @@ export const createSessionIssuer = (
 ): SessionIssuer => ({
   authenticateCredentials: async ({ username, password, deviceId, organizationId }) => {
     const normalizedUsername = username.trim();
-    if (!normalizedUsername || !password || !deviceId || !organizationId) return null;
-    const credential = await repository.findCredentialByUsername(normalizedUsername, organizationId);
+    if (!normalizedUsername || !password || !deviceId) return null;
+    const device = await repository.findDevice(deviceId);
+    if (!device || device.status !== 'active' || (organizationId && device.organizationId !== organizationId)) return null;
+    const scopedOrganizationId = organizationId ?? device.organizationId;
+    const credential = await repository.findCredentialByUsername(normalizedUsername, scopedOrganizationId);
     if (!credential || credential.status !== 'active' || credential.credentialType !== 'password') return null;
     const current = now();
     if (credential.lockedUntil && credential.lockedUntil > current) return null;
-    const device = await repository.findDevice(deviceId);
-    if (!device || device.status !== 'active' || device.organizationId !== organizationId || device.organizationId !== credential.organizationId) return null;
+    if (device.organizationId !== credential.organizationId) return null;
     if (!(await verifySecret(password, credential.secretHash))) {
       const nextFailedAttempts = credential.failedAttempts + 1;
       const lockedUntil = nextFailedAttempts >= MAX_FAILED_ATTEMPTS
