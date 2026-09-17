@@ -1,6 +1,5 @@
 /** Production offline-sync adapter. */
-import type { ISyncApi } from './types';
-import type { CheckoutResponse } from './types';
+import type { ISyncApi, CheckoutResponse } from './types';
 import type { OutboxItem } from '../domain/sync';
 
 const API_BASE_URL = import.meta.env.VITE_AUTH_API_BASE_URL;
@@ -43,13 +42,13 @@ export const productionSyncApi: ISyncApi = {
     return { confirmedOrder: response.result.order, syncedAt: response.syncedAt };
   },
   async ping(clientTimestamp) {
+    void clientTimestamp;
     const start = performance.now();
     const response = await request<{ status: 'ok' }>('/api/v1/health');
     return {
       serverTimestamp: new Date().toISOString(),
       roundTripLatencyMs: Math.max(1, Math.round(performance.now() - start)),
       status: response.status === 'ok' ? 'ok' : 'degraded',
-      ...(clientTimestamp === undefined ? {} : {}),
     };
   },
 };
