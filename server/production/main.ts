@@ -3,6 +3,7 @@ import http from 'node:http';
 import { createPostgresAuthentication } from '../auth/composition';
 import { createPostgresAuthorizer } from '../auth/authorization';
 import { createPostgresPool, asSqlExecutor } from '../db/postgres';
+import { createTransactionalPostgresExecutor } from '../db/transaction';
 import { createApp } from '../http/createApp';
 import { registerCheckoutRoute } from '../http/checkout-route';
 import { registerRefundVoidRoutes } from '../http/refund-void-route';
@@ -23,6 +24,7 @@ const main = async (): Promise<void> => {
 
   const pool = createPostgresPool({ connectionString: databaseUrl, max: poolMax, connectionTimeoutMillis });
   const db = asSqlExecutor(pool);
+  const transactionalDb = createTransactionalPostgresExecutor(pool);
   const authentication = createPostgresAuthentication(db);
   const authorizeRequest = createPostgresAuthorizer(db);
 
@@ -44,22 +46,6 @@ const main = async (): Promise<void> => {
       });
     },
     configureRoutes: (configuredApp) => {
-      const transactionalDb = {
-        ...db,
-        transaction: async <T>(work: (tx: typeof db) => Promise<T>): Promise<T> => {
-          const client = await pool.connect();
-          try {
-            await client.query('BEGIN');
-            const tx = { query: async <R extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) => (await client.query<R & import('pg').QueryResultRow>(sql, [...parameters])).rows };
-            const result = await work(tx);
-            await client.query('COMMIT');
-            return result;
-          } catch (error) {
-            try { await client.query('ROLLBACK'); } catch { /* preserve original transaction failure */ }
-            throw error;
-          } finally { client.release(); }
-        },
-      };
       registerCheckoutRoute(configuredApp, transactionalDb);
       registerRefundVoidRoutes(configuredApp, transactionalDb);
     },
