@@ -9,6 +9,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import {
   User, Store, SessionContext, Permission, Role, hasPermission,
   getStoredStaffDirectory, saveStoredStaffDirectory, getStoredRolePermissions,
+  saveStoredRolePermissions,
   ROLE_PERMISSIONS,
 } from '../domain/auth';
 import { CustomPermissionSet, DEFAULT_PERMISSION_SETS, getStoredCustomPermissionSets, saveStoredCustomPermissionSets } from '../domain/permissionSets';
