@@ -1,7 +1,7 @@
 import { AIChatRequest, AIChatResponse, AIProvider } from './types';
 
 const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
-const DEFAULT_MODEL = 'openrouter/free';
+const DEFAULT_MODEL = 'openrouter/auto-beta';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_MESSAGES = 50;
 const MAX_MESSAGE_CHARS = 20_000;
