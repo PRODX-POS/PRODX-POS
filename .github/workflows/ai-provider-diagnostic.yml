@@ -16,6 +16,7 @@ jobs:
         env:
           API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           [[ -n "${API_KEY:-}" ]] || { echo 'OPENROUTER_API_KEY: MISSING'; exit 1; }
@@ -24,7 +25,7 @@ jobs:
             https://openrouter.ai/api/v1/chat/completions \
             -H "Authorization: Bearer $API_KEY" \
             -H 'Content-Type: application/json' \
-            -H 'HTTP-Referer: https://github.com/${GITHUB_REPOSITORY}' \
+            -H "HTTP-Referer: https://github.com/${GITHUB_REPOSITORY}" \
             -H 'X-Title: PRODX-POS OpenRouter Diagnostic' \
             --data "$(jq -n --arg model "$model" '{model:$model,messages:[{role:"user",content:"Reply only OK"}],temperature:0,max_tokens:8,stream:false}')")"
           status="${response##*$'\n'}"
