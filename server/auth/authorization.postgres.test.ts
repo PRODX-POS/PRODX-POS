@@ -27,7 +27,7 @@ test('PostgreSQL authorizer denies blank permissions without querying', async ()
 test('PostgreSQL authorizer binds organization, user, store, and exact permission', async () => {
   let parameters: readonly unknown[] = [];
   const db: SqlExecutor = {
-    query: async <T extends Record<string, unknown>>(_sql, suppliedParameters) => {
+    query: async <T extends Record<string, unknown>>(_sql: string, suppliedParameters?: readonly unknown[]) => {
       parameters = suppliedParameters ?? [];
       const rows: AuthorizationRow[] = [{ allowed: true }];
       return rows as unknown as T[];
@@ -41,7 +41,7 @@ test('PostgreSQL authorizer binds organization, user, store, and exact permissio
 
 test('PostgreSQL authorizer fails closed when the database does not grant the permission', async () => {
   const db: SqlExecutor = {
-    query: async <T extends Record<string, unknown>>(_sql, _parameters) => {
+    query: async <T extends Record<string, unknown>>(_sql: string, _parameters?: readonly unknown[]) => {
       const rows: AuthorizationRow[] = [{ allowed: false }];
       return rows as unknown as T[];
     },
