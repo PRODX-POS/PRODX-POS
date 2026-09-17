@@ -9,11 +9,13 @@ Provider credentials belong in the deployment secret manager and must never be c
 For the CI review lane, configure the GitHub Actions secret `OPENROUTER_API_KEY` and repository variables:
 
 ```text
-OPENROUTER_AI_REVIEW_MODEL_ID=openrouter/auto
+OPENROUTER_AI_REVIEW_MODEL_ID=openrouter/auto-beta
 OPENROUTER_AI_REVIEW_FALLBACK_MODELS=<optional comma-separated model IDs>
 ```
 
-`openrouter/auto` is the current default review router. OpenRouter can select a suitable model for the review request; the actual served model is returned in the response metadata and recorded by the workflow. A fixed model ID can be supplied when deterministic model selection is required.
+`openrouter/auto-beta` is the current Auto Router target for the review lane. It delegates per-request model selection to OpenRouter while the workflow records the actual served model from response metadata. When deterministic selection is required, configure a fixed model ID. The fallback list is an explicit priority-ordered list used when the primary model fails.
+
+For production code review, the workflow uses `cost_tier=max` when Auto Router is selected so the router is allowed to choose from the highest capability band rather than silently optimizing for the cheapest model. This is a routing policy, not a claim that any one model is universally best.
 
 ## Request flow
 
