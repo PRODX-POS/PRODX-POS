@@ -26,6 +26,7 @@ const parseCommand = (value: unknown): SyncCommand => {
 export const registerSyncRoute = (app: Express, db: TransactionalSqlExecutor, permission = 'pos.sell'): void => {
   const checkout = createCheckoutService(db);
   app.post('/api/v1/sync/commands', requirePermission(permission), async (request: Request, response: Response) => {
+    let persistedCommand: { storeId: string; commandId: string; fingerprint: string } | null = null;
     try {
       const context = request.prodxContext;
       if (!context) { response.status(500).json({ error: { code: 'REQUEST_CONTEXT_MISSING', message: 'Request context is required.', requestId: request.id } }); return; }
@@ -37,15 +38,23 @@ export const registerSyncRoute = (app: Express, db: TransactionalSqlExecutor, pe
       const existing = (await db.query(`SELECT * FROM prodx_sync_commands WHERE store_id=$1 AND command_id=$2 LIMIT 1`, [context.principal.storeId, command.commandId])).rows[0];
       if (existing) {
         if (existing.request_fingerprint !== fp) { response.status(409).json({ error: { code: 'SYNC_COMMAND_CONFLICT', message: 'The commandId is already bound to a different payload.', requestId: request.id } }); return; }
+        if (existing.status === 'conflict') { response.status(409).json({ error: { code: 'SYNC_COMMAND_CONFLICT', message: existing.last_error ?? 'The sync command is in conflict.', requestId: request.id } }); return; }
+        if (existing.status === 'failed') {
+          persistedCommand = { storeId: context.principal.storeId, commandId: command.commandId, fingerprint: fp };
+        }
         if (existing.result_order_id) { const replay = await checkout.checkout(command.payload); response.status(200).json({ commandId: command.commandId, status: 'complete', replayed: true, syncedAt: existing.completed_at, result: replay }); return; }
       }
-      const inserted = await db.query(`INSERT INTO prodx_sync_commands(id,organization_id,store_id,user_id,command_id,command_type,idempotency_key,payload,request_fingerprint,status,attempts) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,'processing',1) ON CONFLICT(store_id,command_id) DO UPDATE SET attempts=prodx_sync_commands.attempts+1,updated_at=CURRENT_TIMESTAMP RETURNING *`, [crypto.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, command.commandId, command.type, command.idempotencyKey, JSON.stringify(command.payload), fp]);
+      const inserted = await db.query(`INSERT INTO prodx_sync_commands(id,organization_id,store_id,user_id,command_id,command_type,idempotency_key,payload,request_fingerprint,status,attempts) VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,'processing',1) ON CONFLICT(store_id,command_id) DO UPDATE SET attempts=prodx_sync_commands.attempts+1,updated_at=CURRENT_TIMESTAMP,status='processing',last_error=NULL RETURNING *`, [crypto.randomUUID(), context.principal.organizationId, context.principal.storeId, context.principal.userId, command.commandId, command.type, command.idempotencyKey, JSON.stringify(command.payload), fp]);
       const row = inserted.rows[0];
       if (row.request_fingerprint !== fp) { response.status(409).json({ error: { code: 'SYNC_COMMAND_CONFLICT', message: 'The commandId is already bound to a different payload.', requestId: request.id } }); return; }
+      persistedCommand = { storeId: context.principal.storeId, commandId: command.commandId, fingerprint: fp };
       const result = await checkout.checkout(command.payload);
       await db.query(`UPDATE prodx_sync_commands SET status='complete',result_order_id=$1,last_error=NULL,updated_at=CURRENT_TIMESTAMP,completed_at=CURRENT_TIMESTAMP WHERE store_id=$2 AND command_id=$3 AND request_fingerprint=$4`, [result.order.id, context.principal.storeId, command.commandId, fp]);
       response.status(result.idempotencyCached ? 200 : 201).json({ commandId: command.commandId, status: 'complete', replayed: result.idempotencyCached, syncedAt: new Date().toISOString(), result });
     } catch (error) {
+      if (persistedCommand) {
+        await db.query(`UPDATE prodx_sync_commands SET status='failed',last_error=$1,updated_at=CURRENT_TIMESTAMP,completed_at=CURRENT_TIMESTAMP WHERE store_id=$2 AND command_id=$3 AND request_fingerprint=$4 AND result_order_id IS NULL`, [error instanceof Error ? error.message : 'Synchronization failed.', persistedCommand.storeId, persistedCommand.commandId, persistedCommand.fingerprint]).catch(() => undefined);
+      }
       if (error instanceof CheckoutValidationError) { response.status(400).json({ error: { code: error.code, message: error.message, requestId: request.id } }); return; }
       if (error instanceof CheckoutConflictError) { response.status(409).json({ error: { code: error.code, message: error.message, requestId: request.id } }); return; }
       throw error;
