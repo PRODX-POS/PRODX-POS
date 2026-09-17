@@ -8,11 +8,11 @@
         "baseURL": "https://openrouter.ai/api/v1"
       },
       "models": {
-        "openrouter/auto": {
+        "auto": {
           "name": "OpenRouter Auto"
         }
       }
     }
   },
-  "model": "openrouter/openrouter/auto"
+  "model": "openrouter/auto"
 }
