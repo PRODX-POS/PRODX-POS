@@ -67,12 +67,8 @@ test('M2 PostgreSQL authentication enforces tenant, token-hash, lockout, audit, 
   const resetAudit = await pool.query<{ event_type: string }>('SELECT event_type FROM prodx_security_audit_events WHERE organization_id = $1 ORDER BY occurred_at ASC', [ids.organizationA]);
   assert.deepEqual(resetAudit.rows.map((row) => row.event_type), ['AUTH_LOCKOUT', 'AUTH_LOCKOUT_RESET']);
 
-  assert.equal(await authentication.authenticateCredentials(valid), null); // The second identical session is allowed only if the password credential remains active; this call is replaced below after the expected test reset.
-  const crossTenant = await authentication.authenticateCredentials({ ...valid, deviceId: ids.deviceB });
-  assert.equal(crossTenant, null);
-  const crossTenantOrg = await authentication.authenticateCredentials({ ...valid, organizationId: ids.organizationB });
-  assert.equal(crossTenantOrg, null);
-
+  assert.equal(await authentication.authenticateCredentials({ ...valid, deviceId: ids.deviceB }), null);
+  assert.equal(await authentication.authenticateCredentials({ ...valid, organizationId: ids.organizationB }), null);
   await pool.query('UPDATE prodx_users SET status = \'disabled\' WHERE id = $1', [ids.userA]);
   assert.equal(await authentication.authenticateCredentials(valid), null);
   await pool.query('UPDATE prodx_users SET status = \'active\' WHERE id = $1', [ids.userA]);
