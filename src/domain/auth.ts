@@ -130,7 +130,7 @@ export function getStoredRolePermissions(): Record<Role, Permission[]> {
 }
 
 export function saveStoredRolePermissions(matrix: Record<Role, Permission[]>): void {
-  try { localStorage.setItem(ROLE_PERMS_STORAGE_KEY, JSON.stringify(matrix)); } catch (e) { console.error('Failed to save role permissions to storage', e); }
+  try { localStorage.setItem(ROLE_PERMS_STORAGE_KEY, JSON.stringify(matrix)); } catch (e) { console.error('Failed to save role permissions from storage', e); }
 }
 
 export function getStoredStaffPins(): Record<string, string> {
@@ -140,6 +140,14 @@ export function getStoredStaffPins(): Record<string, string> {
 
 export function saveStoredStaffPins(pins: Record<string, string>): void {
   try { localStorage.setItem(STAFF_PINS_STORAGE_KEY, JSON.stringify(pins)); } catch (e) { console.error('Failed to save staff pins from storage', e); }
+
+/**
+ * Compatibility shim for legacy UI code. It deliberately returns no
+ * credentials and never reads browser storage. Callers must not use this for
+ * authentication; production authentication is performed by the server.
+ */
+export function getStoredStaffPasswords(): Record<string, string> {
+  return {};
 }
 
 export function hasPermission(user: User, permission: Permission): boolean { return user.permissions.includes(permission); }
