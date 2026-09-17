@@ -56,7 +56,8 @@ export interface SessionContext {
   readonly currentUser: User;
   readonly token: string;
   readonly expiresAt: string;
-  readonly sessionId: string;
+  /** Server sessions always provide this; optional only for the non-production mock adapter. */
+  readonly sessionId?: string;
 }
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
