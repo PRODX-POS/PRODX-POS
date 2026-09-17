@@ -6,7 +6,7 @@ export type CredentialRecord = { userId: string; organizationId: string; usernam
 export type SessionRecord = { id: string; organizationId: string; userId: string; deviceId: string; tokenHash: string; expiresAt: Date; revokedAt: Date | null; userStatus: 'active' | 'disabled'; };
 export type DeviceRecord = { id: string; organizationId: string; storeId: string; status: 'active' | 'disabled'; };
 export type AuthenticationRepository = {
-  findCredentialByUsername: (username: string) => Promise<CredentialRecord | null>;
+  findCredentialByUsername: (username: string, organizationId: string) => Promise<CredentialRecord | null>;
   recordFailedAttempt: (userId: string, lockedUntil?: Date) => Promise<void>;
   resetFailedAttempts: (userId: string) => Promise<void>;
   createSession: (input: { id: string; organizationId: string; userId: string; deviceId: string; tokenHash: string; expiresAt: Date }) => Promise<void>;
@@ -15,7 +15,7 @@ export type AuthenticationRepository = {
   findDevice: (deviceId: string) => Promise<DeviceRecord | null>;
   touchSession: (sessionId: string, at: Date) => Promise<void>;
 };
-export type AuthenticateCredentialsInput = { username: string; password: string; deviceId: string };
+export type AuthenticateCredentialsInput = { username: string; password: string; deviceId: string; organizationId: string };
 export type SessionIssuer = {
   authenticateCredentials: (input: AuthenticateCredentialsInput) => Promise<{ token: string; sessionId: string } | null>;
   authenticateBearer: (token: string) => Promise<AuthenticatedSession | null>;
@@ -34,15 +34,15 @@ export const createSessionIssuer = (
   verifySecret: (secret: string, encodedHash: string) => Promise<boolean>,
   now: () => Date = () => new Date(),
 ): SessionIssuer => ({
-  authenticateCredentials: async ({ username, password, deviceId }) => {
+  authenticateCredentials: async ({ username, password, deviceId, organizationId }) => {
     const normalizedUsername = username.trim();
-    if (!normalizedUsername || !password || !deviceId) return null;
-    const credential = await repository.findCredentialByUsername(normalizedUsername);
-    if (!credential || credential.status !== 'active' || credential.credentialType !== 'password') return null;
+    if (!normalizedUsername || !password || !deviceId || !organizationId) return null;
+    const credential = await repository.findCredentialByUsername(normalizedUsername, organizationId);
+    if (!credential || credential.status !== 'active' || credential.credentialType !== 'password' || credential.organizationId !== organizationId) return null;
     const current = now();
     if (credential.lockedUntil && credential.lockedUntil > current) return null;
     const device = await repository.findDevice(deviceId);
-    if (!device || device.status !== 'active' || device.organizationId !== credential.organizationId) return null;
+    if (!device || device.status !== 'active' || device.organizationId !== organizationId) return null;
     if (!(await verifySecret(password, credential.secretHash))) {
       const nextFailedAttempts = credential.failedAttempts + 1;
       const lockedUntil = nextFailedAttempts >= MAX_FAILED_ATTEMPTS ? new Date(current.getTime() + LOCKOUT_DURATION_MS) : undefined;
@@ -52,7 +52,7 @@ export const createSessionIssuer = (
     await repository.resetFailedAttempts(credential.userId);
     const token = newBearerToken();
     const sessionId = crypto.randomUUID();
-    await repository.createSession({ id: sessionId, organizationId: credential.organizationId, userId: credential.userId, deviceId: device.id, tokenHash: hashSessionToken(token), expiresAt: new Date(current.getTime() + SESSION_TTL_MS) });
+    await repository.createSession({ id: sessionId, organizationId, userId: credential.userId, deviceId: device.id, tokenHash: hashSessionToken(token), expiresAt: new Date(current.getTime() + SESSION_TTL_MS) });
     return { token, sessionId };
   },
   authenticateBearer: async (token) => {
