@@ -20,6 +20,7 @@ declare global {
 export type BackendBoundaryOptions = {
   authenticateRequest: AuthenticateRequest;
   authorizeRequest?: AuthorizeRequest;
+  configurePublicRoutes?: (app: express.Express) => void;
   configureRoutes?: (app: express.Express) => void;
 };
 
@@ -97,12 +98,16 @@ export const createApp = (options: BackendBoundaryOptions) => {
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb' }));
   app.use(attachRequestId);
-  app.locals.prodxAuthorize = options.authorizeRequest;
-  app.use(authenticate(options.authenticateRequest));
 
+  // Health and login are public by design. All application routes below this
+  // boundary require a verified server-side principal.
   app.get('/api/v1/health', (_request, response) => {
     response.json({ status: 'ok' });
   });
+  options.configurePublicRoutes?.(app);
+
+  app.locals.prodxAuthorize = options.authorizeRequest;
+  app.use(authenticate(options.authenticateRequest));
 
   options.configureRoutes?.(app);
 
