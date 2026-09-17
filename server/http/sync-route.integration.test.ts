@@ -38,7 +38,7 @@ async function seed(): Promise<void> {
     ['DELETE FROM prodx_registers WHERE id=$1', [ids.register]], ['DELETE FROM prodx_store_memberships WHERE store_id=$1', [ids.store]],
     ['DELETE FROM prodx_users WHERE id=$1', [ids.user]], ['DELETE FROM prodx_stores WHERE id=$1', [ids.store]],
     ['DELETE FROM prodx_organizations WHERE id=$1', [ids.org]],
-  ] as const;
+  ];
   for (const [sql, params] of cleanup) await pool.query(sql, params);
   await pool.query('INSERT INTO prodx_organizations(id,code,name) VALUES($1,$2,$3)', [ids.org, 'sync-it', 'Sync Integration']);
   await pool.query("INSERT INTO prodx_stores(id,organization_id,code,name,business_timezone) VALUES($1,$2,'sync-1','Sync Store','Asia/Bangkok')", [ids.store, ids.org]);
