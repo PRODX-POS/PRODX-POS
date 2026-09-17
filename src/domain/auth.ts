@@ -56,19 +56,12 @@ export interface SessionContext {
   readonly currentUser: User;
   readonly token: string;
   readonly expiresAt: string;
+  readonly sessionId: string;
 }
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
-  admin: [
-    'pos:checkout','pos:discount','pos:price_override','pos:void','pos:refund',
-    'shift:open','shift:close','shift:pay_movement','inventory:read','inventory:adjust',
-    'customers:read','customers:write','reports:read','audit:read','settings:manage',
-  ],
-  manager: [
-    'pos:checkout','pos:discount','pos:price_override','pos:void','pos:refund',
-    'shift:open','shift:close','shift:pay_movement','inventory:read','inventory:adjust',
-    'customers:read','customers:write','reports:read','audit:read','settings:manage',
-  ],
+  admin: ['pos:checkout','pos:discount','pos:price_override','pos:void','pos:refund','shift:open','shift:close','shift:pay_movement','inventory:read','inventory:adjust','customers:read','customers:write','reports:read','audit:read','settings:manage'],
+  manager: ['pos:checkout','pos:discount','pos:price_override','pos:void','pos:refund','shift:open','shift:close','shift:pay_movement','inventory:read','inventory:adjust','customers:read','customers:write','reports:read','audit:read','settings:manage'],
   cashier: ['pos:checkout','pos:discount','shift:open','shift:close','inventory:read','customers:read','customers:write'],
 };
 
@@ -82,9 +75,7 @@ export interface PermissionMeta {
   isSensitive: boolean;
 }
 
-const permissionMeta = (id: Permission, category: PermissionMeta['category'], nameEn: string, nameTh: string, isSensitive = false): PermissionMeta => ({
-  id, category, nameEn, nameTh, descEn: nameEn, descTh: nameTh, isSensitive,
-});
+const permissionMeta = (id: Permission, category: PermissionMeta['category'], nameEn: string, nameTh: string, isSensitive = false): PermissionMeta => ({ id, category, nameEn, descEn: nameEn, descTh: nameTh, nameTh, isSensitive });
 
 export const PERMISSION_DEFINITIONS: PermissionMeta[] = [
   permissionMeta('pos:checkout','pos','POS Cash Register Checkout','คิดเงินและออกใบเสร็จหน้าร้าน'),
@@ -141,5 +132,9 @@ export function getStoredStaffPins(): Record<string, string> {
 export function saveStoredStaffPins(pins: Record<string, string>): void {
   try { localStorage.setItem(STAFF_PINS_STORAGE_KEY, JSON.stringify(pins)); } catch (e) { console.error('Failed to save staff pins to storage', e); }
 }
+
+/** Compatibility surface for the mock adapter only. Production code must not use browser password storage. */
+export function getStoredStaffPasswords(): Record<string, string> { return {}; }
+export function updateStaffPassword(_userId: string, _newPassword: string): void { throw new Error('Password changes require the authenticated server API.'); }
 
 export function hasPermission(user: User, permission: Permission): boolean { return user.permissions.includes(permission); }
