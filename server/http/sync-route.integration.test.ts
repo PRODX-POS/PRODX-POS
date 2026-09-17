@@ -29,7 +29,7 @@ const command = (commandId: string, key: string, payload = checkoutRequest(key))
 
 async function seed(): Promise<void> {
   if (!pool) throw new Error('DATABASE_URL required');
-  const cleanup = [
+  const cleanup: Array<[string, string[]]> = [
     ['DELETE FROM prodx_sync_commands WHERE store_id=$1', [ids.store]], ['DELETE FROM prodx_cash_movements WHERE shift_id=$1', [ids.shift]],
     ['DELETE FROM prodx_audit_log WHERE store_id=$1', [ids.store]], ['DELETE FROM prodx_payments WHERE store_id=$1', [ids.store]],
     ['DELETE FROM prodx_order_items WHERE store_id=$1', [ids.store]], ['DELETE FROM prodx_inventory_ledger WHERE store_id=$1', [ids.store]],
