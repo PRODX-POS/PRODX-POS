@@ -1,0 +1,81 @@
+name: Backup Restore Gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-restore-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backup-restore:
+    name: PostgreSQL backup and restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: prodx
+          POSTGRES_PASSWORD: prodx
+          POSTGRES_DB: prodx_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prodx -d prodx_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_test
+      RESTORE_DATABASE_URL: postgresql://prodx:prodx@127.0.0.1:5432/prodx_restore
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Apply migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          for migration in db/migrations/*.sql; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - name: Seed backup sentinel
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          INSERT INTO prodx_organizations(id, code, name)
+          VALUES ('00000000-0000-4000-8000-000000009901', 'backup-gate', 'Backup Gate');
+          SQL
+      - name: Create and validate backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          bash scripts/db-backup.sh artifacts
+          test -s artifacts/*.dump
+      - name: Create clean restore database
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE prodx_restore'
+      - name: Restore backup
+        shell: bash
+        env:
+          CONFIRM_DESTRUCTIVE_RESTORE: YES
+        run: bash scripts/db-restore.sh artifacts/*.dump "$RESTORE_DATABASE_URL"
+      - name: Verify restored data and schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$RESTORE_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT 1 FROM prodx_organizations WHERE id = '00000000-0000-4000-8000-000000009901';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0007_m2_transaction_core';
+          SELECT 1 FROM prodx_schema_migrations WHERE version = '0008_m2_transaction_store_membership';
+          SQL

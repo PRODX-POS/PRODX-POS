@@ -31,10 +31,12 @@ test('application composition builds authentication against the injected Postgre
     username: 'cashier',
     password: 'correct-password',
     deviceId: 'device-1',
+    organizationId: 'org-1',
   });
 
   assert.ok(result);
   assert.equal(calls.some((call) => call.includes('INSERT INTO prodx_sessions')), true);
   assert.equal(calls.some((call) => call.includes(result.token)), false);
   assert.equal(calls.some((call) => call.includes('token_hash')), true);
+  assert.equal(calls.some((call) => call.includes('"org-1"')), true);
 });
