@@ -1,19 +1,24 @@
 /**
- * AI Assistant Service - OpenRouter-compatible chat completions.
- * The production code-review lane is maintained separately in GitHub Actions.
+ * AI Assistant Service — authenticated backend AI boundary.
+ *
+ * The browser never holds, stores, or transmits a provider credential and never
+ * calls an AI provider directly. Every request is sent to the authenticated
+ * PRODX server AI route, which owns provider selection, credential custody,
+ * permission checks, tenant/store scoping, redaction, limits, and audit logging.
+ *
+ * Server contract: server/ai/http-route.ts (POST /api/v1/ai/chat, permission ai:use).
  */
 
 export interface AiConfig {
-  endpoint: string;
-  apiKey: string;
   model: string;
   enabled: boolean;
   temperature: number;
 }
 
+/** Authenticated, same-origin backend AI route. Not configurable from the browser. */
+export const AI_BACKEND_CHAT_PATH = '/api/v1/ai/chat';
+
 export const DEFAULT_AI_CONFIG: AiConfig = {
-  endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-  apiKey: '',
   model: 'openrouter/auto-beta',
   enabled: true,
   temperature: 0.7,
@@ -21,42 +26,79 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
 
 const STORAGE_KEY = 'prodx_ai_service_config';
 
+/** Keys that earlier builds persisted in the browser and that must never be kept. */
+const FORBIDDEN_STORED_KEYS = ['apiKey', 'endpoint', 'baseUrl', 'authorization', 'token'] as const;
+
+export type AiChatMessage = { role: 'system' | 'user' | 'assistant'; content: string };
+
 export class AiService {
   private static instance: AiService;
   private constructor() {}
   public static getInstance(): AiService { if (!AiService.instance) AiService.instance = new AiService(); return AiService.instance; }
 
+  /**
+   * Reads client-side AI preferences. Provider credentials and endpoints are
+   * ignored and actively purged if an earlier build persisted them.
+   */
   public getConfig(): AiConfig {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) return { ...DEFAULT_AI_CONFIG, ...JSON.parse(stored) };
-    } catch {}
-    return DEFAULT_AI_CONFIG;
+      if (!stored) return { ...DEFAULT_AI_CONFIG };
+      const parsed = JSON.parse(stored) as Record<string, unknown>;
+      const hadForbidden = FORBIDDEN_STORED_KEYS.some((key) => key in parsed);
+      const config = this.sanitize(parsed);
+      if (hadForbidden) localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+      return config;
+    } catch {
+      return { ...DEFAULT_AI_CONFIG };
+    }
   }
 
   public saveConfig(config: Partial<AiConfig>): AiConfig {
-    const updated = { ...this.getConfig(), ...config };
+    const updated = this.sanitize({ ...this.getConfig(), ...config } as Record<string, unknown>);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     return updated;
   }
 
-  public async chatCompletion(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, customConfig?: Partial<AiConfig>): Promise<string> {
-    const config = { ...this.getConfig(), ...customConfig };
-    if (!config.apiKey.trim()) throw new Error('กรุณากรอก OpenRouter API Key ในหน้าตั้งค่า AI ก่อนใช้งาน');
-    const res = await fetch(config.endpoint, {
+  private sanitize(value: Record<string, unknown>): AiConfig {
+    const model = typeof value.model === 'string' && value.model.trim() ? value.model.trim() : DEFAULT_AI_CONFIG.model;
+    const temperature = typeof value.temperature === 'number' && Number.isFinite(value.temperature)
+      ? Math.min(1, Math.max(0, value.temperature))
+      : DEFAULT_AI_CONFIG.temperature;
+    const enabled = typeof value.enabled === 'boolean' ? value.enabled : DEFAULT_AI_CONFIG.enabled;
+    return { model, temperature, enabled };
+  }
+
+  /**
+   * Sends a chat completion through the authenticated backend AI route.
+   * The session cookie authorizes the request; no credential is sent from the browser.
+   */
+  public async chatCompletion(messages: AiChatMessage[], overrides?: Partial<AiConfig>): Promise<string> {
+    const config = this.sanitize({ ...this.getConfig(), ...overrides } as Record<string, unknown>);
+    if (!config.enabled) throw new Error('ฟีเจอร์ผู้ช่วย AI ถูกปิดใช้งานอยู่');
+
+    const res = await fetch(AI_BACKEND_CHAT_PATH, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey.trim()}` },
-      body: JSON.stringify({ model: config.model || 'openrouter/auto-beta', messages, temperature: config.temperature ?? 0.7, stream: false }),
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ messages, model: config.model, temperature: config.temperature }),
     });
+
     if (!res.ok) {
       const errorText = await res.text().catch(() => '');
-      let parsedError = errorText;
-      try { const json = JSON.parse(errorText); parsedError = json.error?.message || json.message || errorText; } catch {}
-      throw new Error(`AI API Error (${res.status}): ${parsedError || res.statusText}`);
+      let detail = errorText;
+      try {
+        const json = JSON.parse(errorText);
+        detail = json.error?.message || json.message || errorText;
+      } catch {}
+      if (res.status === 401) throw new Error('กรุณาเข้าสู่ระบบก่อนใช้งานผู้ช่วย AI');
+      if (res.status === 403) throw new Error('บัญชีของคุณไม่มีสิทธิ์ ai:use สำหรับผู้ช่วย AI');
+      throw new Error(`AI API Error (${res.status}): ${detail || res.statusText}`);
     }
+
     const data = await res.json();
-    const reply = data.choices?.[0]?.message?.content;
-    if (!reply) throw new Error('ไม่พบคำตอบจาก AI API');
+    const reply = data?.choices?.[0]?.message?.content;
+    if (typeof reply !== 'string' || !reply.trim()) throw new Error('ไม่พบคำตอบจาก AI API');
     return reply;
   }
 
