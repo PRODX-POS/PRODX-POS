@@ -33,6 +33,13 @@ import it accidentally. The adapter enforces HTTPS, validates request bounds, ap
 a request timeout, rejects streaming through this boundary, and avoids copying
 provider response bodies into errors.
 
+## Canonical authorization
+
+The AI boundary requires the canonical PostgreSQL RBAC permission `ai:use`.
+Migration `0012_m2_ai_permission` persists that permission in `prodx_permissions`.
+Tenant-owned roles may grant it through the existing role-permission and scoped
+user-role relationships.
+
 ## Production integration boundary
 
 The current repository is a React/Vite application. Its existing authentication
@@ -55,4 +62,5 @@ npm run build
 ```
 
 Tests use a mocked `fetch` implementation and never require a real API key or call
-the provider.
+the provider. A real deployment still requires runtime route, secret, connectivity,
+and production-environment evidence.
