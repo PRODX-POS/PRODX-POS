@@ -22,8 +22,6 @@ export { AI_AUTHORITY_RULE } from './capability-contract';
 export type { AIAuthoritativeDomain } from './capability-contract';
 export { OpenRouterProvider } from './openrouterProvider';
 export type { OpenRouterProviderConfig } from './openrouterProvider';
-export { OpenAIProvider } from './openaiProvider';
-export type { OpenAIProviderConfig } from './openaiProvider';
 export type {
   AIChatRequest,
   AIChatResponse,
