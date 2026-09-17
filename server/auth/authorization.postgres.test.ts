@@ -4,10 +4,7 @@ import { createPostgresAuthorizer } from './authorization';
 
 type AuthorizationRow = { allowed: boolean };
 type TestExecutor = {
-  query<T extends Record<string, unknown>>(
-    sql: string,
-    parameters?: readonly unknown[],
-  ): Promise<readonly T[]>;
+  query(sql: string, parameters?: readonly unknown[]): Promise<readonly AuthorizationRow[]>;
 };
 
 const context = {
@@ -18,9 +15,9 @@ const context = {
 test('PostgreSQL authorizer denies blank permissions without querying', async () => {
   let queried = false;
   const db: TestExecutor = {
-    query: async <T extends Record<string, unknown>>() => {
+    query: async () => {
       queried = true;
-      return [] as readonly T[];
+      return [];
     },
   };
 
@@ -32,9 +29,9 @@ test('PostgreSQL authorizer denies blank permissions without querying', async ()
 test('PostgreSQL authorizer binds organization, user, store, and exact permission', async () => {
   let parameters: readonly unknown[] = [];
   const db: TestExecutor = {
-    query: async <T extends Record<string, unknown>>(_sql, suppliedParameters) => {
+    query: async (_sql, suppliedParameters) => {
       parameters = suppliedParameters ?? [];
-      return [{ allowed: true }] as readonly T[];
+      return [{ allowed: true }];
     },
   };
 
@@ -45,9 +42,7 @@ test('PostgreSQL authorizer binds organization, user, store, and exact permissio
 
 test('PostgreSQL authorizer fails closed when the database does not grant the permission', async () => {
   const db: TestExecutor = {
-    query: async <T extends Record<string, unknown>>(_sql, _parameters) => {
-      return [{ allowed: false }] as readonly T[];
-    },
+    query: async () => [{ allowed: false }],
   };
 
   const authorize = createPostgresAuthorizer(db);
