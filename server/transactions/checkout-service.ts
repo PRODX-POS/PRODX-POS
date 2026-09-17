@@ -10,7 +10,7 @@ type DbRow=Record<string, any>;
 const auditRepository=createAuditRepository();
 const cents=(v:unknown,field:string):bigint=>{const n=BigInt((v as any)?.amountInCents??-1);if(n<0n)throw new CheckoutValidationError(`${field} must be a non-negative integer minor-unit amount.`);return n;};
 const numeric=(n:bigint)=>`${n/100n}.${(n%100n).toString().padStart(2,'0')}`;
-const dbCents=(v:unknown)=>{const m:/^(\d+)\.(\d{2})$/.exec(String(v));if(!m)throw new CheckoutValidationError('Database monetary value is invalid.');return BigInt(m[1])*100n+BigInt(m[2]);};
+const dbCents=(v:unknown)=>{const m=/^(\d+)\.(\d{2})$/.exec(String(v));if(!m)throw new CheckoutValidationError('Database monetary value is invalid.');return BigInt(m[1])*100n+BigInt(m[2]);};
 const idempotencyFingerprint=(request:CheckoutRequest)=>crypto.createHash('sha256').update(JSON.stringify({
  storeId:request.storeId,registerId:request.registerId,cashierId:request.cashierId,
  items:[...request.items].map(i=>({productId:i.product.id,quantity:i.quantity,unitPrice:i.unitPrice,itemDiscountBps:i.discountBps,lineSubtotal:i.lineSubtotal,lineTax:i.lineTax,lineTotal:i.lineTotal})).sort((a,b)=>a.productId.localeCompare(b.productId)),
