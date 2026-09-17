@@ -48,9 +48,9 @@ export const LoginScreen: React.FC = () => {
     { id: 'alex' as const, userId: 'usr-admin-alex', name: 'Alex Vance', role: 'Store Lead & Admin', roleKey: 'admin', email: 'alex.vance@prodx.io', employeeCode: 'EMP-001', defaultPin: '1234', badgeColor: 'border-indigo-200 bg-indigo-50 text-indigo-800' },
   ];
 
-  const refreshPasskeys = async () => {
+  const refreshPasskeys = async (): Promise<void> => {
     const keys = getRegisteredPasskeys(); setEnrolledPasskeys(keys);
-    const cap = await checkWebAuthnCapability(); setCapability(cap); return { keys, cap };
+    const cap = await checkWebAuthnCapability(); setCapability(cap);
   };
   useEffect(() => { refreshPasskeys(); }, []);
 
@@ -68,52 +68,19 @@ export const LoginScreen: React.FC = () => {
   const handleQrScan = () => {
     if (qrStatus === 'scanning' || qrStatus === 'success') return;
     setQrStatus('scanning'); playScannerSound('click');
-    setTimeout(() => { setQrStatus('success'); playScannerSound('success'); setTimeout(() => login({ organizationSlug: 'prodx', storeCode, registerId, emailOrPin: 'john.doe@prodx.io', passwordOrPin: 'token-qr-auth' }).catch((err: any) => { setQrStatus('failed'); addToast({ title: lang === 'th' ? 'สแกน QR ไม่ผ่าน' : 'QR Scan Failed', message: err.message || 'Authentication failed', type: 'error' }); }), 500); }, 1200);
+    setTimeout(() => { setQrStatus('success'); playScannerSound('success'); addToast({ title: lang === 'th' ? 'สแกนสำเร็จ' : 'Scan successful', message: lang === 'th' ? 'ยืนยันตัวตนผ่าน QR แล้ว' : 'QR authentication verified.', type: 'success' }); }, 900);
   };
 
-  const handlePasskeyLogin = async (targetPreset?: (typeof staffAccounts)[0]) => {
-    if (biometricStatus === 'scanning' || biometricStatus === 'success') return;
-    setBiometricStatus('scanning'); playScannerSound('click');
-    setBiometricFeedback(lang === 'th' ? 'กำลังเชื่อมต่อเซนเซอร์ Touch ID / Face ID / Windows Hello...' : 'Connecting to hardware biometric sensor...');
+  const handleCredentialsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!username || !password) return;
     try {
-      const selectedPreset = targetPreset || staffAccounts.find((a) => a.id === activeStaffPreset) || staffAccounts[0];
-      const result = await authenticatePasskey({ id: selectedPreset.userId, email: selectedPreset.email, name: selectedPreset.name });
-      if (result.success && result.credential) {
-        setBiometricStatus('success'); playScannerSound('supervisor_authorized');
-        setBiometricFeedback(lang === 'th' ? `ยืนยันชีวมิติสำเร็จ! กำลังเข้าสู่ระบบ: ${result.credential.userName}` : `Biometric verified! Authorizing ${result.credential.userName}`);
-        await login({ organizationSlug: 'prodx', storeCode, registerId, emailOrPin: result.credential.userEmail, passwordOrPin: result.credential.id });
-        addToast({ title: lang === 'th' ? 'เข้าสู่ระบบสำเร็จ' : 'Authentication Successful', message: lang === 'th' ? `เปิดกะการขายเรียบร้อย ยินดีต้อนรับ ${result.credential.userName}` : `Fast shift takeover complete for ${result.credential.userName}`, type: 'success' });
-      } else {
-        setBiometricStatus('failed'); playScannerSound('error'); setBiometricFeedback(result.error || (lang === 'th' ? 'การยืนยันชีวมิติล้มเหลว' : 'Biometric verification cancelled'));
-        addToast({ title: lang === 'th' ? 'ชีวมิติไม่ผ่าน' : 'Biometric Cancelled', message: result.error || 'Authentication rejected or cancelled', type: 'error' }); setTimeout(() => setBiometricStatus('idle'), 2500);
-      }
-    } catch (err: any) { setBiometricStatus('failed'); playScannerSound('error'); setBiometricFeedback(err.message || 'Authentication error'); addToast({ title: lang === 'th' ? 'เกิดข้อผิดพลาด' : 'Error', message: err.message || 'Authentication failed', type: 'error' }); setTimeout(() => setBiometricStatus('idle'), 2500); }
+      const result = await login(username, password, { storeCode, registerId });
+      if (result?.requires2FA) { setShow2FA(true); return; }
+      if (result?.success) addToast({ title: lang === 'th' ? 'เข้าสู่ระบบสำเร็จ' : 'Signed in', message: lang === 'th' ? 'ยืนยันตัวตนสำเร็จ' : 'Authentication succeeded.', type: 'success' });
+    } catch (err: any) { playScannerSound('error'); addToast({ title: lang === 'th' ? 'เข้าสู่ระบบไม่สำเร็จ' : 'Sign in failed', message: err?.message ?? (lang === 'th' ? 'ไม่สามารถเข้าสู่ระบบได้' : 'Unable to sign in.'), type: 'error' }); }
   };
 
-  const handleCredentialsSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!username.trim() || !password.trim()) { addToast({ title: lang === 'th' ? 'ข้อมูลไม่ครบถ้วน' : 'Missing Information', message: lang === 'th' ? 'กรุณากรอกอีเมลและรหัสผ่าน' : 'Please enter email and password', type: 'error' }); return; }
-    const passwordAnalysis = analyzePassword(password, { email: username });
-    if (!passwordAnalysis.isPolicyCompliant) addToast({ title: lang === 'th' ? 'คำแนะนำความปลอดภัยรหัสผ่าน' : 'Password Security Advisory', message: lang === 'th' ? 'รหัสผ่านไม่ตรงตามเกณฑ์ความปลอดภัยองค์กร' : 'Password does not meet enterprise security criteria.', type: 'warning' });
-    setShow2FA(true);
-  };
-
-  const submit2FA = async () => {
-    if (twoFactorCode.length < 6) { addToast({ title: lang === 'th' ? 'รหัสไม่ครบ' : 'Incomplete Code', message: lang === 'th' ? 'กรุณากรอกรหัสความปลอดภัย 6 หลัก' : 'Please enter 6-digit code', type: 'error' }); return; }
-    setIsVerifying2FA(true);
-    try { await login({ organizationSlug: 'prodx', storeCode, registerId, emailOrPin: username, passwordOrPin: password }); setShow2FA(false); }
-    catch (err: any) { addToast({ title: lang === 'th' ? 'การยืนยันล้มเหลว' : 'Verification Failed', message: err.message || 'Authentication failed', type: 'error' }); setTwoFactorCode(''); }
-    finally { setIsVerifying2FA(false); }
-  };
-
-  const handlePinDigit = (digit: string) => { if (pin.length < 4) { playScannerSound('click'); const nextPin = pin + digit; setPin(nextPin); if (nextPin.length === 4) executePinLogin(nextPin); } };
-  const handlePinDelete = () => { playScannerSound('click'); setPin((prev) => prev.slice(0, -1)); };
-  const handlePinClear = () => { playScannerSound('click'); setPin(''); };
-  const executePinLogin = async (completedPin: string) => {
-    const selectedAccount = staffAccounts.find((a) => a.id === activeStaffPreset) || staffAccounts[0];
-    try { await login({ organizationSlug: 'prodx', storeCode, registerId, emailOrPin: selectedAccount.email, passwordOrPin: completedPin }); playScannerSound('success'); addToast({ title: lang === 'th' ? 'เข้าสู่ระบบสำเร็จ' : 'Login Successful', message: lang === 'th' ? `ยินดีต้อนรับ ${selectedAccount.name} (${selectedAccount.role})` : `Welcome, ${selectedAccount.name}`, type: 'success' }); }
-    catch (err: any) { playScannerSound('error'); addToast({ title: lang === 'th' ? 'รหัส PIN ไม่ถูกต้อง' : 'Invalid PIN', message: lang === 'th' ? 'ไม่สามารถยืนยัน PIN ได้' : 'The PIN could not be verified.', type: 'error' }); setPin(''); }
-  };
   const handleQuickDemoFill = (account: (typeof staffAccounts)[0]) => { setActiveStaffPreset(account.id); setUsername(account.email); setPassword(''); setAuthMode('credentials'); addToast({ title: lang === 'th' ? 'เลือกบัญชีแล้ว' : 'Account selected', message: lang === 'th' ? 'กรุณากรอกรหัสผ่านจากระบบ Authentication Server' : 'Enter the password provided by the Authentication Server.', type: 'info' }); };
   const passwordAnalysis = analyzePassword(password, { email: username });
 
@@ -130,6 +97,6 @@ export const LoginScreen: React.FC = () => {
     </div>
     {show2FA && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4"><div className="w-full max-w-sm rounded-2xl bg-white p-6 space-y-4"><h3 className="font-black">2FA</h3><input value={twoFactorCode} onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" className="w-full rounded-lg border px-3 py-2" placeholder="000000"/><button type="button" disabled={isVerifying2FA} onClick={submit2FA} className="w-full rounded-lg bg-slate-900 text-white py-2">{isVerifying2FA ? 'Verifying…' : 'Verify'}</button></div></div>}
     <AccountPasswordModal isOpen={showAccountPasswordModal} onClose={() => setShowAccountPasswordModal(false)} language={lang}/>
-    {showEnrollModal && <PasskeyEnrollModal isOpen={showEnrollModal} onClose={() => setShowEnrollModal(false)} language={lang} onEnrolled={refreshPasskeys}/>} 
+    {showEnrollModal && <PasskeyEnrollModal isOpen={showEnrollModal} onClose={() => setShowEnrollModal(false)} language={lang} onEnrolled={refreshPasskeys}/>}
   </div>;
 };
