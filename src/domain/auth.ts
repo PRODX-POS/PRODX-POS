@@ -56,7 +56,7 @@ export interface SessionContext {
   readonly currentUser: User;
   readonly token: string;
   readonly expiresAt: string;
-  readonly sessionId: string;
+  readonly sessionId?: string;
 }
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
