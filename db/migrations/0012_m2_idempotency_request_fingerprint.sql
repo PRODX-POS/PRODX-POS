@@ -3,14 +3,13 @@
 -- semantic checkout request that created it. Reusing a key for a different
 -- request must fail closed rather than silently replaying the old transaction.
 
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 ALTER TABLE prodx_orders
   ADD COLUMN IF NOT EXISTS idempotency_request_fingerprint TEXT;
 
 UPDATE prodx_orders
-SET idempotency_request_fingerprint = COALESCE(
-  idempotency_request_fingerprint,
-  encode(digest(idempotency_key, 'sha256'), 'hex')
-)
+SET idempotency_request_fingerprint = encode(digest(idempotency_key, 'sha256'), 'hex')
 WHERE idempotency_request_fingerprint IS NULL;
 
 ALTER TABLE prodx_orders
