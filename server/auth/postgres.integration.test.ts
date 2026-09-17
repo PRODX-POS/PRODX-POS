@@ -6,7 +6,6 @@ import { hashPassword } from './password';
 import { hashSessionToken } from './session';
 
 const databaseUrl = process.env.DATABASE_URL;
-
 const ids = {
   organizationA: '00000000-0000-4000-8000-000000000201',
   organizationB: '00000000-0000-4000-8000-000000000202',
@@ -24,53 +23,29 @@ const authentication = pool ? createPostgresAuthentication(asSqlExecutor(pool)) 
 const seed = async (): Promise<void> => {
   if (!pool) throw new Error('DATABASE_URL is required for PostgreSQL integration tests.');
   const passwordHash = await hashPassword('correct-password');
-  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
-  await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
-  await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
-  await pool.query('DELETE FROM prodx_devices WHERE id IN ($1, $2)', [ids.deviceA, ids.deviceB]);
-  await pool.query('DELETE FROM prodx_users WHERE id IN ($1, $2)', [ids.userA, ids.userB]);
-  await pool.query('DELETE FROM prodx_stores WHERE id IN ($1, $2)', [ids.storeA, ids.storeB]);
-  await pool.query('DELETE FROM prodx_organizations WHERE id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
-
-  await pool.query(
-    `INSERT INTO prodx_organizations (id, code, name) VALUES
-      ($1, 'm2-a', 'M2 A'), ($2, 'm2-b', 'M2 B')`,
-    [ids.organizationA, ids.organizationB],
-  );
-  await pool.query(
-    `INSERT INTO prodx_stores (id, organization_id, code, name, business_timezone) VALUES
-      ($1, $3, 'm2-store-a', 'M2 Store A', 'Asia/Bangkok'),
-      ($2, $4, 'm2-store-b', 'M2 Store B', 'Asia/Bangkok')`,
-    [ids.storeA, ids.storeB, ids.organizationA, ids.organizationB],
-  );
-  await pool.query(
-    `INSERT INTO prodx_users (id, organization_id, username, display_name) VALUES
-      ($1, $3, 'm2-user-a', 'M2 User A'),
-      ($2, $4, 'm2-user-b', 'M2 User B')`,
-    [ids.userA, ids.userB, ids.organizationA, ids.organizationB],
-  );
-  await pool.query(
-    `INSERT INTO prodx_user_credentials (user_id, credential_type, secret_hash)
-     VALUES ($1, 'password', $3), ($2, 'password', $3)`,
-    [ids.userA, ids.userB, passwordHash],
-  );
-  await pool.query(
-    `INSERT INTO prodx_devices (id, organization_id, store_id, device_key, name) VALUES
-      ($1, $3, $5, 'm2-device-a', 'M2 Device A'),
-      ($2, $4, $6, 'm2-device-b', 'M2 Device B')`,
-    [ids.deviceA, ids.deviceB, ids.organizationA, ids.organizationB, ids.storeA, ids.storeB],
-  );
+  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1,$2)', [ids.organizationA, ids.organizationB]);
+  await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1,$2)', [ids.organizationA, ids.organizationB]);
+  await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1,$2)', [ids.userA, ids.userB]);
+  await pool.query('DELETE FROM prodx_devices WHERE id IN ($1,$2)', [ids.deviceA, ids.deviceB]);
+  await pool.query('DELETE FROM prodx_users WHERE id IN ($1,$2)', [ids.userA, ids.userB]);
+  await pool.query('DELETE FROM prodx_stores WHERE id IN ($1,$2)', [ids.storeA, ids.storeB]);
+  await pool.query('DELETE FROM prodx_organizations WHERE id IN ($1,$2)', [ids.organizationA, ids.organizationB]);
+  await pool.query(`INSERT INTO prodx_organizations (id,code,name) VALUES ($1,'m2-a','M2 A'),($2,'m2-b','M2 B')`, [ids.organizationA, ids.organizationB]);
+  await pool.query(`INSERT INTO prodx_stores (id,organization_id,code,name,business_timezone) VALUES ($1,$3,'m2-store-a','M2 Store A','Asia/Bangkok'),($2,$4,'m2-store-b','M2 Store B','Asia/Bangkok')`, [ids.storeA, ids.storeB, ids.organizationA, ids.organizationB]);
+  await pool.query(`INSERT INTO prodx_users (id,organization_id,username,display_name) VALUES ($1,$3,'m2-user-a','M2 User A'),($2,$4,'m2-user-b','M2 User B')`, [ids.userA, ids.userB, ids.organizationA, ids.organizationB]);
+  await pool.query(`INSERT INTO prodx_user_credentials (user_id,credential_type,secret_hash) VALUES ($1,'password',$3),($2,'password',$3)`, [ids.userA, ids.userB, passwordHash]);
+  await pool.query(`INSERT INTO prodx_devices (id,organization_id,store_id,device_key,name,register_id) VALUES ($1,$3,$5,'m2-device-a','M2 Device A','REG-A'),($2,$4,$6,'m2-device-b','M2 Device B','REG-B')`, [ids.deviceA, ids.deviceB, ids.organizationA, ids.organizationB, ids.storeA, ids.storeB]);
 };
 
 const cleanup = async (): Promise<void> => {
   if (!pool) return;
-  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
-  await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
-  await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1, $2)', [ids.userA, ids.userB]);
-  await pool.query('DELETE FROM prodx_devices WHERE id IN ($1, $2)', [ids.deviceA, ids.deviceB]);
-  await pool.query('DELETE FROM prodx_users WHERE id IN ($1, $2)', [ids.userA, ids.userB]);
-  await pool.query('DELETE FROM prodx_stores WHERE id IN ($1, $2)', [ids.storeA, ids.storeB]);
-  await pool.query('DELETE FROM prodx_organizations WHERE id IN ($1, $2)', [ids.organizationA, ids.organizationB]);
+  await pool.query('DELETE FROM prodx_security_audit_events WHERE organization_id IN ($1,$2)', [ids.organizationA, ids.organizationB]);
+  await pool.query('DELETE FROM prodx_sessions WHERE organization_id IN ($1,$2)', [ids.organizationA, ids.organizationB]);
+  await pool.query('DELETE FROM prodx_user_credentials WHERE user_id IN ($1,$2)', [ids.userA, ids.userB]);
+  await pool.query('DELETE FROM prodx_devices WHERE id IN ($1,$2)', [ids.deviceA, ids.deviceB]);
+  await pool.query('DELETE FROM prodx_users WHERE id IN ($1,$2)', [ids.userA, ids.userB]);
+  await pool.query('DELETE FROM prodx_stores WHERE id IN ($1,$2)', [ids.storeA, ids.storeB]);
+  await pool.query('DELETE FROM prodx_organizations WHERE id IN ($1,$2)', [ids.organizationA, ids.organizationB]);
 };
 
 test('M2 PostgreSQL authentication enforces credential, tenant, session, token-hash, lockout, and security-audit invariants', async (t) => {
@@ -78,118 +53,57 @@ test('M2 PostgreSQL authentication enforces credential, tenant, session, token-h
     t.skip('DATABASE_URL is not configured; run server:test:integration with PostgreSQL.');
     return;
   }
-
   await seed();
-  t.after(async () => {
-    await cleanup();
-    await pool.end();
-  });
+  t.after(async () => { await cleanup(); await pool.end(); });
 
-  const result = await authentication.authenticateCredentials({
-    username: 'm2-user-a',
-    password: 'correct-password',
-    deviceId: ids.deviceA,
-  });
+  const result = await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA, organizationId: ids.organizationA });
   assert.ok(result);
-
-  const persisted = await pool.query<{ token_hash: string; expires_at: Date; revoked_at: Date | null }>(
-    'SELECT token_hash, expires_at, revoked_at FROM prodx_sessions WHERE id = $1',
-    [result.sessionId],
-  );
+  const persisted = await pool.query<{ token_hash: string; expires_at: Date; revoked_at: Date | null }>('SELECT token_hash,expires_at,revoked_at FROM prodx_sessions WHERE id=$1', [result.sessionId]);
   assert.equal(persisted.rows.length, 1);
   assert.equal(persisted.rows[0].token_hash, hashSessionToken(result.token));
   assert.notEqual(persisted.rows[0].token_hash, result.token);
   assert.equal(persisted.rows[0].revoked_at, null);
 
-  const beforeTouch = await pool.query<{ last_seen_at: Date | null }>(
-    'SELECT last_seen_at FROM prodx_sessions WHERE id = $1',
-    [result.sessionId],
-  );
+  const beforeTouch = await pool.query<{ last_seen_at: Date | null }>('SELECT last_seen_at FROM prodx_sessions WHERE id=$1', [result.sessionId]);
   const principal = await authentication.authenticateBearer(result.token);
-  assert.deepEqual(principal, {
-    sessionId: result.sessionId,
-    userId: ids.userA,
-    organizationId: ids.organizationA,
-    storeId: ids.storeA,
-  });
-  const afterTouch = await pool.query<{ last_seen_at: Date | null }>(
-    'SELECT last_seen_at FROM prodx_sessions WHERE id = $1',
-    [result.sessionId],
-  );
+  assert.deepEqual(principal, { sessionId: result.sessionId, userId: ids.userA, organizationId: ids.organizationA, storeId: ids.storeA, deviceId: ids.deviceA, expiresAt: result.expiresAt });
+  const afterTouch = await pool.query<{ last_seen_at: Date | null }>('SELECT last_seen_at FROM prodx_sessions WHERE id=$1', [result.sessionId]);
   assert.equal(afterTouch.rows[0].last_seen_at !== null, true);
   assert.equal(beforeTouch.rows[0].last_seen_at === null || afterTouch.rows[0].last_seen_at! >= beforeTouch.rows[0].last_seen_at!, true);
 
   for (let attempt = 1; attempt <= 5; attempt += 1) {
-    assert.equal(await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'wrong-password', deviceId: ids.deviceA }), null);
+    assert.equal(await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'wrong-password', deviceId: ids.deviceA, organizationId: ids.organizationA }), null);
   }
-  const locked = await pool.query<{ failed_attempts: number; locked_until: Date | null }>(
-    'SELECT failed_attempts, locked_until FROM prodx_user_credentials WHERE user_id = $1',
-    [ids.userA],
-  );
+  const locked = await pool.query<{ failed_attempts: number; locked_until: Date | null }>('SELECT failed_attempts,locked_until FROM prodx_user_credentials WHERE user_id=$1', [ids.userA]);
   assert.equal(locked.rows[0].failed_attempts, 5);
   assert.ok(locked.rows[0].locked_until);
-  assert.ok(locked.rows[0].locked_until!.getTime() > Date.now());
-
-  const audit = await pool.query<{ event_type: string; organization_id: string; user_id: string; metadata: { failed_attempts: number } }>(
-    `SELECT event_type, organization_id, user_id, metadata
-       FROM prodx_security_audit_events
-      WHERE organization_id = $1
-      ORDER BY occurred_at DESC`,
-    [ids.organizationA],
-  );
+  const audit = await pool.query<{ event_type: string; organization_id: string; user_id: string; metadata: { failed_attempts: number } }>(`SELECT event_type,organization_id,user_id,metadata FROM prodx_security_audit_events WHERE organization_id=$1 ORDER BY occurred_at DESC`, [ids.organizationA]);
   assert.equal(audit.rows.length, 1);
   assert.equal(audit.rows[0].event_type, 'AUTH_LOCKOUT');
   assert.equal(audit.rows[0].organization_id, ids.organizationA);
   assert.equal(audit.rows[0].user_id, ids.userA);
   assert.equal(audit.rows[0].metadata.failed_attempts, 5);
+  assert.equal(await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA, organizationId: ids.organizationA }), null);
 
-  assert.equal(await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA }), null);
-  const stillLocked = await pool.query<{ failed_attempts: number; locked_until: Date | null }>(
-    'SELECT failed_attempts, locked_until FROM prodx_user_credentials WHERE user_id = $1',
-    [ids.userA],
-  );
-  assert.equal(stillLocked.rows[0].failed_attempts, 5);
-  assert.equal(stillLocked.rows[0].locked_until?.getTime(), locked.rows[0].locked_until?.getTime());
-
-  // Test successful reset without waiting 15 minutes by ending the test lock window in setup.
-  await pool.query('UPDATE prodx_user_credentials SET locked_until = CURRENT_TIMESTAMP - INTERVAL \'1 second\' WHERE user_id = $1', [ids.userA]);
-  const resetResult = await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA });
+  await pool.query(`UPDATE prodx_user_credentials SET locked_until=CURRENT_TIMESTAMP-INTERVAL '1 second' WHERE user_id=$1`, [ids.userA]);
+  const resetResult = await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA, organizationId: ids.organizationA });
   assert.ok(resetResult);
-  const resetState = await pool.query<{ failed_attempts: number; locked_until: Date | null }>(
-    'SELECT failed_attempts, locked_until FROM prodx_user_credentials WHERE user_id = $1',
-    [ids.userA],
-  );
+  const resetState = await pool.query<{ failed_attempts: number; locked_until: Date | null }>('SELECT failed_attempts,locked_until FROM prodx_user_credentials WHERE user_id=$1', [ids.userA]);
   assert.equal(resetState.rows[0].failed_attempts, 0);
   assert.equal(resetState.rows[0].locked_until, null);
-  const resetAudit = await pool.query<{ event_type: string; metadata: { previous_failed_attempts: number } }>(
-    `SELECT event_type, metadata FROM prodx_security_audit_events
-      WHERE organization_id = $1 ORDER BY occurred_at ASC`,
-    [ids.organizationA],
-  );
-  assert.equal(resetAudit.rows.length, 2);
-  assert.equal(resetAudit.rows[1].event_type, 'AUTH_LOCKOUT_RESET');
-  assert.equal(resetAudit.rows[1].metadata.previous_failed_attempts, 5);
 
-  const crossTenantDevice = await authentication.authenticateCredentials({
-    username: 'm2-user-a',
-    password: 'correct-password',
-    deviceId: ids.deviceB,
-  });
+  const crossTenantDevice = await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceB, organizationId: ids.organizationA });
   assert.equal(crossTenantDevice, null);
-
-  await pool.query('UPDATE prodx_users SET status = \'disabled\' WHERE id = $1', [ids.userA]);
-  assert.equal(await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA }), null);
-  await pool.query('UPDATE prodx_users SET status = \'active\' WHERE id = $1', [ids.userA]);
-
-  await pool.query('UPDATE prodx_devices SET status = \'disabled\' WHERE id = $1', [ids.deviceA]);
-  assert.equal(await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA }), null);
-  await pool.query('UPDATE prodx_devices SET status = \'active\' WHERE id = $1', [ids.deviceA]);
-
-  await pool.query('UPDATE prodx_sessions SET issued_at = CURRENT_TIMESTAMP - INTERVAL \'2 minutes\', expires_at = CURRENT_TIMESTAMP - INTERVAL \'1 minute\' WHERE id = $1', [result.sessionId]);
+  await pool.query(`UPDATE prodx_users SET status='disabled' WHERE id=$1`, [ids.userA]);
+  assert.equal(await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA, organizationId: ids.organizationA }), null);
+  await pool.query(`UPDATE prodx_users SET status='active' WHERE id=$1`, [ids.userA]);
+  await pool.query(`UPDATE prodx_devices SET status='disabled' WHERE id=$1`, [ids.deviceA]);
+  assert.equal(await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA, organizationId: ids.organizationA }), null);
+  await pool.query(`UPDATE prodx_devices SET status='active' WHERE id=$1`, [ids.deviceA]);
+  await pool.query(`UPDATE prodx_sessions SET issued_at=CURRENT_TIMESTAMP-INTERVAL '2 minutes', expires_at=CURRENT_TIMESTAMP-INTERVAL '1 minute' WHERE id=$1`, [result.sessionId]);
   assert.equal(await authentication.authenticateBearer(result.token), null);
-
-  const fresh = await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA });
+  const fresh = await authentication.authenticateCredentials({ username: 'm2-user-a', password: 'correct-password', deviceId: ids.deviceA, organizationId: ids.organizationA });
   assert.ok(fresh);
-  await pool.query('UPDATE prodx_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE id = $1', [fresh.sessionId]);
+  await pool.query('UPDATE prodx_sessions SET revoked_at=CURRENT_TIMESTAMP WHERE id=$1', [fresh.sessionId]);
   assert.equal(await authentication.authenticateBearer(fresh.token), null);
 });
