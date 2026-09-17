@@ -85,8 +85,8 @@ jobs:
           set -euo pipefail
           [[ -n "${OPENROUTER_API_KEY:-}" ]] || { echo 'OPENROUTER_API_KEY is not configured.' >&2; exit 1; }
           models="$(curl --fail --silent --show-error --header "Authorization: Bearer $OPENROUTER_API_KEY" --header 'Accept: application/json' https://openrouter.ai/api/v1/models)"
-          model_id="${PREFERRED_MODEL_ID:-openrouter/auto}"
-          if [[ "$model_id" != 'openrouter/auto' ]] && ! printf '%s' "$models" | jq -e --arg id "$model_id" '.data[] | select(.id == $id)' >/dev/null; then
+          model_id="${PREFERRED_MODEL_ID:-openrouter/auto-beta}"
+          if [[ "$model_id" != 'openrouter/auto-beta' && "$model_id" != 'openrouter/auto' ]] && ! printf '%s' "$models" | jq -e --arg id "$model_id" '.data[] | select(.id == $id)' >/dev/null; then
             echo "Configured OpenRouter review model is unavailable: $model_id" >&2
             exit 1
           fi
@@ -114,8 +114,8 @@ jobs:
           fallbacks = [m.strip() for m in os.environ.get('OPENROUTER_FALLBACK_MODELS','').split(',') if m.strip()]
           base = {'model': os.environ['OPENROUTER_MODEL_ID'], 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':6000, 'stream':False, 'response_format': {'type':'json_object'}}
           if fallbacks: base['models'] = fallbacks
-          if os.environ['OPENROUTER_MODEL_ID'] == 'openrouter/auto':
-            base['plugins'] = [{'id':'auto-router','cost_quality_tradeoff':2}]
+          if os.environ['OPENROUTER_MODEL_ID'] in {'openrouter/auto-beta','openrouter/auto'}:
+            base['plugins'] = [{'id':'auto-router','cost_tier':'max'}]
 
           req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=json.dumps(base).encode(), headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/' + os.environ['GITHUB_REPOSITORY'], 'X-Title':'PRODX-POS AI Code Review'}, method='POST')
           try:
