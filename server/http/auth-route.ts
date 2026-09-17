@@ -67,14 +67,15 @@ export const registerAuthRoute = (app: Express, authentication: SessionIssuer, d
       username: body.emailOrPin.trim(),
       password: body.passwordOrPin,
       deviceId: scope.deviceId,
+      organizationId: scope.organizationId,
     });
     if (!session) {
       response.status(401).json({ error: { code: 'INVALID_CREDENTIALS', message: 'Authentication failed.', requestId: request.id } });
       return;
     }
 
-    const authenticatedUserRows = await db.query<{ user_id: string; organization_id: string }>(
-      `SELECT id AS user_id, organization_id
+    const authenticatedUserRows = await db.query<{ user_id: string }>(
+      `SELECT id AS user_id
          FROM prodx_users
         WHERE lower(username) = lower($1) AND organization_id = $2 AND status = 'active'
         LIMIT 1`,
@@ -89,6 +90,7 @@ export const registerAuthRoute = (app: Express, authentication: SessionIssuer, d
     response.status(200).json({
       token: session.token,
       sessionId: session.sessionId,
+      expiresAt: session.expiresAt.toISOString(),
       organizationId: scope.organizationId,
       storeId: scope.storeId,
       userId: authenticatedUser.user_id,
