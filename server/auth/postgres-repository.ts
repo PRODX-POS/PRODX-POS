@@ -5,7 +5,7 @@ export const createPostgresAuthenticationRepository = (db: SqlExecutor): Authent
   async findCredentialByUsername(username, organizationId) {
     const rows = await db.query<CredentialRecord & { credential_type: 'password'; secret_hash: string; failed_attempts: number; locked_until: Date | null }>(
       `SELECT u.id AS "userId", u.organization_id AS "organizationId", u.username, u.status, c.credential_type, c.secret_hash, c.failed_attempts, c.locked_until
-         FROM prodx_users u JOIN prodx_user_credentials c ON c.user_id = u.id AND c.organization_id = u.organization_id
+         FROM prodx_users u JOIN prodx_user_credentials c ON c.user_id = u.id
         WHERE u.organization_id = $2 AND lower(u.username) = lower($1) LIMIT 1`, [username, organizationId]);
     const row = rows[0];
     return row ? { userId: row.userId, organizationId: row.organizationId, username: row.username, status: row.status, credentialType: row.credential_type, secretHash: row.secret_hash, failedAttempts: row.failed_attempts, lockedUntil: row.locked_until } : null;
