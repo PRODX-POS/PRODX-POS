@@ -7,6 +7,8 @@ import { SessionContext, Store } from '../domain/auth';
 
 const AUTH_API_BASE_URL = import.meta.env.VITE_AUTH_API_BASE_URL;
 
+type HydratedSessionResponse = SessionContext & Pick<AuthSessionResponse, 'sessionId'>;
+
 function requireBaseUrl(): string {
   if (!AUTH_API_BASE_URL) throw new Error('Production authentication is not configured: VITE_AUTH_API_BASE_URL is missing.');
   return AUTH_API_BASE_URL.replace(/\/$/, '');
@@ -23,7 +25,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 const hydrateSession = async (raw: AuthSessionResponse): Promise<SessionContext> => {
-  const session = await request<SessionContext>('/api/v1/auth/session', {
+  const session = await request<HydratedSessionResponse>('/api/v1/auth/session', {
     headers: { Authorization: `Bearer ${raw.token}` },
   });
   if (!session) throw new Error('Authentication API returned an invalid session.');
