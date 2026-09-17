@@ -56,7 +56,6 @@ export interface SessionContext {
   readonly currentUser: User;
   readonly token: string;
   readonly expiresAt: string;
-  readonly sessionId: string;
 }
 
 export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
@@ -84,7 +83,7 @@ export interface PermissionMeta {
 }
 
 const permissionMeta = (id: Permission, category: PermissionMeta['category'], nameEn: string, nameTh: string, isSensitive = false): PermissionMeta => ({
-  id, category, nameEn, descEn: nameEn, descTh: nameTh, nameTh, isSensitive,
+  id, category, nameEn, nameTh, descEn: nameEn, descTh: nameTh, isSensitive,
 });
 
 export const PERMISSION_DEFINITIONS: PermissionMeta[] = [
