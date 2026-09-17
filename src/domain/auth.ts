@@ -1,18 +1,10 @@
-/**
- * PRODX POS Domain - Auth, Tenant & RBAC Module
- *
- * Authentication credentials are server-authoritative. The browser must never
- * persist, hash, validate, or mutate staff passwords. This module stores only
- * non-secret local UX/offline state.
- */
-
 export type Role = 'admin' | 'manager' | 'cashier';
 export type Permission =
   | 'pos:checkout' | 'pos:discount' | 'pos:price_override' | 'pos:void' | 'pos:refund'
   | 'shift:open' | 'shift:close' | 'shift:pay_movement'
   | 'inventory:read' | 'inventory:adjust'
   | 'customers:read' | 'customers:write'
-  | 'reports:read' | 'audit:read' | 'settings:manage';
+  | 'reports:read' | 'audit:read' | 'settings:manage' | 'ai:use';
 
 export interface User {
   readonly id: string; readonly name: string; readonly email: string; readonly role: Role;
@@ -38,7 +30,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
 };
 
 export interface PermissionMeta {
-  id: Permission; category: 'pos' | 'shift' | 'inventory' | 'customers' | 'reports' | 'settings';
+  id: Permission; category: 'pos' | 'shift' | 'inventory' | 'customers' | 'reports' | 'settings' | 'ai';
   nameEn: string; nameTh: string; descEn: string; descTh: string; isSensitive: boolean;
 }
 const permissionMeta = (id: Permission, category: PermissionMeta['category'], nameEn: string, nameTh: string, isSensitive = false): PermissionMeta => ({ id, category, nameEn, nameTh, descEn: nameEn, descTh: nameTh, isSensitive });
@@ -58,6 +50,7 @@ export const PERMISSION_DEFINITIONS: PermissionMeta[] = [
   permissionMeta('reports:read','reports','View Sales & Profit Dashboard','ดูแดชบอร์ดยอดขายและกำไร',true),
   permissionMeta('audit:read','reports','View Security & Audit Trail','ดู Audit Trail',true),
   permissionMeta('settings:manage','settings','System & Financial Settings','จัดการตั้งค่าระบบ',true),
+  permissionMeta('ai:use','ai','Use assistive AI capabilities','ใช้งานความสามารถ AI แบบช่วยเหลือ'),
 ];
 
 export const DEFAULT_STAFF_DIRECTORY: User[] = [
@@ -83,16 +76,16 @@ export function getStoredRolePermissions(): Record<Role, Permission[]> {
   return { admin:[...ROLE_PERMISSIONS.admin], manager:[...ROLE_PERMISSIONS.manager], cashier:[...ROLE_PERMISSIONS.cashier] };
 }
 export function saveStoredRolePermissions(matrix: Record<Role, Permission[]>): void {
-  try { localStorage.setItem(ROLE_PERMS_STORAGE_KEY, JSON.stringify(matrix)); } catch (e) { console.error('Failed to save role permissions from storage', e); }
+  try { localStorage.setItem(ROLE_PERMS_STORAGE_KEY, JSON.stringify(matrix)); } catch (e) { console.error('Failed to save role permissions to storage', e); }
 }
 export function getStoredStaffPins(): Record<string, string> {
   try { const raw = localStorage.getItem(STAFF_PINS_STORAGE_KEY); if (raw) return JSON.parse(raw); } catch (e) { console.error('Failed to parse staff pins from storage', e); }
   return {};
 }
 export function saveStoredStaffPins(pins: Record<string, string>): void {
-  try { localStorage.setItem(STAFF_PINS_STORAGE_KEY, JSON.stringify(pins)); } catch (e) { console.error('Failed to save staff pins from storage', e); }
+  try { localStorage.setItem(STAFF_PINS_STORAGE_KEY, JSON.stringify(pins)); } catch (e) { console.error('Failed to save staff pins to storage', e); }
 }
 
-/** Compatibility shim: returns no credentials and never reads browser storage. */
+/** Compatibility shim: password credentials are server-authoritative and are never read from browser storage. */
 export function getStoredStaffPasswords(): Record<string, string> { return {}; }
 export function hasPermission(user: User, permission: Permission): boolean { return user.permissions.includes(permission); }
