@@ -15,26 +15,26 @@ const device: DeviceRecord = {
 test('approved policy: fifth failure locks for 15 minutes and active-lockout attempts do not mutate state', async () => {
   let current = { ...credential };
   const repository: AuthenticationRepository = {
-    findCredentialByUsername: async () => current,
+    findCredentialByUsername: async (_username, requestedOrganizationId) => requestedOrganizationId === organizationId ? current : null,
     recordFailedAttempt: async (_userId, lockedUntil) => {
       current = { ...current, failedAttempts: current.failedAttempts + 1, lockedUntil: lockedUntil ?? current.lockedUntil };
     },
     resetFailedAttempts: async () => { current = { ...current, failedAttempts: 0, lockedUntil: null }; },
     createSession: async () => {},
     findSessionByTokenHash: async () => null,
+    revokeSession: async () => {},
     findDevice: async () => device,
     touchSession: async () => {},
   };
   const now = new Date('2026-09-14T00:00:00.000Z');
   const issuer = createSessionIssuer(repository, async () => false, () => now);
+  const input = { username: 'cashier', password: 'bad', deviceId: device.id, organizationId };
 
-  for (let i = 0; i < 5; i += 1) {
-    assert.equal(await issuer.authenticateCredentials({ username: 'cashier', password: 'bad', deviceId: device.id }), null);
-  }
+  for (let i = 0; i < 5; i += 1) assert.equal(await issuer.authenticateCredentials(input), null);
   assert.equal(current.failedAttempts, 5);
   assert.equal(current.lockedUntil?.toISOString(), '2026-09-14T00:15:00.000Z');
 
-  assert.equal(await issuer.authenticateCredentials({ username: 'cashier', password: 'bad', deviceId: device.id }), null);
+  assert.equal(await issuer.authenticateCredentials(input), null);
   assert.equal(current.failedAttempts, 5);
   assert.equal(current.lockedUntil?.toISOString(), '2026-09-14T00:15:00.000Z');
 });
