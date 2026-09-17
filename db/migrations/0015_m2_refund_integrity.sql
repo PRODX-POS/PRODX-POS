@@ -66,9 +66,8 @@ BEGIN
   SELECT COALESCE(SUM(ROUND(oi.line_total_amount * ri.quantity / oi.quantity, 2)),0)
     INTO v_expected
     FROM prodx_refund_items ri
-    JOIN prodx_order_adjustments a ON a.id=ri.adjustment_id AND a.store_id=ri.store_id
     JOIN prodx_order_items oi ON oi.order_id=ri.order_id AND oi.store_id=ri.store_id AND oi.product_id=ri.product_id
-    WHERE ri.adjustment_id=NEW.adjustment_id;
+    WHERE ri.adjustment_id=NEW.adjustment_id AND ri.id<>NEW.id;
 
   v_expected := v_expected + v_selected;
   IF v_expected <> v_adjustment.amount THEN
