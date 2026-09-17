@@ -14,6 +14,7 @@ const id = { org:'00000000-0000-4000-8000-000000001101', store:'00000000-0000-40
 const paymentIdByRequestKey: Record<string, string> = {
   'rv-sale': '00000000-0000-4000-8000-000000001109',
   'rv-void': '00000000-0000-4000-8000-000000001110',
+  'rv-multi': '00000000-0000-4000-8000-000000001111',
 };
 
 const request = (key:string): CheckoutRequest => ({
@@ -26,8 +27,9 @@ const request = (key:string): CheckoutRequest => ({
 async function clean(){
   if(!pool)return;
   await pool.query('TRUNCATE prodx_audit_log');
+  await pool.query('TRUNCATE prodx_refund_items, prodx_order_adjustments');
   for(const q of [
-    ['DELETE FROM prodx_cash_movements WHERE shift_id=$1',[id.shift]],['DELETE FROM prodx_refund_items WHERE store_id=$1',[id.store]],['DELETE FROM prodx_order_adjustments WHERE store_id=$1',[id.store]],['DELETE FROM prodx_payments WHERE store_id=$1',[id.store]],['DELETE FROM prodx_order_items WHERE store_id=$1',[id.store]],['DELETE FROM prodx_inventory_ledger WHERE store_id=$1',[id.store]],['DELETE FROM prodx_orders WHERE store_id=$1',[id.store]],['DELETE FROM prodx_shifts WHERE id=$1',[id.shift]],['DELETE FROM prodx_products WHERE id=$1',[id.product]],['DELETE FROM prodx_categories WHERE id=$1',[id.cat]],['DELETE FROM prodx_registers WHERE id=$1',[id.reg]],['DELETE FROM prodx_store_memberships WHERE store_id=$1',[id.store]],['DELETE FROM prodx_users WHERE id=$1',[id.user]],['DELETE FROM prodx_stores WHERE id=$1',[id.store]],['DELETE FROM prodx_organizations WHERE id=$1',[id.org]]]) await pool.query(q[0] as string,q[1] as string[]);
+    ['DELETE FROM prodx_cash_movements WHERE shift_id=$1',[id.shift]],['DELETE FROM prodx_payments WHERE store_id=$1',[id.store]],['DELETE FROM prodx_order_items WHERE store_id=$1',[id.store]],['DELETE FROM prodx_inventory_ledger WHERE store_id=$1',[id.store]],['DELETE FROM prodx_orders WHERE store_id=$1',[id.store]],['DELETE FROM prodx_shifts WHERE id=$1',[id.shift]],['DELETE FROM prodx_products WHERE id=$1',[id.product]],['DELETE FROM prodx_categories WHERE id=$1',[id.cat]],['DELETE FROM prodx_registers WHERE id=$1',[id.reg]],['DELETE FROM prodx_store_memberships WHERE store_id=$1',[id.store]],['DELETE FROM prodx_users WHERE id=$1',[id.user]],['DELETE FROM prodx_stores WHERE id=$1',[id.store]],['DELETE FROM prodx_organizations WHERE id=$1',[id.org]]]) await pool.query(q[0] as string,q[1] as string[]);
 }
 async function seed(){
   if(!pool)throw new Error('DATABASE_URL required'); await clean();
@@ -63,6 +65,28 @@ test('PostgreSQL refund/void are authoritative, idempotent, atomic and bounded',
   await assert.rejects(adjustments.refund({storeId:id.store,orderId:sale.order.id,amountInCents:500,currency:'THB',reason:'Card refund without provider',refundMethod:'card',authorizedByUserId:id.user,idempotencyKey:'refund-card-unconfigured',itemsToRestock:[]}), /External card refund settlement is not configured/);
   assert.equal((await pool.query("SELECT count(*)::int n FROM prodx_order_adjustments WHERE order_id=$1", [sale.order.id])).rows[0].n, beforeExternalAttempt.rows[0].n);
   assert.equal(Number((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1',[id.product])).rows[0].current_stock),before);
+
+  const multiSale=await checkout.checkout(request('rv-multi'));
+  const client=await pool.connect();
+  const multiAdjustment='00000000-0000-4000-8000-000000001112';
+  const multiItem1='00000000-0000-4000-8000-000000001113';
+  const multiItem2='00000000-0000-4000-8000-000000001114';
+  try {
+    await client.query('BEGIN');
+    await client.query("INSERT INTO prodx_order_adjustments(id,organization_id,store_id,order_id,action,amount,refund_method,reason,idempotency_key,authorized_by_user_id) VALUES($1,$2,$3,$4,'refund',20,'cash','Multi-item DB reconciliation','db-multi-1',$5)",[multiAdjustment,id.org,id.store,multiSale.order.id,id.user]);
+    await client.query("INSERT INTO prodx_refund_items(id,organization_id,store_id,adjustment_id,order_id,product_id,quantity) VALUES($1,$2,$3,$4,$5,$6,1)",[multiItem1,id.org,id.store,multiAdjustment,multiSale.order.id,id.product]);
+    await client.query("INSERT INTO prodx_refund_items(id,organization_id,store_id,adjustment_id,order_id,product_id,quantity) VALUES($1,$2,$3,$4,$5,$6,1)",[multiItem2,id.org,id.store,multiAdjustment,multiSale.order.id,id.product]);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally { client.release(); }
+  assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_refund_items WHERE adjustment_id=$1',[multiAdjustment])).rows[0].n,2);
+  await assert.rejects(pool.query('DELETE FROM prodx_refund_items WHERE id=$1',[multiItem1]));
+  await assert.rejects(pool.query('UPDATE prodx_refund_items SET quantity=2 WHERE id=$1',[multiItem1]));
+  await assert.rejects(pool.query('DELETE FROM prodx_order_adjustments WHERE id=$1',[multiAdjustment]));
+  await assert.rejects(pool.query("UPDATE prodx_order_adjustments SET reason='tampered' WHERE id=$1",[multiAdjustment]));
+  assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_refund_items WHERE adjustment_id=$1',[multiAdjustment])).rows[0].n,2);
 
   const sale2=await checkout.checkout(request('rv-void')); const voided=await adjustments.void({storeId:id.store,orderId:sale2.order.id,reason:'Duplicate sale',authorizedByUserId:id.user,idempotencyKey:'void-1'}); assert.equal(voided.idempotencyCached,false);
   assert.equal((await pool.query("SELECT status FROM prodx_orders WHERE id=$1",[sale2.order.id])).rows[0].status,'voided');
