@@ -6,10 +6,10 @@ import { AIBackendBoundary, AIAuthorizationError } from './backend-boundary';
 
 function provider(onCall: () => void): AIProvider {
   return {
-    name: 'okmd',
+    name: 'test-provider',
     async chat(request) {
       onCall();
-      return { id: 'test', model: request.model, provider: 'okmd', raw: {} };
+      return { id: 'test', model: request.model, provider: 'test-provider', raw: {} };
     },
   };
 }
@@ -23,7 +23,7 @@ const principal = {
 
 test('denies missing authentication context before provider execution', async () => {
   let calls = 0;
-  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'okmd'));
+  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'test-provider'));
   const boundary = new AIBackendBoundary(core);
 
   await assert.rejects(
@@ -35,7 +35,7 @@ test('denies missing authentication context before provider execution', async ()
 
 test('denies missing tenant/store scope before provider execution', async () => {
   let calls = 0;
-  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'okmd'));
+  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'test-provider'));
   const boundary = new AIBackendBoundary(core);
 
   await assert.rejects(
@@ -50,7 +50,7 @@ test('denies missing tenant/store scope before provider execution', async () => 
 
 test('denies missing AI permission before provider execution', async () => {
   let calls = 0;
-  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'okmd'));
+  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'test-provider'));
   const boundary = new AIBackendBoundary(core);
 
   await assert.rejects(
@@ -65,7 +65,7 @@ test('denies missing AI permission before provider execution', async () => {
 
 test('allows an authorized scoped principal to reach AI Core', async () => {
   let calls = 0;
-  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'okmd'));
+  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'test-provider'));
   const boundary = new AIBackendBoundary(core);
 
   const response = await boundary.chat({
@@ -73,6 +73,6 @@ test('allows an authorized scoped principal to reach AI Core', async () => {
     messages: [{ role: 'user', content: 'hello' }],
   });
 
-  assert.equal(response.provider, 'okmd');
+  assert.equal(response.provider, 'test-provider');
   assert.equal(calls, 1);
 });
