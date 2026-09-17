@@ -1,30 +1,5 @@
-import React, { useState } from 'react';
-import {
-  X,
-  Lock,
-  KeyRound,
-  ShieldCheck,
-  ShieldAlert,
-  Sparkles,
-  Eye,
-  EyeOff,
-  CheckCircle2,
-  AlertCircle,
-  RefreshCw,
-  Copy,
-  Check,
-  UserCheck,
-  Save,
-} from 'lucide-react';
-import {
-  User,
-  getStoredStaffDirectory,
-  getStoredStaffPasswords,
-  updateStaffPassword,
-  getStoredStaffPins,
-} from '../../domain/auth';
-import { analyzePassword } from '../../utils/passwordSecurity';
-import { PasswordStrengthMeter } from './PasswordStrengthMeter';
+import React from 'react';
+import { AlertTriangle, X } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 
 interface AccountPasswordModalProps {
@@ -35,365 +10,73 @@ interface AccountPasswordModalProps {
   preselectedUserId?: string;
 }
 
+/**
+ * Password changes are server-authoritative. The previous implementation
+ * accepted client-side verification and persisted plaintext passwords in
+ * localStorage. That flow is intentionally disabled until a backend password
+ * mutation endpoint is wired into the production authentication contract.
+ */
 export const AccountPasswordModal: React.FC<AccountPasswordModalProps> = ({
   isOpen,
   onClose,
   language: rawLang = 'th',
-  onPasswordUpdated,
-  preselectedUserId,
 }) => {
   const lang = rawLang === 'th' ? 'th' : 'en';
   const { addToast } = useToast();
-  const staffList = getStoredStaffDirectory();
-  const storedPins = getStoredStaffPins();
-  const storedPasswords = getStoredStaffPasswords();
-
-  const [selectedUserId, setSelectedUserId] = useState<string>(
-    preselectedUserId || staffList[0]?.id || 'usr-admin-alex'
-  );
-  const [currentVerification, setCurrentVerification] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [copiedGenerated, setCopiedGenerated] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isOpen) return null;
 
-  const selectedUser = staffList.find((u) => u.id === selectedUserId) || staffList[0];
-  const analysis = analyzePassword(newPassword, {
-    email: selectedUser?.email,
-    name: selectedUser?.name,
-  });
-
-  const passwordsMatch = newPassword.length > 0 && newPassword === confirmPassword;
-  const isFormValid = analysis.isPolicyCompliant && passwordsMatch && currentVerification.length > 0;
-
-  // Generator for high-entropy enterprise passphrases
-  const handleGenerateSecurePassword = () => {
-    const charsUpper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-    const charsLower = 'abcdefghijkmnopqrstuvwxyz';
-    const charsNum = '23456789';
-    const charsSpecial = '!@#$%^&*()_+~|}{[]:;?';
-
-    let pass = '';
-    // Guarantee each set
-    pass += charsUpper[Math.floor(Math.random() * charsUpper.length)];
-    pass += charsLower[Math.floor(Math.random() * charsLower.length)];
-    pass += charsNum[Math.floor(Math.random() * charsNum.length)];
-    pass += charsSpecial[Math.floor(Math.random() * charsSpecial.length)];
-
-    const all = charsUpper + charsLower + charsNum + charsSpecial;
-    for (let i = 0; i < 12; i++) {
-      pass += all[Math.floor(Math.random() * all.length)];
-    }
-
-    // Shuffle
-    const shuffled = pass.split('').sort(() => 0.5 - Math.random()).join('');
-    setNewPassword(shuffled);
-    setConfirmPassword(shuffled);
-    setShowNewPassword(true);
-    setShowConfirmPassword(true);
-
-    // Copy to clipboard
-    navigator.clipboard?.writeText(shuffled).catch(() => {});
-    setCopiedGenerated(true);
-    setTimeout(() => setCopiedGenerated(false), 2000);
-
+  const handleClose = () => {
     addToast({
-      title: lang === 'th' ? 'สร้างรหัสผ่านความปลอดภัยสูงแล้ว' : 'High-Entropy Password Generated',
+      title: lang === 'th' ? 'การจัดการรหัสผ่านถูกปิดไว้' : 'Password management unavailable',
       message:
         lang === 'th'
-          ? 'รหัสผ่านถูกคัดลอกลงคลิปบอร์ดแล้ว และตรงตามมาตรฐาน PCI-DSS ครบถ้วน'
-          : 'Compliant 16-character enterprise password copied to clipboard.',
-      type: 'success',
+          ? 'รหัสผ่านต้องเปลี่ยนผ่าน Authentication API ของเซิร์ฟเวอร์เท่านั้น'
+          : 'Passwords must be changed through the server-side Authentication API.',
+      type: 'warning',
     });
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!selectedUser) return;
-
-    // Verify current credentials (accept current stored password or current PIN or admin bypass)
-    const validCurrentPass = storedPasswords[selectedUser.id] || 'password123';
-    const validPin = storedPins[selectedUser.id];
-    const isCurrentValid =
-      currentVerification === validCurrentPass ||
-      currentVerification === validPin ||
-      currentVerification === '1234' ||
-      currentVerification === 'password123';
-
-    if (!isCurrentValid) {
-      addToast({
-        title: lang === 'th' ? 'รหัสยืนยันตัวตนปัจจุบันไม่ถูกต้อง' : 'Current Verification Failed',
-        message:
-          lang === 'th'
-            ? `กรุณากรอกรหัสผ่านปัจจุบันหรือ PIN ของ ${selectedUser.name} ให้ถูกต้อง`
-            : `Please enter the valid current password or PIN for ${selectedUser.name}`,
-        type: 'error',
-      });
-      return;
-    }
-
-    if (!analysis.isPolicyCompliant) {
-      addToast({
-        title: lang === 'th' ? 'รหัสผ่านใหม่ไม่ผ่านเกณฑ์ความปลอดภัย' : 'Password Policy Violation',
-        message:
-          lang === 'th'
-            ? 'รหัสผ่านใหม่ต้องผ่านเกณฑ์ความปลอดภัยขององค์กรครบทุกข้อ'
-            : 'New password must fulfill all enterprise security policy criteria.',
-        type: 'error',
-      });
-      return;
-    }
-
-    if (!passwordsMatch) {
-      addToast({
-        title: lang === 'th' ? 'รหัสผ่านยืนยันไม่ตรงกัน' : 'Passwords Do Not Match',
-        message:
-          lang === 'th'
-            ? 'กรุณากรอกรหัสผ่านใหม่และรหัสยืนยันให้ตรงกัน'
-            : 'Please ensure both password fields match exactly.',
-        type: 'error',
-      });
-      return;
-    }
-
-    setIsSubmitting(true);
-    setTimeout(() => {
-      updateStaffPassword(selectedUser.id, newPassword);
-      setIsSubmitting(false);
-
-      addToast({
-        title: lang === 'th' ? 'บันทึกรหัสผ่านใหม่สำเร็จ' : 'Password Successfully Updated',
-        message:
-          lang === 'th'
-            ? `อัปเดตรหัสผ่านสำหรับ ${selectedUser.name} เรียบร้อยแล้ว สามารถเข้าสู่ระบบได้ทันที`
-            : `New password for ${selectedUser.name} is now active. You can sign in immediately.`,
-        type: 'success',
-      });
-
-      if (onPasswordUpdated) {
-        onPasswordUpdated(selectedUser.id, newPassword);
-      }
-      onClose();
-    }, 400);
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in duration-200">
-      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-slate-200 overflow-hidden my-6">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/70">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-              <KeyRound className="w-5 h-5" />
-            </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-amber-200 overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-amber-50">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600" />
             <div>
-              <h2 className="text-base font-black text-slate-900 leading-tight">
-                {lang === 'th' ? 'จัดการและตั้งค่ารหัสผ่านบัญชี' : 'Secure Account Password Management'}
+              <h2 className="text-base font-black text-slate-900">
+                {lang === 'th' ? 'การเปลี่ยนรหัสผ่าน' : 'Change Password'}
               </h2>
-              <p className="text-[11px] text-text/60">
-                {lang === 'th'
-                  ? 'ตรวจสอบเกณฑ์ความปลอดภัยแบบเรียลไทม์ (NIST 800-63B & PCI-DSS)'
-                  : 'Real-time security criteria verification & entropy enforcement'}
+              <p className="text-[11px] text-slate-600">
+                {lang === 'th' ? 'การดำเนินการต้องผ่านเซิร์ฟเวอร์' : 'Server-authoritative operation required'}
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-          >
+          <button type="button" onClick={handleClose} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
-          {/* Target Account Selector */}
-          <div>
-            <label className="block text-xs font-bold text-slate-800 mb-1.5">
-              {lang === 'th' ? 'เลือกบัญชีพนักงานที่ต้องการจัดการ' : 'Target Staff Account'}
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {staffList.map((user) => {
-                const isSelected = user.id === selectedUserId;
-                return (
-                  <button
-                    key={user.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedUserId(user.id);
-                      setCurrentVerification('');
-                    }}
-                    className={`p-2 rounded-xl border text-left flex flex-col justify-between min-h-[58px] transition-all cursor-pointer ${
-                      isSelected
-                        ? 'border-primary bg-primary/5 text-primary ring-2 ring-primary/20 font-bold'
-                        : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    <div className="text-[11px] font-bold truncate">{user.name.split(' ')[0]}</div>
-                    <div className="text-[9px] uppercase font-mono text-text/50 truncate">
-                      {user.role} · {user.employeeCode}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+        <div className="p-6 space-y-4">
+          <p className="text-sm leading-6 text-slate-700">
+            {lang === 'th'
+              ? 'ระบบไม่อนุญาตให้ตรวจสอบหรือจัดเก็บรหัสผ่านใน Browser อีกต่อไป เพื่อป้องกัน credential exposure และ bypass authentication'
+              : 'The browser no longer verifies or stores passwords. This prevents credential exposure and client-side authentication bypass.'}
+          </p>
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-600">
+            {lang === 'th'
+              ? 'การเปลี่ยนรหัสผ่านจะเปิดใช้งานอีกครั้งเมื่อมี endpoint ฝั่ง server สำหรับ verify credential เดิม, เปลี่ยน credential และบันทึก audit ครบถ้วน'
+              : 'Password changes will be enabled only after the server exposes an authenticated, audited credential-change endpoint.'}
           </div>
-
-          {/* Current Verification */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-bold text-slate-800">
-                {lang === 'th' ? 'รหัสผ่านปัจจุบันหรือ PIN ของบัญชี' : 'Current Password or PIN'}
-              </label>
-              <span className="text-[10px] text-primary font-mono font-medium">
-                {lang === 'th' ? `(หรือ PIN: ${storedPins[selectedUser.id] || '1234'})` : `(or PIN: ${storedPins[selectedUser.id] || '1234'})`}
-              </span>
-            </div>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text/40">
-                <Lock className="w-4 h-4" />
-              </div>
-              <input
-                type="password"
-                value={currentVerification}
-                onChange={(e) => setCurrentVerification(e.target.value)}
-                placeholder={lang === 'th' ? 'กรอกรหัสผ่านเดิมหรือ PIN' : 'Enter current password or PIN'}
-                className="w-full h-10 pl-9 pr-3 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:bg-white transition-all placeholder:text-text/40"
-              />
-            </div>
-          </div>
-
-          {/* New Password & Generator */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-bold text-slate-800">
-                {lang === 'th' ? 'รหัสผ่านใหม่ (New Password)' : 'New Password'}
-              </label>
-              <button
-                type="button"
-                onClick={handleGenerateSecurePassword}
-                className="inline-flex items-center gap-1 text-[11px] font-bold text-primary hover:text-primary-dark transition-colors cursor-pointer"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{copiedGenerated ? (lang === 'th' ? 'คัดลอกแล้ว!' : 'Copied!') : (lang === 'th' ? 'สุ่มรหัสผ่านปลอดภัยสูง' : 'Generate Strong')}</span>
-              </button>
-            </div>
-
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text/40">
-                <KeyRound className="w-4 h-4" />
-              </div>
-              <input
-                type={showNewPassword ? 'text' : 'password'}
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder={lang === 'th' ? 'ตั้งรหัสผ่านใหม่ที่มีความปลอดภัย' : 'Enter new secure password'}
-                className="w-full h-10 pl-9 pr-10 rounded-xl border border-slate-200 bg-slate-50 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary focus:bg-white transition-all placeholder:text-text/40"
-              />
-              <button
-                type="button"
-                onClick={() => setShowNewPassword(!showNewPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-text/40 hover:text-text cursor-pointer"
-              >
-                {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-
-            {/* Live Real-time Strength Meter & Validation Checklist */}
-            <PasswordStrengthMeter
-              analysis={analysis}
-              language={lang}
-              showCriteriaList={true}
-              showEntropyInfo={true}
-              compact={false}
-            />
-          </div>
-
-          {/* Confirm Password */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-bold text-slate-800">
-                {lang === 'th' ? 'ยืนยันรหัสผ่านใหม่อีกครั้ง' : 'Confirm New Password'}
-              </label>
-              {newPassword.length > 0 && confirmPassword.length > 0 && (
-                <span
-                  className={`text-[11px] font-bold flex items-center gap-1 ${
-                    passwordsMatch ? 'text-emerald-600' : 'text-rose-600'
-                  }`}
-                >
-                  {passwordsMatch ? (
-                    <>
-                      <CheckCircle2 className="w-3 h-3" />
-                      <span>{lang === 'th' ? 'รหัสผ่านตรงกัน' : 'Passwords match'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertCircle className="w-3 h-3" />
-                      <span>{lang === 'th' ? 'รหัสผ่านไม่ตรงกัน' : 'Does not match'}</span>
-                    </>
-                  )}
-                </span>
-              )}
-            </div>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-text/40">
-                <Lock className="w-4 h-4" />
-              </div>
-              <input
-                type={showConfirmPassword ? 'text' : 'password'}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder={lang === 'th' ? 'กรอกรหัสผ่านใหม่อีกครั้งเพื่อยืนยัน' : 'Re-type new password'}
-                className={`w-full h-10 pl-9 pr-10 rounded-xl border bg-slate-50 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:bg-white transition-all placeholder:text-text/40 ${
-                  confirmPassword.length > 0
-                    ? passwordsMatch
-                      ? 'border-emerald-400 focus:ring-emerald-500'
-                      : 'border-rose-400 focus:ring-rose-500'
-                    : 'border-slate-200 focus:ring-primary'
-                }`}
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center text-text/40 hover:text-text cursor-pointer"
-              >
-                {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="pt-3 border-t border-slate-100 flex gap-2.5">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 h-11 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs sm:text-sm font-bold transition-all cursor-pointer"
-            >
-              {lang === 'th' ? 'ยกเลิก' : 'Cancel'}
-            </button>
-
-            <button
-              type="submit"
-              disabled={isSubmitting || !isFormValid}
-              className="flex-1 h-11 rounded-xl bg-primary hover:bg-primary-dark text-white text-xs sm:text-sm font-bold shadow-xs active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  <span>{lang === 'th' ? 'บันทึกรหัสผ่านใหม่' : 'Save New Password'}</span>
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+          <button
+            type="button"
+            onClick={handleClose}
+            className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
+          >
+            {lang === 'th' ? 'ปิด' : 'Close'}
+          </button>
+        </div>
       </div>
     </div>
   );
