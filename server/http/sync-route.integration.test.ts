@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import test from 'node:test';
 import { createPostgresPool } from '../db/postgres';
 import { createTransactionalPostgresExecutor } from '../db/transaction';
@@ -14,14 +15,21 @@ const ids = {
   org: '00000000-0000-4000-8000-000000003001', store: '00000000-0000-4000-8000-000000003002',
   user: '00000000-0000-4000-8000-000000003004', register: '00000000-0000-4000-8000-000000003005',
   shift: '00000000-0000-4000-8000-000000003006', category: '00000000-0000-4000-8000-000000003007',
-  product: '00000000-0000-4000-8000-000000003008', payment: '00000000-0000-4000-8000-000000003009',
+  product: '00000000-0000-4000-8000-000000003008',
+};
+
+const paymentIdForKey = (key: string): string => {
+  const hex = crypto.createHash('sha256').update(`prodx-sync-payment:${key}`).digest('hex').slice(0, 32).split('');
+  hex[12] = '4';
+  hex[16] = ['8', '9', 'a', 'b'][parseInt(hex[16], 16) % 4];
+  return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20).join('')}`;
 };
 
 const checkoutRequest = (idempotencyKey: string, overrides: Partial<CheckoutRequest> = {}): CheckoutRequest => ({
   idempotencyKey, storeId: ids.store, registerId: ids.register, cashierId: ids.user,
   items: [{ lineId: 'line-1', product: { id: ids.product, storeId: ids.store, sku: 'SYNC-1', barcode: 'SYNC-1', name: 'Sync Product', categoryId: ids.category, price: { amountInCents: 1000, currency: 'THB' }, costPrice: { amountInCents: 500, currency: 'THB' }, taxRateBps: 0, currentStock: 20, reorderPoint: 1, unitOfMeasure: 'each' }, quantity: 2, unitPrice: { amountInCents: 1000, currency: 'THB' }, discountBps: 0, lineSubtotal: { amountInCents: 2000, currency: 'THB' }, lineTax: { amountInCents: 0, currency: 'THB' }, lineTotal: { amountInCents: 2000, currency: 'THB' } }],
   totals: { grossSubtotal: { amountInCents: 2000, currency: 'THB' }, itemDiscounts: { amountInCents: 0, currency: 'THB' }, orderDiscount: { amountInCents: 0, currency: 'THB' }, netSubtotal: { amountInCents: 2000, currency: 'THB' }, totalTax: { amountInCents: 0, currency: 'THB' }, grandTotal: { amountInCents: 2000, currency: 'THB' }, totalItemsCount: 2 },
-  payments: [{ id: ids.payment, method: 'cash', amount: { amountInCents: 2000, currency: 'THB' }, tenderedCash: { amountInCents: 2000, currency: 'THB' }, changeGiven: { amountInCents: 0, currency: 'THB' }, timestamp: '2026-09-17T00:00:00.000Z' }],
+  payments: [{ id: paymentIdForKey(idempotencyKey), method: 'cash', amount: { amountInCents: 2000, currency: 'THB' }, tenderedCash: { amountInCents: 2000, currency: 'THB' }, changeGiven: { amountInCents: 0, currency: 'THB' }, timestamp: '2026-09-17T00:00:00.000Z' }],
   ...overrides,
 });
 
@@ -73,21 +81,16 @@ test('PostgreSQL sync command lifecycle is terminal, replay-safe and conflict-sa
   const { server, baseUrl } = await makeServer();
   t.after(async () => {
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-    await pool.query('DELETE FROM prodx_sync_commands WHERE store_id=$1', [ids.store]);
-    await pool.query('DELETE FROM prodx_cash_movements WHERE shift_id=$1', [ids.shift]);
-    await pool.query('DELETE FROM prodx_audit_log WHERE store_id=$1', [ids.store]);
-    await pool.query('DELETE FROM prodx_payments WHERE store_id=$1', [ids.store]);
-    await pool.query('DELETE FROM prodx_order_items WHERE store_id=$1', [ids.store]);
-    await pool.query('DELETE FROM prodx_inventory_ledger WHERE store_id=$1', [ids.store]);
-    await pool.query('DELETE FROM prodx_orders WHERE store_id=$1', [ids.store]);
-    await pool.query('DELETE FROM prodx_shifts WHERE id=$1', [ids.shift]);
-    await pool.query('DELETE FROM prodx_products WHERE id=$1', [ids.product]);
-    await pool.query('DELETE FROM prodx_categories WHERE id=$1', [ids.category]);
-    await pool.query('DELETE FROM prodx_registers WHERE id=$1', [ids.register]);
-    await pool.query('DELETE FROM prodx_store_memberships WHERE store_id=$1', [ids.store]);
-    await pool.query('DELETE FROM prodx_users WHERE id=$1', [ids.user]);
-    await pool.query('DELETE FROM prodx_stores WHERE id=$1', [ids.store]);
-    await pool.query('DELETE FROM prodx_organizations WHERE id=$1', [ids.org]);
+    for (const [sql, params] of [
+      ['DELETE FROM prodx_sync_commands WHERE store_id=$1', [ids.store]], ['DELETE FROM prodx_cash_movements WHERE shift_id=$1', [ids.shift]],
+      ['DELETE FROM prodx_audit_log WHERE store_id=$1', [ids.store]], ['DELETE FROM prodx_payments WHERE store_id=$1', [ids.store]],
+      ['DELETE FROM prodx_order_items WHERE store_id=$1', [ids.store]], ['DELETE FROM prodx_inventory_ledger WHERE store_id=$1', [ids.store]],
+      ['DELETE FROM prodx_orders WHERE store_id=$1', [ids.store]], ['DELETE FROM prodx_shifts WHERE id=$1', [ids.shift]],
+      ['DELETE FROM prodx_products WHERE id=$1', [ids.product]], ['DELETE FROM prodx_categories WHERE id=$1', [ids.category]],
+      ['DELETE FROM prodx_registers WHERE id=$1', [ids.register]], ['DELETE FROM prodx_store_memberships WHERE store_id=$1', [ids.store]],
+      ['DELETE FROM prodx_users WHERE id=$1', [ids.user]], ['DELETE FROM prodx_stores WHERE id=$1', [ids.store]],
+      ['DELETE FROM prodx_organizations WHERE id=$1', [ids.org]],
+    ] as Array<[string, string[]]>) await pool.query(sql, params);
     await pool.end();
   });
 
