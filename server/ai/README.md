@@ -2,18 +2,20 @@
 
 This directory contains the server-side, provider-neutral AI boundary for PRODX.
 
-## OKMD configuration
+## OpenRouter configuration
 
 Set these values in the deployment environment or secret manager:
 
 ```text
-OKMD_AI_BASE_URL=https://gen.ai.kku.ac.th/okmd/api/v1
-OKMD_AI_API_KEY=<secret>
-OKMD_AI_DEFAULT_MODEL=gemini-2.5-flash-lite
-OKMD_AI_TIMEOUT_MS=30000
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_API_KEY=<secret>
+OPENROUTER_DEFAULT_MODEL=openrouter/free
+OPENROUTER_TIMEOUT_MS=30000
+OPENROUTER_HTTP_REFERER=<optional>
+OPENROUTER_APP_TITLE=PRODX-POS
 ```
 
-`OKMD_AI_API_KEY` must never be committed, bundled into the browser, returned by a
+`OPENROUTER_API_KEY` must never be committed, bundled into the browser, returned by a
 frontend endpoint, or written to logs.
 
 ## Request flow
@@ -21,24 +23,27 @@ frontend endpoint, or written to logs.
 ```text
 PRODX UI
   -> authenticated PRODX backend
-  -> AIProvider / OKMDProvider
-  -> OKMD /chat/completions
+  -> AIGatewayService / AIProvider
+  -> OpenRouterProvider
+  -> OpenRouter /chat/completions
 ```
 
 The provider adapter deliberately lives outside `src/` so the browser bundle cannot
-import it accidentally. The adapter also enforces HTTPS, validates basic request
-bounds, applies a request timeout, and avoids copying provider response bodies into
-errors.
+import it accidentally. The adapter enforces HTTPS, validates request bounds, applies
+a request timeout, rejects streaming through this boundary, and avoids copying
+provider response bodies into errors.
 
 ## Production integration boundary
 
 The current repository is a React/Vite application. Its existing authentication
 adapter already points the browser at a separate production authentication backend.
-Therefore this change adds the provider adapter and server contract, but does not
-expose an unauthenticated `/api/ai` route. The production API route must be attached
-to the authenticated backend boundary so organization/user authorization, rate
-limits, quota policy, audit logging, and data-redaction rules are enforced before an
-AI request leaves PRODX.
+Therefore the provider adapter and authenticated server contract must remain behind
+that backend boundary. Do not expose the provider directly to the browser.
+Organization/user authorization, rate limits, quota policy, audit logging, and
+data-redaction rules must be enforced before an AI request leaves PRODX.
+
+The browser service uses `/api/v1/ai/chat` on the configured authenticated backend;
+it never accepts or persists an OpenRouter API key.
 
 ## Verification
 
