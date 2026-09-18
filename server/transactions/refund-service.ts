@@ -93,7 +93,29 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
         (id,organization_id,store_id,order_id,amount,method,reason,authorized_by_user_id,idempotency_key)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(store_id,idempotency_key) DO NOTHING
         RETURNING id, order_id, amount::text`, [refundId, order.organization_id, request.storeId, request.orderId, numeric(amount), request.refundMethod, request.reason.trim(), request.authorizedByUserId, request.idempotencyKey])).rows[0];
-      if (!inserted) throw new RefundConflictError('Concurrent refund idempotency conflict; retry the same request.');
+      if (!inserted) {
+        const concurrent = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason, r.authorized_by_user_id, o.currency
+          FROM prodx_refunds r JOIN prodx_orders o ON o.id = r.order_id AND o.store_id = r.store_id
+          WHERE r.store_id=$1 AND r.idempotency_key=$2 LIMIT 1`, [request.storeId, request.idempotencyKey])).rows[0] as
+          | { id: string; order_id: string; amount: string; method: string; reason: string; authorized_by_user_id: string; currency: string }
+          | undefined;
+        if (!concurrent) throw new RefundConflictError('Idempotency conflict could not be resolved.');
+        const sameScalar = concurrent.order_id === request.orderId && concurrent.method === request.refundMethod &&
+          concurrent.reason === request.reason.trim() && concurrent.authorized_by_user_id === request.authorizedByUserId &&
+          concurrent.currency === request.refundAmount.currency && dbCents(concurrent.amount) === amount;
+        if (!sameScalar) throw new RefundConflictError('This idempotency key was already used for a different refund request.');
+        const concurrentItems = (await tx.query(`SELECT product_id, SUM(quantity)::int AS quantity FROM prodx_refund_items
+          WHERE store_id=$1 AND refund_id=$2 GROUP BY product_id ORDER BY product_id`, [request.storeId, concurrent.id])).rows
+          .map((row) => ({ productId: String(row.product_id), quantity: Number(row.quantity) }));
+        const sameItems = concurrentItems.length === requestedItemsFingerprint.length &&
+          concurrentItems.every((row, index) => row.productId === requestedItemsFingerprint[index].productId && row.quantity === requestedItemsFingerprint[index].quantity);
+        if (!sameItems) throw new RefundConflictError('This idempotency key was already used for a different refund request.');
+        return {
+          success: true, refundId: concurrent.id, orderId: concurrent.order_id, status: 'server_confirmed',
+          refundedAmount: { amountInCents: Number(dbCents(concurrent.amount)), currency: concurrent.currency },
+          message: 'Refund already committed; returning the existing transaction.', idempotencyCached: true,
+        };
+      }
 
       let restockAmountTotal = 0n;
       for (const item of restock) {
