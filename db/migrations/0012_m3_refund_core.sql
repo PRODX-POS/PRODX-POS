@@ -43,4 +43,42 @@ CREATE TABLE IF NOT EXISTS prodx_refund_items (
 CREATE INDEX IF NOT EXISTS prodx_refunds_order_idx ON prodx_refunds(store_id, order_id, created_at);
 CREATE INDEX IF NOT EXISTS prodx_refund_items_refund_idx ON prodx_refund_items(store_id, refund_id);
 
+-- The refund ceiling is a financial invariant. Enforce it in PostgreSQL as well as
+-- in the service so concurrent/direct SQL writers cannot exceed the order balance.
+CREATE OR REPLACE FUNCTION prodx_enforce_refund_balance()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $
+DECLARE
+  order_total NUMERIC(12,2);
+  refunded_total NUMERIC(12,2);
+BEGIN
+  SELECT grand_total_amount INTO order_total
+  FROM prodx_orders
+  WHERE id = NEW.order_id AND store_id = NEW.store_id
+  FOR UPDATE;
+
+  IF order_total IS NULL THEN
+    RAISE EXCEPTION 'Refund order was not found in the target store' USING ERRCODE = '23514';
+  END IF;
+
+  SELECT COALESCE(SUM(amount), 0) INTO refunded_total
+  FROM prodx_refunds
+  WHERE store_id = NEW.store_id
+    AND order_id = NEW.order_id
+    AND (TG_OP <> 'UPDATE' OR id <> OLD.id);
+
+  IF refunded_total + NEW.amount > order_total THEN
+    RAISE EXCEPTION 'Refund amount exceeds the remaining refundable order balance' USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS prodx_refund_balance_guard ON prodx_refunds;
+CREATE TRIGGER prodx_refund_balance_guard
+BEFORE INSERT OR UPDATE OF amount, order_id, store_id ON prodx_refunds
+FOR EACH ROW EXECUTE FUNCTION prodx_enforce_refund_balance();
+
 INSERT INTO prodx_schema_migrations(version) VALUES ('0012_m3_refund_core') ON CONFLICT(version) DO NOTHING;
