@@ -48,8 +48,7 @@ CREATE INDEX IF NOT EXISTS prodx_refund_items_refund_idx ON prodx_refund_items(s
 CREATE OR REPLACE FUNCTION prodx_enforce_refund_balance()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-AS $
-DECLARE
+AS $$DECLARE
   order_total NUMERIC(12,2);
   refunded_total NUMERIC(12,2);
 BEGIN
@@ -74,7 +73,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$;
+$$;
 
 DROP TRIGGER IF EXISTS prodx_refund_balance_guard ON prodx_refunds;
 CREATE TRIGGER prodx_refund_balance_guard
