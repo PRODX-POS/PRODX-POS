@@ -15,7 +15,6 @@ type RefundBody = {
   refundAmount: { amountInCents: number; currency: string };
   reason: string;
   refundMethod: 'cash' | 'card' | 'qr_digital';
-  authorizedByUserId: string;
   itemsToRestock?: readonly RefundBodyItem[];
   idempotencyKey: string;
 };
@@ -43,7 +42,6 @@ const isValidRefundBody = (value: unknown): value is RefundBody => {
     isValidMoney(body.refundAmount) &&
     typeof body.reason === 'string' && body.reason.trim().length > 0 &&
     (body.refundMethod === 'cash' || body.refundMethod === 'card' || body.refundMethod === 'qr_digital') &&
-    typeof body.authorizedByUserId === 'string' && body.authorizedByUserId.trim().length > 0 &&
     typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim().length > 0 &&
     isValidRestockList(body.itemsToRestock)
   );
@@ -70,18 +68,13 @@ export const registerRefundRoute = (
         return;
       }
       const body = rawBody;
-      if (body.authorizedByUserId !== context.principal.userId) {
-        response.status(403).json({ error: { code: 'AUTHORIZATION_SCOPE_VIOLATION', message: 'The refund authorizer must be the authenticated principal.', requestId: request.id } });
-        return;
-      }
-
       const result = await service.refund({
         storeId: context.principal.storeId,
         orderId: body.orderId,
         refundAmount: body.refundAmount,
         reason: body.reason,
         refundMethod: body.refundMethod,
-        authorizedByUserId: body.authorizedByUserId,
+        authorizedByUserId: context.principal.userId,
         itemsToRestock: body.itemsToRestock,
         idempotencyKey: body.idempotencyKey,
       });
