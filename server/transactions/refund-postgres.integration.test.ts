@@ -94,6 +94,19 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
   const order = await createCheckoutService(db).checkout(request('refund-order'));
   const refund = createRefundService(db);
 
+  // A server-confirmed order with no captured payment balance is not refundable.
+  await pool.query('DELETE FROM prodx_payments WHERE store_id=$1 AND order_id=$2', [id.store, order.order.id]);
+  await assert.rejects(refund.refund({
+    storeId: id.store, orderId: order.order.id,
+    refundAmount: { amountInCents: 1000, currency: 'THB' },
+    reason: 'Uncaptured payment', refundMethod: 'cash', authorizedByUserId: id.user,
+    idempotencyKey: 'refund-uncaptured',
+  }));
+  await pool.query(
+    "INSERT INTO prodx_payments (id,organization_id,store_id,order_id,method,amount,tendered_cash,change_given,currency) VALUES($1,$2,$3,$4,'cash',20,20,0,'THB')",
+    [id.payment, id.org, id.store, order.order.id],
+  );
+
   // First refund on an order with no prior refunds (exercises the zero-aggregate
   // parsing path) restocks 1 of the 2 units. The line total is 2000 cents for
   // quantity 2, so the server must derive exactly 1000 cents of authoritative
@@ -118,6 +131,25 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
     itemsToRestock: [{ productId: id.product, quantity: 1 }], idempotencyKey: 'refund-1',
   });
   assert.equal(cached.idempotencyCached, true);
+
+  // Two concurrent callers using the same key must converge on one committed refund.
+  const concurrentResults = await Promise.all([
+    refund.refund({
+      storeId: id.store, orderId: order.order.id,
+      refundAmount: { amountInCents: 500, currency: 'THB' },
+      reason: 'Concurrent refund', refundMethod: 'cash', authorizedByUserId: id.user,
+      idempotencyKey: 'refund-concurrent',
+    }),
+    refund.refund({
+      storeId: id.store, orderId: order.order.id,
+      refundAmount: { amountInCents: 500, currency: 'THB' },
+      reason: 'Concurrent refund', refundMethod: 'cash', authorizedByUserId: id.user,
+      idempotencyKey: 'refund-concurrent',
+    }),
+  ]);
+  assert.equal(new Set(concurrentResults.map((result) => result.refundId)).size, 1);
+  assert.equal(concurrentResults.filter((result) => result.idempotencyCached).length, 1);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_refunds WHERE store_id=$1 AND order_id=$2', [id.store, order.order.id])).rows[0].n, 2);
 
   // Re-using the same key with different scalar fields must conflict, not silently
   // return the earlier (different) refund.
