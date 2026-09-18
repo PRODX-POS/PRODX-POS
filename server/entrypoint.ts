@@ -1,0 +1,59 @@
+import 'dotenv/config';
+import { fileURLToPath } from 'node:url';
+import { createPostgresAuthentication } from './auth/composition';
+import { createPostgresAuthorization } from './auth/production-authorization';
+import { asSqlExecutor, createPostgresPool } from './db/postgres';
+import { createTransactionalPostgresExecutor } from './db/transaction';
+import { registerCheckoutRoute } from './http/checkout-route';
+import { createApp } from './http/createApp';
+import { registerRefundRoute } from './http/refund-route';
+
+export const createProductionApp = () => {
+  const pool = createPostgresPool();
+  const sql = asSqlExecutor(pool);
+  const transactions = createTransactionalPostgresExecutor(pool);
+  const sessions = createPostgresAuthentication(sql);
+  const authorize = createPostgresAuthorization(sql);
+
+  const app = createApp({
+    authenticateRequest: async (request) => {
+      const header = request.header('authorization');
+      if (!header?.startsWith('Bearer ')) return null;
+      return sessions.authenticateBearer(header.slice('Bearer '.length).trim());
+    },
+    authorizeRequest: authorize,
+    configureRoutes: (configuredApp) => {
+      registerCheckoutRoute(configuredApp, transactions);
+      registerRefundRoute(configuredApp, transactions);
+    },
+  });
+
+  return { app, pool };
+};
+
+export const startProductionServer = async (): Promise<void> => {
+  const { app, pool } = createProductionApp();
+  const host = process.env.HOST ?? '0.0.0.0';
+  const port = Number.parseInt(process.env.PORT ?? '4000', 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('PORT must be a valid TCP port.');
+  }
+
+  const server = app.listen(port, host, () => {
+    console.log(`PRODX POS backend listening on ${host}:${port}`);
+  });
+
+  const shutdown = async (signal: string) => {
+    server.close(async () => {
+      await pool.end();
+      console.log(`PRODX POS backend stopped after ${signal}`);
+    });
+  };
+
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+};
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  await startProductionServer();
+}
