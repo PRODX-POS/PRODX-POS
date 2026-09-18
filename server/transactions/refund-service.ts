@@ -51,10 +51,10 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
     const requestedItemsFingerprint = [...restock].map((item) => ({ productId: item.productId, quantity: item.quantity })).sort((a, b) => a.productId.localeCompare(b.productId));
 
     return db.transaction(async (tx) => {
-      const existing = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason, r.authorized_by_user_id, o.currency
+      const existing = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason, r.authorized_by_user_id, o.currency, o.status, o.status
         FROM prodx_refunds r JOIN prodx_orders o ON o.id = r.order_id AND o.store_id = r.store_id
         WHERE r.store_id=$1 AND r.idempotency_key=$2 LIMIT 1`, [request.storeId, request.idempotencyKey])).rows[0] as
-        | { id: string; order_id: string; amount: string; method: string; reason: string; authorized_by_user_id: string; currency: string }
+        | { id: string; order_id: string; amount: string; method: string; reason: string; authorized_by_user_id: string; currency: string; status: 'server_confirmed' | 'refunded' }
         | undefined;
       if (existing) {
         const isSameScalarRequest = existing.order_id === request.orderId && existing.method === request.refundMethod &&
@@ -69,7 +69,7 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
           existingItems.every((row, index) => row.productId === requestedItemsFingerprint[index].productId && row.quantity === requestedItemsFingerprint[index].quantity);
         if (!isSameItems) throw new RefundConflictError('This idempotency key was already used for a different refund request.');
 
-        return { success: true, refundId: existing.id, orderId: existing.order_id, status: 'server_confirmed',
+        return { success: true, refundId: existing.id, orderId: existing.order_id, status: existing.status,
           refundedAmount: { amountInCents: Number(dbCents(existing.amount)), currency: existing.currency },
           message: 'Refund already committed; returning the existing transaction.', idempotencyCached: true };
       }
@@ -121,38 +121,71 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
       }
 
       let restockAmountTotal = 0n;
+      const restockAllocations: Array<{
+        orderItemId: string;
+        productId: string;
+        quantity: number;
+        amount: bigint;
+      }> = [];
+
       for (const item of restock) {
         const orderItemRows = (await tx.query(`SELECT oi.id, oi.quantity, oi.line_total_amount::text AS line_total
           FROM prodx_order_items oi WHERE oi.store_id=$1 AND oi.order_id=$2 AND oi.product_id=$3 ORDER BY oi.id FOR UPDATE`,
           [request.storeId, request.orderId, item.productId])).rows as { id: string; quantity: number; line_total: string }[];
         if (orderItemRows.length === 0) throw new RefundValidationError(`Product ${item.productId} is not part of the order.`);
-        const anchorOrderItemId = orderItemRows[0].id;
-        const orderItemIds = orderItemRows.map((row) => row.id);
-        const totalQuantity = orderItemRows.reduce((sum, row) => sum + row.quantity, 0);
-        const totalLineCents = orderItemRows.reduce((sum, row) => sum + dbCents(row.line_total), 0n);
-        const previous = (await tx.query(`SELECT COALESCE(SUM(quantity),0)::int AS quantity, COALESCE(SUM(amount),0)::text AS amount
-          FROM prodx_refund_items ri WHERE ri.store_id=$1 AND ri.order_item_id = ANY($2::uuid[])`,
-          [request.storeId, orderItemIds])).rows[0] as { quantity: number; amount: string };
-        const previousQuantity = previous.quantity;
-        const newQuantity = previousQuantity + item.quantity;
-        if (newQuantity > totalQuantity) throw new RefundConflictError(`Restock quantity exceeds the refundable quantity for product ${item.productId}.`);
-        const cumulativeAllocated = totalQuantity > 0 ? (totalLineCents * BigInt(newQuantity)) / BigInt(totalQuantity) : 0n;
-        const previouslyAllocated = totalQuantity > 0 ? (totalLineCents * BigInt(previousQuantity)) / BigInt(totalQuantity) : 0n;
-        const itemAmount = cumulativeAllocated - previouslyAllocated;
-        restockAmountTotal += itemAmount;
 
+        let remaining = item.quantity;
+        for (const orderItem of orderItemRows) {
+          if (remaining === 0) break;
+          const previous = (await tx.query(`SELECT COALESCE(SUM(quantity),0)::int AS quantity
+            FROM prodx_refund_items WHERE store_id=$1 AND order_item_id=$2`,
+            [request.storeId, orderItem.id])).rows[0] as { quantity: number };
+          const previousQuantity = previous.quantity;
+          const available = orderItem.quantity - previousQuantity;
+          if (available <= 0) continue;
+
+          const allocatedQuantity = Math.min(remaining, available);
+          const totalLineCents = dbCents(orderItem.line_total);
+          const cumulativeQuantity = previousQuantity + allocatedQuantity;
+          const cumulativeAllocated = totalLineCents * BigInt(cumulativeQuantity) / BigInt(orderItem.quantity);
+          const previouslyAllocated = totalLineCents * BigInt(previousQuantity) / BigInt(orderItem.quantity);
+          const itemAmount = cumulativeAllocated - previouslyAllocated;
+
+          restockAmountTotal += itemAmount;
+          restockAllocations.push({
+            orderItemId: orderItem.id,
+            productId: item.productId,
+            quantity: allocatedQuantity,
+            amount: itemAmount,
+          });
+          remaining -= allocatedQuantity;
+        }
+        if (remaining > 0) {
+          throw new RefundConflictError(`Restock quantity exceeds the refundable quantity for product ${item.productId}.`);
+        }
+      }
+
+      if (restock.length > 0 && restockAmountTotal > amount) {
+        throw new RefundConflictError('The authoritative value of restocked items exceeds the cash refund amount.');
+      }
+
+      for (const allocation of restockAllocations) {
         const stock = (await tx.query(`UPDATE prodx_products SET current_stock=current_stock+$1, updated_at=CURRENT_TIMESTAMP
-          WHERE id=$2 AND store_id=$3 AND active=true RETURNING current_stock`, [item.quantity, item.productId, request.storeId])).rows[0] as { current_stock: number } | undefined;
-        if (!stock) throw new RefundConflictError(`Product ${item.productId} is unavailable for restock.`);
+          WHERE id=$2 AND store_id=$3 AND active=true RETURNING current_stock`,
+          [allocation.quantity, allocation.productId, request.storeId])).rows[0] as { current_stock: number } | undefined;
+        if (!stock) throw new RefundConflictError(`Product ${allocation.productId} is unavailable for restock.`);
+
         await tx.query(`INSERT INTO prodx_refund_items
           (id,organization_id,store_id,refund_id,order_item_id,product_id,quantity,amount)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [crypto.randomUUID(), order.organization_id, request.storeId, refundId, anchorOrderItemId, item.productId, item.quantity, numeric(itemAmount)]);
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [crypto.randomUUID(), order.organization_id, request.storeId, refundId, allocation.orderItemId,
+            allocation.productId, allocation.quantity, numeric(allocation.amount)]);
         await tx.query(`INSERT INTO prodx_inventory_ledger
           (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
-          VALUES($1,$2,$3,$4,$5,$6,'refund_restock',$7,$8)`, [crypto.randomUUID(), order.organization_id, request.storeId, item.productId, item.quantity, stock.current_stock, refundId, request.authorizedByUserId]);
+          VALUES($1,$2,$3,$4,$5,$6,'refund_restock',$7,$8)`,
+          [crypto.randomUUID(), order.organization_id, request.storeId, allocation.productId, allocation.quantity,
+            stock.current_stock, refundId, request.authorizedByUserId]);
       }
-      if (restock.length > 0 && restockAmountTotal > amount) throw new RefundConflictError('The authoritative value of restocked items exceeds the cash refund amount.');
-
       await tx.query(`INSERT INTO prodx_cash_movements
         (id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency)
         VALUES($1,$2,$3,$4,'cash_refund',$5,$6,$7,$8)`,
