@@ -44,10 +44,16 @@ const toCents = (money: Money, field: string): bigint => {
 const numeric = (cents: bigint): string =>
   `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`;
 
+// Postgres renders NUMERIC(12,2) aggregates without a fixed decimal scale when the
+// value is a bare integer (e.g. the `0` fallback of `COALESCE(SUM(amount), 0)`), so
+// this must accept both the "12.34" and the bare "0" / "12" forms.
 const dbCents = (value: unknown): bigint => {
-  const match = /^(\d+)\.(\d{2})$/.exec(String(value));
-  if (!match) throw new RefundValidationError('Database monetary value is invalid.');
-  return BigInt(match[1]) * 100n + BigInt(match[2]);
+  const text = String(value);
+  const withDecimals = /^(\d+)\.(\d{2})$/.exec(text);
+  if (withDecimals) return BigInt(withDecimals[1]) * 100n + BigInt(withDecimals[2]);
+  const wholeOnly = /^(\d+)$/.exec(text);
+  if (wholeOnly) return BigInt(wholeOnly[1]) * 100n;
+  throw new RefundValidationError('Database monetary value is invalid.');
 };
 
 export const createRefundService = (db: TransactionalSqlExecutor) => ({
@@ -64,19 +70,57 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
       );
     }
 
+    // Validate restock items up front (no DB side effects yet) so the sum of the
+    // itemized restock amounts can never diverge from the refund's cash amount.
+    const restock = request.itemsToRestock ?? [];
+    const seenProducts = new Set<string>();
+    let restockAmountTotal = 0n;
+    for (const item of restock) {
+      const amountInCents = item.amountInCents;
+      if (
+        !item.productId ||
+        !Number.isInteger(item.quantity) || item.quantity <= 0 ||
+        !Number.isInteger(amountInCents) || (amountInCents as number) <= 0 ||
+        seenProducts.has(item.productId)
+      ) {
+        throw new RefundValidationError(
+          'Restock items must contain unique products with a positive integer quantity and a positive integer refunded amount.',
+        );
+      }
+      seenProducts.add(item.productId);
+      restockAmountTotal += BigInt(amountInCents as number);
+    }
+    if (restock.length > 0 && restockAmountTotal > amount) {
+      throw new RefundValidationError('The sum of restocked item amounts exceeds the refunded amount.');
+    }
+
     return db.transaction(async (tx) => {
       const existing = (await tx.query(
-        `SELECT id, order_id, amount::text, idempotency_key FROM prodx_refunds
-         WHERE store_id=$1 AND idempotency_key=$2 LIMIT 1`,
+        `SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason,
+                r.authorized_by_user_id, o.currency
+           FROM prodx_refunds r
+           JOIN prodx_orders o ON o.id = r.order_id AND o.store_id = r.store_id
+          WHERE r.store_id=$1 AND r.idempotency_key=$2
+          LIMIT 1`,
         [request.storeId, request.idempotencyKey],
       )).rows[0];
       if (existing) {
+        const isSameRequest =
+          existing.order_id === request.orderId &&
+          existing.method === request.refundMethod &&
+          existing.reason === request.reason.trim() &&
+          existing.authorized_by_user_id === request.authorizedByUserId &&
+          existing.currency === request.refundAmount.currency &&
+          dbCents(existing.amount) === amount;
+        if (!isSameRequest) {
+          throw new RefundConflictError('This idempotency key was already used for a different refund request.');
+        }
         return {
           success: true,
           refundId: existing.id,
           orderId: existing.order_id,
           status: 'server_confirmed',
-          refundedAmount: { amountInCents: Number(dbCents(existing.amount)), currency: request.refundAmount.currency },
+          refundedAmount: { amountInCents: Number(dbCents(existing.amount)), currency: existing.currency },
           message: 'Refund already committed; returning the existing transaction.',
           idempotencyCached: true,
         };
@@ -121,16 +165,11 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
       )).rows[0];
       if (!inserted) throw new RefundConflictError('Concurrent refund idempotency conflict; retry the same request.');
 
-      const restock = request.itemsToRestock ?? [];
-      const seen = new Set<string>();
       for (const item of restock) {
-        if (!item.productId || !Number.isInteger(item.quantity) || item.quantity <= 0 || seen.has(item.productId)) {
-          throw new RefundValidationError('Restock items must contain unique products with positive integer quantities.');
-        }
-        seen.add(item.productId);
+        const itemAmount = BigInt(item.amountInCents as number);
 
         const orderItem = (await tx.query(
-          `SELECT oi.id, oi.product_id, oi.quantity
+          `SELECT oi.id, oi.product_id, oi.quantity, oi.line_total_amount::text AS line_total
            FROM prodx_order_items oi
            WHERE oi.store_id=$1 AND oi.order_id=$2 AND oi.product_id=$3
            FOR UPDATE`,
@@ -139,13 +178,19 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
         if (!orderItem) throw new RefundValidationError(`Product ${item.productId} is not part of the order.`);
 
         const previous = (await tx.query(
-          `SELECT COALESCE(SUM(quantity),0)::int AS quantity
+          `SELECT COALESCE(SUM(quantity),0)::int AS quantity, COALESCE(SUM(amount),0)::text AS amount
            FROM prodx_refund_items ri
            WHERE ri.store_id=$1 AND ri.order_item_id=$2`,
           [request.storeId, orderItem.id],
-        )).rows[0].quantity;
-        if (previous + item.quantity > orderItem.quantity) {
+        )).rows[0];
+        const previousQuantity: number = previous.quantity;
+        const previousAmount = dbCents(previous.amount);
+        if (previousQuantity + item.quantity > orderItem.quantity) {
           throw new RefundConflictError(`Restock quantity exceeds the refundable quantity for product ${item.productId}.`);
+        }
+        const lineTotal = dbCents(orderItem.line_total);
+        if (previousAmount + itemAmount > lineTotal) {
+          throw new RefundConflictError(`Restock amount exceeds the refundable value for product ${item.productId}.`);
         }
 
         const stock = (await tx.query(
@@ -158,9 +203,10 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
 
         await tx.query(
           `INSERT INTO prodx_refund_items
-            (id,organization_id,store_id,refund_id,order_item_id,product_id,quantity)
-           VALUES($1,$2,$3,$4,$5,$6,$7)`,
-          [crypto.randomUUID(), order.organization_id, request.storeId, refundId, orderItem.id, item.productId, item.quantity],
+            (id,organization_id,store_id,refund_id,order_item_id,product_id,quantity,amount)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [crypto.randomUUID(), order.organization_id, request.storeId, refundId, orderItem.id, item.productId,
+            item.quantity, numeric(itemAmount)],
         );
         await tx.query(
           `INSERT INTO prodx_inventory_ledger

@@ -8,14 +8,49 @@ import {
 } from '../transactions/refund-service';
 import type { TransactionalSqlExecutor } from '../db/transaction';
 
+type RefundBodyItem = { productId: string; quantity: number; amountInCents?: number };
+
 type RefundBody = {
   orderId: string;
   refundAmount: { amountInCents: number; currency: string };
   reason: string;
   refundMethod: 'cash' | 'card' | 'qr_digital';
   authorizedByUserId: string;
-  itemsToRestock?: readonly { productId: string; quantity: number }[];
+  itemsToRestock?: readonly RefundBodyItem[];
   idempotencyKey: string;
+};
+
+const isValidMoney = (value: unknown): value is { amountInCents: number; currency: string } => {
+  if (typeof value !== 'object' || value === null) return false;
+  const money = value as Record<string, unknown>;
+  return Number.isInteger(money.amountInCents) && typeof money.currency === 'string' && money.currency.trim().length > 0;
+};
+
+const isValidRestockItem = (value: unknown): value is RefundBodyItem => {
+  if (typeof value !== 'object' || value === null) return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.productId === 'string' && item.productId.trim().length > 0 &&
+    Number.isInteger(item.quantity) &&
+    (item.amountInCents === undefined || Number.isInteger(item.amountInCents))
+  );
+};
+
+const isValidRestockList = (value: unknown): value is readonly RefundBodyItem[] | undefined =>
+  value === undefined || (Array.isArray(value) && value.every(isValidRestockItem));
+
+const isValidRefundBody = (value: unknown): value is RefundBody => {
+  if (typeof value !== 'object' || value === null) return false;
+  const body = value as Record<string, unknown>;
+  return (
+    typeof body.orderId === 'string' && body.orderId.trim().length > 0 &&
+    isValidMoney(body.refundAmount) &&
+    typeof body.reason === 'string' && body.reason.trim().length > 0 &&
+    (body.refundMethod === 'cash' || body.refundMethod === 'card' || body.refundMethod === 'qr_digital') &&
+    typeof body.authorizedByUserId === 'string' && body.authorizedByUserId.trim().length > 0 &&
+    typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim().length > 0 &&
+    isValidRestockList(body.itemsToRestock)
+  );
 };
 
 export const registerRefundRoute = (
@@ -33,8 +68,13 @@ export const registerRefundRoute = (
         return;
       }
 
-      const body = request.body as RefundBody;
-      if (!body || body.authorizedByUserId !== context.principal.userId) {
+      const rawBody: unknown = request.body;
+      if (!isValidRefundBody(rawBody)) {
+        response.status(400).json({ error: { code: 'REFUND_VALIDATION_FAILED', message: 'The refund request body is malformed.', requestId: request.id } });
+        return;
+      }
+      const body = rawBody;
+      if (body.authorizedByUserId !== context.principal.userId) {
         response.status(403).json({ error: { code: 'AUTHORIZATION_SCOPE_VIOLATION', message: 'The refund authorizer must be the authenticated principal.', requestId: request.id } });
         return;
       }

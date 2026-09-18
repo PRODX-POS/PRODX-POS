@@ -102,6 +102,14 @@ export interface ICatalogApi {
 export interface RefundItemRestock {
   productId: string;
   quantity: number;
+  /**
+   * The refunded monetary value (minor units) attributable to this line item.
+   * The server-authoritative refund service requires this to keep inventory
+   * restocking mathematically tied to the refunded cash amount; it is optional
+   * here only so existing (mock/UI) callers that do not yet collect a per-item
+   * amount continue to type-check until they are wired to the real endpoint.
+   */
+  amountInCents?: number;
 }
 
 export interface IOrderApi {

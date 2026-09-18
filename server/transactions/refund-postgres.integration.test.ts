@@ -70,7 +70,7 @@ async function clean() {
     ['DELETE FROM prodx_users WHERE id=$1', [id.user]],
     ['DELETE FROM prodx_stores WHERE id=$1', [id.store]],
     ['DELETE FROM prodx_organizations WHERE id=$1', [id.org]],
-  ] as const) await pool.query(sql, params);
+  ] as const) await pool.query(sql, [...params]);
 }
 
 async function seed() {
@@ -97,7 +97,7 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
     storeId: id.store, orderId: order.order.id,
     refundAmount: { amountInCents: 1000, currency: 'THB' },
     reason: 'Customer return', refundMethod: 'cash', authorizedByUserId: id.user,
-    itemsToRestock: [{ productId: id.product, quantity: 1 }], idempotencyKey: 'refund-1',
+    itemsToRestock: [{ productId: id.product, quantity: 1, amountInCents: 1000 }], idempotencyKey: 'refund-1',
   });
 
   assert.equal(first.status, 'server_confirmed');
@@ -108,14 +108,29 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
     storeId: id.store, orderId: order.order.id,
     refundAmount: { amountInCents: 1000, currency: 'THB' },
     reason: 'Customer return', refundMethod: 'cash', authorizedByUserId: id.user,
-    itemsToRestock: [{ productId: id.product, quantity: 1 }], idempotencyKey: 'refund-1',
+    itemsToRestock: [{ productId: id.product, quantity: 1, amountInCents: 1000 }], idempotencyKey: 'refund-1',
   });
   assert.equal(cached.idempotencyCached, true);
+
+  await assert.rejects(refund.refund({
+    storeId: id.store, orderId: order.order.id,
+    refundAmount: { amountInCents: 500, currency: 'THB' },
+    reason: 'Different request reusing the same key', refundMethod: 'cash', authorizedByUserId: id.user,
+    idempotencyKey: 'refund-1',
+  }));
 
   await assert.rejects(refund.refund({
     storeId: id.store, orderId: order.order.id,
     refundAmount: { amountInCents: 1100, currency: 'THB' },
     reason: 'Too much', refundMethod: 'cash', authorizedByUserId: id.user,
     idempotencyKey: 'refund-too-much',
+  }));
+
+  await assert.rejects(refund.refund({
+    storeId: id.store, orderId: order.order.id,
+    refundAmount: { amountInCents: 500, currency: 'THB' },
+    reason: 'Restock amount does not match refund amount', refundMethod: 'cash', authorizedByUserId: id.user,
+    itemsToRestock: [{ productId: id.product, quantity: 1, amountInCents: 1000 }],
+    idempotencyKey: 'refund-mismatched-restock',
   }));
 });
