@@ -1,6 +1,5 @@
 -- PRODX POS M3.1 refund-item integrity hardening
--- Extend the refund event aggregate with database-enforced order relationships,
--- append-only refund items, quantity bounds, and authoritative line-value allocation.
+-- Idempotent migration: every schema mutation is safe to replay.
 
 ALTER TABLE prodx_refund_items
   ADD COLUMN IF NOT EXISTS order_id UUID;
@@ -15,44 +14,46 @@ WHERE r.id = ri.refund_id
 ALTER TABLE prodx_refund_items
   ALTER COLUMN order_id SET NOT NULL;
 
-ALTER TABLE prodx_refunds
-  DROP CONSTRAINT IF EXISTS prodx_refunds_id_store_order_unique;
-ALTER TABLE prodx_refunds
-  ADD CONSTRAINT prodx_refunds_id_store_order_unique UNIQUE (id, store_id, order_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_refunds_id_store_order_unique') THEN
+    ALTER TABLE prodx_refunds
+      ADD CONSTRAINT prodx_refunds_id_store_order_unique UNIQUE (id, store_id, order_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_order_items_id_store_order_unique') THEN
+    ALTER TABLE prodx_order_items
+      ADD CONSTRAINT prodx_order_items_id_store_order_unique UNIQUE (id, store_id, order_id);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_order_items_id_store_product_unique') THEN
+    ALTER TABLE prodx_order_items
+      ADD CONSTRAINT prodx_order_items_id_store_product_unique UNIQUE (id, store_id, product_id);
+  END IF;
+END $$;
 
-ALTER TABLE prodx_order_items
-  DROP CONSTRAINT IF EXISTS prodx_order_items_id_store_order_unique;
-ALTER TABLE prodx_order_items
-  ADD CONSTRAINT prodx_order_items_id_store_order_unique UNIQUE (id, store_id, order_id);
-
-ALTER TABLE prodx_order_items
-  DROP CONSTRAINT IF EXISTS prodx_order_items_id_store_product_unique;
-ALTER TABLE prodx_order_items
-  ADD CONSTRAINT prodx_order_items_id_store_product_unique UNIQUE (id, store_id, product_id);
-
-ALTER TABLE prodx_refund_items
-  DROP CONSTRAINT IF EXISTS prodx_refund_items_refund_order_fk;
-ALTER TABLE prodx_refund_items
-  ADD CONSTRAINT prodx_refund_items_refund_order_fk
-  FOREIGN KEY (refund_id, store_id, order_id)
-  REFERENCES prodx_refunds(id, store_id, order_id)
-  ON DELETE RESTRICT;
-
-ALTER TABLE prodx_refund_items
-  DROP CONSTRAINT IF EXISTS prodx_refund_items_order_item_order_fk;
-ALTER TABLE prodx_refund_items
-  ADD CONSTRAINT prodx_refund_items_order_item_order_fk
-  FOREIGN KEY (order_item_id, store_id, order_id)
-  REFERENCES prodx_order_items(id, store_id, order_id)
-  ON DELETE RESTRICT;
-
-ALTER TABLE prodx_refund_items
-  DROP CONSTRAINT IF EXISTS prodx_refund_items_order_item_product_fk;
-ALTER TABLE prodx_refund_items
-  ADD CONSTRAINT prodx_refund_items_order_item_product_fk
-  FOREIGN KEY (order_item_id, store_id, product_id)
-  REFERENCES prodx_order_items(id, store_id, product_id)
-  ON DELETE RESTRICT;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_refund_items_refund_order_fk') THEN
+    ALTER TABLE prodx_refund_items
+      ADD CONSTRAINT prodx_refund_items_refund_order_fk
+      FOREIGN KEY (refund_id, store_id, order_id)
+      REFERENCES prodx_refunds(id, store_id, order_id)
+      ON DELETE RESTRICT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_refund_items_order_item_order_fk') THEN
+    ALTER TABLE prodx_refund_items
+      ADD CONSTRAINT prodx_refund_items_order_item_order_fk
+      FOREIGN KEY (order_item_id, store_id, order_id)
+      REFERENCES prodx_order_items(id, store_id, order_id)
+      ON DELETE RESTRICT;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_refund_items_order_item_product_fk') THEN
+    ALTER TABLE prodx_refund_items
+      ADD CONSTRAINT prodx_refund_items_order_item_product_fk
+      FOREIGN KEY (order_item_id, store_id, product_id)
+      REFERENCES prodx_order_items(id, store_id, product_id)
+      ON DELETE RESTRICT;
+  END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION prodx_enforce_refund_item_allocation()
 RETURNS TRIGGER
