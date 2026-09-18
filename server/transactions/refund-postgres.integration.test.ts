@@ -53,7 +53,11 @@ const request = (key: string): CheckoutRequest => ({
 
 async function clean() {
   if (!pool) return;
-  for (const [sql, params] of [
+  // Refund rows are immutable in production; integration-test cleanup uses the
+  // test database owner to temporarily disable only the immutability trigger.
+  await pool.query('ALTER TABLE prodx_refunds DISABLE TRIGGER prodx_refund_immutable_guard');
+  try {
+    for (const [sql, params] of [
     ['DELETE FROM prodx_refund_items WHERE store_id=$1', [id.store]],
     ['DELETE FROM prodx_refunds WHERE store_id=$1', [id.store]],
     ['DELETE FROM prodx_cash_movements WHERE shift_id=$1', [id.shift]],
@@ -70,7 +74,10 @@ async function clean() {
     ['DELETE FROM prodx_users WHERE id=$1', [id.user]],
     ['DELETE FROM prodx_stores WHERE id=$1', [id.store]],
     ['DELETE FROM prodx_organizations WHERE id=$1', [id.org]],
-  ] as const) await pool.query(sql, [...params]);
+    ] as const) await pool.query(sql, [...params]);
+  } finally {
+    await pool.query('ALTER TABLE prodx_refunds ENABLE TRIGGER prodx_refund_immutable_guard');
+  }
 }
 
 async function seed() {
