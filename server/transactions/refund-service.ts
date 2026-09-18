@@ -25,9 +25,9 @@ const toCents = (money: Money, field: string): bigint => {
 const numeric = (cents: bigint): string => `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`;
 const dbCents = (value: unknown): bigint => {
   const text = String(value);
-  const withDecimals = /^(\\d+)\\.(\\d{2})$/.exec(text);
+  const withDecimals = /^(\d+)\.(\d{2})$/.exec(text);
   if (withDecimals) return BigInt(withDecimals[1]) * 100n + BigInt(withDecimals[2]);
-  const wholeOnly = /^(\\d+)$/.exec(text);
+  const wholeOnly = /^(\d+)$/.exec(text);
   if (wholeOnly) return BigInt(wholeOnly[1]) * 100n;
   throw new RefundValidationError('Database monetary value is invalid.');
 };
