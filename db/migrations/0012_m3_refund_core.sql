@@ -105,7 +105,8 @@ FOR EACH ROW EXECUTE FUNCTION prodx_enforce_refund_item_integrity();
 CREATE OR REPLACE FUNCTION prodx_enforce_refund_balance()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-AS $$DECLARE
+AS $
+DECLARE
   order_total NUMERIC(12,2);
   refunded_total NUMERIC(12,2);
 BEGIN
