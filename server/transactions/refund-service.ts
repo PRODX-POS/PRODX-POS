@@ -19,7 +19,7 @@ type RefundResponse = {
 };
 
 const toCents = (money: Money, field: string): bigint => {
-  if (!Number.isInteger(money.amountInCents) || money.amountInCents <= 0) throw new RefundValidationError(`${field} must be a positive integer minor-unit amount.`);
+  if (!Number.isSafeInteger(money.amountInCents) || money.amountInCents <= 0 || money.amountInCents > 999_999_999_999) throw new RefundValidationError(`${field} must be a positive integer minor-unit amount within the database money range.`);
   return BigInt(money.amountInCents);
 };
 const numeric = (cents: bigint): string => `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`;
@@ -51,7 +51,7 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
     const requestedItemsFingerprint = [...restock].map((item) => ({ productId: item.productId, quantity: item.quantity })).sort((a, b) => a.productId.localeCompare(b.productId));
 
     return db.transaction(async (tx) => {
-      const existing = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason, r.authorized_by_user_id, o.currency, o.status, o.status
+      const existing = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason, r.authorized_by_user_id, o.currency, o.status
         FROM prodx_refunds r JOIN prodx_orders o ON o.id = r.order_id AND o.store_id = r.store_id
         WHERE r.store_id=$1 AND r.idempotency_key=$2 LIMIT 1`, [request.storeId, request.idempotencyKey])).rows[0] as
         | { id: string; order_id: string; amount: string; method: string; reason: string; authorized_by_user_id: string; currency: string; status: 'server_confirmed' | 'refunded' }
@@ -77,10 +77,18 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
       const order = (await tx.query(`SELECT * FROM prodx_orders WHERE id=$1 AND store_id=$2 FOR UPDATE`, [request.orderId, request.storeId])).rows[0] as any;
       if (!order) throw new RefundValidationError('Order was not found in the authenticated store.');
       if (order.status !== 'server_confirmed') throw new RefundConflictError('Only server-confirmed sales can be refunded.');
-      const recordedPayments = (await tx.query(`SELECT COALESCE(SUM(amount),0)::text AS amount
-        FROM prodx_payments WHERE store_id=$1 AND order_id=$2`, [request.storeId, request.orderId])).rows[0] as { amount: string };
-      if (dbCents(recordedPayments.amount) < dbCents(order.grand_total_amount)) throw new RefundConflictError('The order does not have a fully recorded payment balance.');
+
+      const membership = (await tx.query(`SELECT 1 FROM prodx_store_memberships
+        WHERE organization_id=$1 AND store_id=$2 AND user_id=$3 AND active=true
+        FOR UPDATE`, [order.organization_id, request.storeId, request.authorizedByUserId])).rows[0];
+      if (!membership) throw new RefundConflictError('The authorizing user is not an active member of the target store.');
+
       const currency = String(order.currency).trim();
+      const recordedPayments = (await tx.query(`SELECT COALESCE(SUM(amount),0)::text AS amount,
+          COUNT(*) FILTER (WHERE currency <> $3) AS mismatched_currency_count
+        FROM prodx_payments WHERE store_id=$1 AND order_id=$2`, [request.storeId, request.orderId, currency])).rows[0] as { amount: string; mismatched_currency_count: string | number };
+      if (Number(recordedPayments.mismatched_currency_count) > 0) throw new RefundConflictError('The order contains a payment recorded in a currency different from the order currency.');
+      if (dbCents(recordedPayments.amount) < dbCents(order.grand_total_amount)) throw new RefundConflictError('The order does not have a fully recorded payment balance.');
       if (currency !== request.refundAmount.currency) throw new RefundValidationError('Refund currency does not match the order.');
 
       const alreadyRefunded = (await tx.query(`SELECT COALESCE(SUM(amount),0)::text AS amount FROM prodx_refunds WHERE store_id=$1 AND order_id=$2`, [request.storeId, request.orderId])).rows[0] as { amount: string };
@@ -152,22 +160,13 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
           const itemAmount = cumulativeAllocated - previouslyAllocated;
 
           restockAmountTotal += itemAmount;
-          restockAllocations.push({
-            orderItemId: orderItem.id,
-            productId: item.productId,
-            quantity: allocatedQuantity,
-            amount: itemAmount,
-          });
+          restockAllocations.push({ orderItemId: orderItem.id, productId: item.productId, quantity: allocatedQuantity, amount: itemAmount });
           remaining -= allocatedQuantity;
         }
-        if (remaining > 0) {
-          throw new RefundConflictError(`Restock quantity exceeds the refundable quantity for product ${item.productId}.`);
-        }
+        if (remaining > 0) throw new RefundConflictError(`Restock quantity exceeds the refundable quantity for product ${item.productId}.`);
       }
 
-      if (restock.length > 0 && restockAmountTotal > amount) {
-        throw new RefundConflictError('The authoritative value of restocked items exceeds the cash refund amount.');
-      }
+      if (restock.length > 0 && restockAmountTotal > amount) throw new RefundConflictError('The authoritative value of restocked items exceeds the cash refund amount.');
 
       for (const allocation of restockAllocations) {
         const stock = (await tx.query(`UPDATE prodx_products SET current_stock=current_stock+$1, updated_at=CURRENT_TIMESTAMP
@@ -178,13 +177,11 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
         await tx.query(`INSERT INTO prodx_refund_items
           (id,organization_id,store_id,refund_id,order_id,order_item_id,product_id,quantity,amount)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [crypto.randomUUID(), order.organization_id, request.storeId, refundId, request.orderId, allocation.orderItemId,
-            allocation.productId, allocation.quantity, numeric(allocation.amount)]);
+          [crypto.randomUUID(), order.organization_id, request.storeId, refundId, request.orderId, allocation.orderItemId, allocation.productId, allocation.quantity, numeric(allocation.amount)]);
         await tx.query(`INSERT INTO prodx_inventory_ledger
           (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
           VALUES($1,$2,$3,$4,$5,$6,'refund_restock',$7,$8)`,
-          [crypto.randomUUID(), order.organization_id, request.storeId, allocation.productId, allocation.quantity,
-            stock.current_stock, refundId, request.authorizedByUserId]);
+          [crypto.randomUUID(), order.organization_id, request.storeId, allocation.productId, allocation.quantity, stock.current_stock, refundId, request.authorizedByUserId]);
       }
       await tx.query(`INSERT INTO prodx_cash_movements
         (id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency)
