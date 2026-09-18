@@ -8,7 +8,7 @@ import {
 } from '../transactions/refund-service';
 import type { TransactionalSqlExecutor } from '../db/transaction';
 
-type RefundBodyItem = { productId: string; quantity: number; amountInCents?: number };
+type RefundBodyItem = { productId: string; quantity: number };
 
 type RefundBody = {
   orderId: string;
@@ -29,11 +29,7 @@ const isValidMoney = (value: unknown): value is { amountInCents: number; currenc
 const isValidRestockItem = (value: unknown): value is RefundBodyItem => {
   if (typeof value !== 'object' || value === null) return false;
   const item = value as Record<string, unknown>;
-  return (
-    typeof item.productId === 'string' && item.productId.trim().length > 0 &&
-    Number.isInteger(item.quantity) &&
-    (item.amountInCents === undefined || Number.isInteger(item.amountInCents))
-  );
+  return typeof item.productId === 'string' && item.productId.trim().length > 0 && Number.isInteger(item.quantity);
 };
 
 const isValidRestockList = (value: unknown): value is readonly RefundBodyItem[] | undefined =>

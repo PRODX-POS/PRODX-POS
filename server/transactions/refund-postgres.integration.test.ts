@@ -93,25 +93,34 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
 
   const order = await createCheckoutService(db).checkout(request('refund-order'));
   const refund = createRefundService(db);
+
+  // First refund on an order with no prior refunds (exercises the zero-aggregate
+  // parsing path) restocks 1 of the 2 units. The line total is 2000 cents for
+  // quantity 2, so the server must derive exactly 1000 cents of authoritative
+  // restock value for 1 unit — never trusting a client-supplied amount.
   const first = await refund.refund({
     storeId: id.store, orderId: order.order.id,
     refundAmount: { amountInCents: 1000, currency: 'THB' },
     reason: 'Customer return', refundMethod: 'cash', authorizedByUserId: id.user,
-    itemsToRestock: [{ productId: id.product, quantity: 1, amountInCents: 1000 }], idempotencyKey: 'refund-1',
+    itemsToRestock: [{ productId: id.product, quantity: 1 }], idempotencyKey: 'refund-1',
   });
 
   assert.equal(first.status, 'server_confirmed');
   assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1', [id.product])).rows[0].current_stock, 9);
   assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_cash_movements WHERE shift_id=$1 AND type=\'cash_refund\'', [id.shift])).rows[0].n, 1);
+  assert.equal((await pool.query('SELECT amount::text FROM prodx_refund_items WHERE store_id=$1 AND refund_id=$2', [id.store, first.refundId])).rows[0].amount, '10.00');
 
+  // Re-using the same idempotency key with the identical request returns the cached result.
   const cached = await refund.refund({
     storeId: id.store, orderId: order.order.id,
     refundAmount: { amountInCents: 1000, currency: 'THB' },
     reason: 'Customer return', refundMethod: 'cash', authorizedByUserId: id.user,
-    itemsToRestock: [{ productId: id.product, quantity: 1, amountInCents: 1000 }], idempotencyKey: 'refund-1',
+    itemsToRestock: [{ productId: id.product, quantity: 1 }], idempotencyKey: 'refund-1',
   });
   assert.equal(cached.idempotencyCached, true);
 
+  // Re-using the same key with different scalar fields must conflict, not silently
+  // return the earlier (different) refund.
   await assert.rejects(refund.refund({
     storeId: id.store, orderId: order.order.id,
     refundAmount: { amountInCents: 500, currency: 'THB' },
@@ -119,18 +128,19 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
     idempotencyKey: 'refund-1',
   }));
 
+  // Re-using the same key with the same scalar fields but different restocked
+  // items must also conflict — the fingerprint covers the full financial operation.
+  await assert.rejects(refund.refund({
+    storeId: id.store, orderId: order.order.id,
+    refundAmount: { amountInCents: 1000, currency: 'THB' },
+    reason: 'Customer return', refundMethod: 'cash', authorizedByUserId: id.user,
+    itemsToRestock: [{ productId: id.product, quantity: 2 }], idempotencyKey: 'refund-1',
+  }));
+
   await assert.rejects(refund.refund({
     storeId: id.store, orderId: order.order.id,
     refundAmount: { amountInCents: 1100, currency: 'THB' },
     reason: 'Too much', refundMethod: 'cash', authorizedByUserId: id.user,
     idempotencyKey: 'refund-too-much',
-  }));
-
-  await assert.rejects(refund.refund({
-    storeId: id.store, orderId: order.order.id,
-    refundAmount: { amountInCents: 500, currency: 'THB' },
-    reason: 'Restock amount does not match refund amount', refundMethod: 'cash', authorizedByUserId: id.user,
-    itemsToRestock: [{ productId: id.product, quantity: 1, amountInCents: 1000 }],
-    idempotencyKey: 'refund-mismatched-restock',
   }));
 });

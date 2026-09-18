@@ -56,6 +56,17 @@ const dbCents = (value: unknown): bigint => {
   throw new RefundValidationError('Database monetary value is invalid.');
 };
 
+const normalizeRestockRequest = (items: readonly RefundItemRestock[]): readonly RefundItemRestock[] => {
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (!item.productId || !Number.isInteger(item.quantity) || item.quantity <= 0 || seen.has(item.productId)) {
+      throw new RefundValidationError('Restock items must contain unique products with a positive integer quantity.');
+    }
+    seen.add(item.productId);
+  }
+  return items;
+};
+
 export const createRefundService = (db: TransactionalSqlExecutor) => ({
   async refund(request: RefundRequest): Promise<RefundResponse> {
     if (!request.storeId || !request.orderId || !request.authorizedByUserId || !request.idempotencyKey.trim()) {
@@ -70,29 +81,10 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
       );
     }
 
-    // Validate restock items up front (no DB side effects yet) so the sum of the
-    // itemized restock amounts can never diverge from the refund's cash amount.
-    const restock = request.itemsToRestock ?? [];
-    const seenProducts = new Set<string>();
-    let restockAmountTotal = 0n;
-    for (const item of restock) {
-      const amountInCents = item.amountInCents;
-      if (
-        !item.productId ||
-        !Number.isInteger(item.quantity) || item.quantity <= 0 ||
-        !Number.isInteger(amountInCents) || (amountInCents as number) <= 0 ||
-        seenProducts.has(item.productId)
-      ) {
-        throw new RefundValidationError(
-          'Restock items must contain unique products with a positive integer quantity and a positive integer refunded amount.',
-        );
-      }
-      seenProducts.add(item.productId);
-      restockAmountTotal += BigInt(amountInCents as number);
-    }
-    if (restock.length > 0 && restockAmountTotal > amount) {
-      throw new RefundValidationError('The sum of restocked item amounts exceeds the refunded amount.');
-    }
+    const restock = normalizeRestockRequest(request.itemsToRestock ?? []);
+    const requestedItemsFingerprint = [...restock]
+      .map((item) => ({ productId: item.productId, quantity: item.quantity }))
+      .sort((a, b) => a.productId.localeCompare(b.productId));
 
     return db.transaction(async (tx) => {
       const existing = (await tx.query(
@@ -105,16 +97,34 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
         [request.storeId, request.idempotencyKey],
       )).rows[0];
       if (existing) {
-        const isSameRequest =
+        const isSameScalarRequest =
           existing.order_id === request.orderId &&
           existing.method === request.refundMethod &&
           existing.reason === request.reason.trim() &&
           existing.authorized_by_user_id === request.authorizedByUserId &&
           existing.currency === request.refundAmount.currency &&
           dbCents(existing.amount) === amount;
-        if (!isSameRequest) {
+        if (!isSameScalarRequest) {
           throw new RefundConflictError('This idempotency key was already used for a different refund request.');
         }
+
+        const existingItems = (await tx.query(
+          `SELECT product_id, SUM(quantity)::int AS quantity
+             FROM prodx_refund_items
+            WHERE store_id=$1 AND refund_id=$2
+            GROUP BY product_id
+            ORDER BY product_id`,
+          [request.storeId, existing.id],
+        )).rows.map((row: { product_id: string; quantity: number }) => ({ productId: row.product_id, quantity: row.quantity }));
+        const isSameItems =
+          existingItems.length === requestedItemsFingerprint.length &&
+          existingItems.every((row: { productId: string; quantity: number }, index: number) =>
+            row.productId === requestedItemsFingerprint[index].productId &&
+            row.quantity === requestedItemsFingerprint[index].quantity);
+        if (!isSameItems) {
+          throw new RefundConflictError('This idempotency key was already used for a different refund request.');
+        }
+
         return {
           success: true,
           refundId: existing.id,
@@ -165,33 +175,44 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
       )).rows[0];
       if (!inserted) throw new RefundConflictError('Concurrent refund idempotency conflict; retry the same request.');
 
+      let restockAmountTotal = 0n;
       for (const item of restock) {
-        const itemAmount = BigInt(item.amountInCents as number);
-
-        const orderItem = (await tx.query(
-          `SELECT oi.id, oi.product_id, oi.quantity, oi.line_total_amount::text AS line_total
+        // Lock and aggregate every order-item line for this product deterministically
+        // (ordered by id) so a product split across multiple order lines cannot make
+        // the refundable quantity/value bound ambiguous or order-dependent.
+        const orderItemRows = (await tx.query(
+          `SELECT oi.id, oi.quantity, oi.line_total_amount::text AS line_total
            FROM prodx_order_items oi
            WHERE oi.store_id=$1 AND oi.order_id=$2 AND oi.product_id=$3
+           ORDER BY oi.id
            FOR UPDATE`,
           [request.storeId, request.orderId, item.productId],
-        )).rows[0];
-        if (!orderItem) throw new RefundValidationError(`Product ${item.productId} is not part of the order.`);
+        )).rows as { id: string; quantity: number; line_total: string }[];
+        if (orderItemRows.length === 0) throw new RefundValidationError(`Product ${item.productId} is not part of the order.`);
+
+        const anchorOrderItemId = orderItemRows[0].id;
+        const orderItemIds = orderItemRows.map((row) => row.id);
+        const totalQuantity = orderItemRows.reduce((sum, row) => sum + row.quantity, 0);
+        const totalLineCents = orderItemRows.reduce((sum, row) => sum + dbCents(row.line_total), 0n);
 
         const previous = (await tx.query(
           `SELECT COALESCE(SUM(quantity),0)::int AS quantity, COALESCE(SUM(amount),0)::text AS amount
            FROM prodx_refund_items ri
-           WHERE ri.store_id=$1 AND ri.order_item_id=$2`,
-          [request.storeId, orderItem.id],
+           WHERE ri.store_id=$1 AND ri.order_item_id = ANY($2::uuid[])`,
+          [request.storeId, orderItemIds],
         )).rows[0];
         const previousQuantity: number = previous.quantity;
-        const previousAmount = dbCents(previous.amount);
-        if (previousQuantity + item.quantity > orderItem.quantity) {
+        const newQuantity = previousQuantity + item.quantity;
+        if (newQuantity > totalQuantity) {
           throw new RefundConflictError(`Restock quantity exceeds the refundable quantity for product ${item.productId}.`);
         }
-        const lineTotal = dbCents(orderItem.line_total);
-        if (previousAmount + itemAmount > lineTotal) {
-          throw new RefundConflictError(`Restock amount exceeds the refundable value for product ${item.productId}.`);
-        }
+
+        // Server-authoritative, deterministic (floor-rounded) proportional value for
+        // this restock — never derived from a client-supplied amount.
+        const cumulativeAllocated = totalQuantity > 0 ? (totalLineCents * BigInt(newQuantity)) / BigInt(totalQuantity) : 0n;
+        const previouslyAllocated = totalQuantity > 0 ? (totalLineCents * BigInt(previousQuantity)) / BigInt(totalQuantity) : 0n;
+        const itemAmount = cumulativeAllocated - previouslyAllocated;
+        restockAmountTotal += itemAmount;
 
         const stock = (await tx.query(
           `UPDATE prodx_products SET current_stock=current_stock+$1, updated_at=CURRENT_TIMESTAMP
@@ -205,7 +226,7 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
           `INSERT INTO prodx_refund_items
             (id,organization_id,store_id,refund_id,order_item_id,product_id,quantity,amount)
            VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [crypto.randomUUID(), order.organization_id, request.storeId, refundId, orderItem.id, item.productId,
+          [crypto.randomUUID(), order.organization_id, request.storeId, refundId, anchorOrderItemId, item.productId,
             item.quantity, numeric(itemAmount)],
         );
         await tx.query(
@@ -214,6 +235,10 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
            VALUES($1,$2,$3,$4,$5,$6,'refund_restock',$7,$8)`,
           [crypto.randomUUID(), order.organization_id, request.storeId, item.productId, item.quantity, stock.current_stock, refundId, request.authorizedByUserId],
         );
+      }
+
+      if (restock.length > 0 && restockAmountTotal > amount) {
+        throw new RefundConflictError('The authoritative value of restocked items exceeds the cash refund amount.');
       }
 
       await tx.query(

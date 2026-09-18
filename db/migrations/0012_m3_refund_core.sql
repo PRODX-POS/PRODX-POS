@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS prodx_refund_items (
   CONSTRAINT prodx_refund_items_refund_store_fk FOREIGN KEY (refund_id, store_id) REFERENCES prodx_refunds(id, store_id) ON DELETE RESTRICT,
   CONSTRAINT prodx_refund_items_order_item_store_fk FOREIGN KEY (order_item_id, store_id) REFERENCES prodx_order_items(id, store_id) ON DELETE RESTRICT,
   CONSTRAINT prodx_refund_items_product_store_fk FOREIGN KEY (product_id, store_id) REFERENCES prodx_products(id, store_id) ON DELETE RESTRICT,
-  CONSTRAINT prodx_refund_items_valid CHECK (quantity > 0 AND amount > 0)
+  CONSTRAINT prodx_refund_items_valid CHECK (quantity > 0 AND amount >= 0)
 );
 
 CREATE INDEX IF NOT EXISTS prodx_refunds_order_idx ON prodx_refunds(store_id, order_id, created_at);
