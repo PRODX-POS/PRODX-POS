@@ -176,9 +176,9 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
         if (!stock) throw new RefundConflictError(`Product ${allocation.productId} is unavailable for restock.`);
 
         await tx.query(`INSERT INTO prodx_refund_items
-          (id,organization_id,store_id,refund_id,order_item_id,product_id,quantity,amount)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [crypto.randomUUID(), order.organization_id, request.storeId, refundId, allocation.orderItemId,
+          (id,organization_id,store_id,refund_id,order_id,order_item_id,product_id,quantity,amount)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [crypto.randomUUID(), order.organization_id, request.storeId, refundId, request.orderId, allocation.orderItemId,
             allocation.productId, allocation.quantity, numeric(allocation.amount)]);
         await tx.query(`INSERT INTO prodx_inventory_ledger
           (id,organization_id,store_id,product_id,quantity_delta,resulting_stock,reason,reference_id,performed_by_user_id)
