@@ -19,10 +19,14 @@ type RefundBody = {
   idempotencyKey: string;
 };
 
+const MAX_MONEY_CENTS = 999_999_999_999;
+
 const isValidMoney = (value: unknown): value is { amountInCents: number; currency: string } => {
   if (typeof value !== 'object' || value === null) return false;
   const money = value as Record<string, unknown>;
-  return Number.isInteger(money.amountInCents) && typeof money.currency === 'string' && money.currency.trim().length > 0;
+  return Number.isSafeInteger(money.amountInCents) &&
+    Number(money.amountInCents) > 0 && Number(money.amountInCents) <= MAX_MONEY_CENTS &&
+    typeof money.currency === 'string' && money.currency.trim().length > 0;
 };
 
 const isValidRestockItem = (value: unknown): value is RefundBodyItem => {
