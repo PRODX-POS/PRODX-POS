@@ -77,9 +77,9 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
       const order = (await tx.query(`SELECT * FROM prodx_orders WHERE id=$1 AND store_id=$2 FOR UPDATE`, [request.orderId, request.storeId])).rows[0] as any;
       if (!order) throw new RefundValidationError('Order was not found in the authenticated store.');
       if (order.status !== 'server_confirmed') throw new RefundConflictError('Only server-confirmed sales can be refunded.');
-      const capturedPayments = (await tx.query(`SELECT COALESCE(SUM(amount),0)::text AS amount
+      const recordedPayments = (await tx.query(`SELECT COALESCE(SUM(amount),0)::text AS amount
         FROM prodx_payments WHERE store_id=$1 AND order_id=$2`, [request.storeId, request.orderId])).rows[0] as { amount: string };
-      if (dbCents(capturedPayments.amount) < dbCents(order.grand_total_amount)) throw new RefundConflictError('The order does not have a fully captured payment balance.');
+      if (dbCents(recordedPayments.amount) < dbCents(order.grand_total_amount)) throw new RefundConflictError('The order does not have a fully recorded payment balance.');
       const currency = String(order.currency).trim();
       if (currency !== request.refundAmount.currency) throw new RefundValidationError('Refund currency does not match the order.');
 
