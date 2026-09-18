@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS prodx_refunds (
   CONSTRAINT prodx_refunds_method_valid CHECK (method IN ('cash','card','qr_digital')),
   CONSTRAINT prodx_refunds_reason_valid CHECK (length(btrim(reason)) > 0),
   CONSTRAINT prodx_refunds_key_valid CHECK (length(btrim(idempotency_key)) > 0),
-  CONSTRAINT prodx_refunds_store_key_unique UNIQUE (store_id, idempotency_key)
+  CONSTRAINT prodx_refunds_store_key_unique UNIQUE (store_id, idempotency_key),
+  CONSTRAINT prodx_refunds_id_store_unique UNIQUE (id, store_id)
 );
 
 CREATE TABLE IF NOT EXISTS prodx_refund_items (
