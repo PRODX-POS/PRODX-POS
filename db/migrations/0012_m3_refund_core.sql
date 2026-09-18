@@ -101,7 +101,7 @@ FOR EACH ROW EXECUTE FUNCTION prodx_enforce_refund_item_integrity();
 CREATE OR REPLACE FUNCTION prodx_enforce_refund_balance()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-AS $
+AS '
 DECLARE
   order_total NUMERIC(12,2);
   refunded_total NUMERIC(12,2);
@@ -112,22 +112,21 @@ BEGIN
   FOR UPDATE;
 
   IF order_total IS NULL THEN
-    RAISE EXCEPTION 'Refund order was not found in the target store' USING ERRCODE = '23514';
+    RAISE EXCEPTION ''Refund order was not found in the target store'' USING ERRCODE = ''23514'';
   END IF;
 
   SELECT COALESCE(SUM(amount), 0) INTO refunded_total
   FROM prodx_refunds
   WHERE store_id = NEW.store_id
     AND order_id = NEW.order_id
-    AND (TG_OP <> 'UPDATE' OR id <> OLD.id);
+    AND (TG_OP <> ''UPDATE'' OR id <> OLD.id);
 
   IF refunded_total + NEW.amount > order_total THEN
-    RAISE EXCEPTION 'Refund amount exceeds the remaining refundable order balance' USING ERRCODE = '23514';
+    RAISE EXCEPTION ''Refund amount exceeds the remaining refundable order balance'' USING ERRCODE = ''23514'';
   END IF;
 
   RETURN NEW;
-END;
-$$;
+END;';
 
 DROP TRIGGER IF EXISTS prodx_refund_balance_guard ON prodx_refunds;
 CREATE TRIGGER prodx_refund_balance_guard
