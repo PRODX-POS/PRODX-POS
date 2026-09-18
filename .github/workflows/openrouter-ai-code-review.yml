@@ -1,4 +1,4 @@
-name: AI Review Dispatch
+name: OpenRouter AI Code Review
 
 on:
   pull_request_target:
@@ -13,11 +13,12 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: ai-review-dispatch-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
-  cancel-in-progress: true
+  group: openrouter-ai-review-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
   review:
+    name: OpenRouter AI Code Review
     if: >-
       github.event_name == 'pull_request_target' ||
       github.event_name == 'workflow_dispatch' ||
@@ -37,15 +38,22 @@ jobs:
           echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
 
       - name: Verify repository-owned pull request
+        id: trust
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
           set -euo pipefail
           head_repo="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.repo.full_name')"
-          [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo 'AI review is restricted to repository-owned pull requests.' >&2; exit 1; }
+          if [[ "$head_repo" == "$GITHUB_REPOSITORY" ]]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo 'OpenRouter review is skipped for fork pull requests; no repository secret is exposed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Fetch and sanitize pull request diff
+        if: steps.trust.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
@@ -74,30 +82,34 @@ jobs:
           Path('excluded-files.txt').write_text('\n'.join(sorted(set(excluded))) or 'none', encoding='utf-8')
           PY
 
-      - name: Select free OpenRouter model from advertised models
+      - name: Resolve OpenRouter review model
         id: model
+        if: steps.trust.outputs.enabled == 'true'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           PREFERRED_MODEL_ID: ${{ vars.OPENROUTER_AI_REVIEW_MODEL_ID }}
+          FALLBACK_MODELS: ${{ vars.OPENROUTER_AI_REVIEW_FALLBACK_MODELS }}
         run: |
           set -euo pipefail
           [[ -n "${OPENROUTER_API_KEY:-}" ]] || { echo 'OPENROUTER_API_KEY is not configured.' >&2; exit 1; }
           models="$(curl --fail --silent --show-error --header "Authorization: Bearer $OPENROUTER_API_KEY" --header 'Accept: application/json' https://openrouter.ai/api/v1/models)"
-          model_id=''
-          if [[ -n "${PREFERRED_MODEL_ID:-}" ]] && printf '%s' "$models" | jq -e --arg id "$PREFERRED_MODEL_ID" '.data[] | select(.id == $id)' >/dev/null; then model_id="$PREFERRED_MODEL_ID"; fi
-          if [[ -z "$model_id" ]]; then model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id | endswith(":free")) and ((.architecture.output_modalities // ["text"]) | index("text")) and ((.supported_parameters // []) | index("response_format"))) | .id' | grep -Ev 'vision|vl' | head -n1 || true)"; fi
-          if [[ -z "$model_id" ]]; then model_id="$(printf '%s' "$models" | jq -r '.data[] | select((.id | endswith(":free")) and ((.architecture.output_modalities // ["text"]) | index("text"))) | .id' | grep -Ev 'vision|vl' | head -n1 || true)"; fi
-          if [[ -z "$model_id" ]]; then model_id='openrouter/free'; fi
-          [[ -n "$model_id" ]] || { echo 'OpenRouter API returned no usable model.' >&2; exit 1; }
+          model_id="${PREFERRED_MODEL_ID:-openrouter/auto-beta}"
+          if [[ "$model_id" != 'openrouter/auto-beta' && "$model_id" != 'openrouter/auto' ]] && ! printf '%s' "$models" | jq -e --arg id "$model_id" '.data[] | select(.id == $id)' >/dev/null; then
+            echo "Configured OpenRouter review model is unavailable: $model_id" >&2
+            exit 1
+          fi
           echo "model_id=$model_id" >> "$GITHUB_OUTPUT"
           echo "OpenRouter advertised model count: $(printf '%s' "$models" | jq '.data | length')" >> "$GITHUB_STEP_SUMMARY"
-          echo "OpenRouter selected model: $model_id" >> "$GITHUB_STEP_SUMMARY"
+          echo "OpenRouter primary model: $model_id" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "${FALLBACK_MODELS:-}" ]]; then echo "OpenRouter fallback chain configured: yes" >> "$GITHUB_STEP_SUMMARY"; else echo "OpenRouter fallback chain configured: no" >> "$GITHUB_STEP_SUMMARY"; fi
 
       - name: Review diff with OpenRouter
         id: review
+        if: steps.trust.outputs.enabled == 'true'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL_ID: ${{ steps.model.outputs.model_id }}
+          OPENROUTER_FALLBACK_MODELS: ${{ vars.OPENROUTER_AI_REVIEW_FALLBACK_MODELS }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
           set -euo pipefail
@@ -106,58 +118,41 @@ jobs:
           from pathlib import Path
           diff = Path('sanitized.diff').read_text(encoding='utf-8')
           excluded = Path('excluded-files.txt').read_text(encoding='utf-8')
-          system = '''You are the independent security and architecture reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return ONLY valid JSON with exactly this shape: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH. Do not put the JSON inside markdown fences. Do not output any other text.'''
+          system = '''You are the independent security, architecture, database, CI/CD, and financial-integrity reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return ONLY valid JSON with exactly this shape: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH. Do not put the JSON inside markdown fences. Do not output any other text.'''
           user = f'PR #{os.environ["PR_NUMBER"]}\nSensitive paths excluded:\n{excluded}\n\nSanitized diff:\n```diff\n{diff}\n```'
-          base = {'model': os.environ['OPENROUTER_MODEL_ID'], 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':6000, 'stream':False}
+          primary = os.environ['OPENROUTER_MODEL_ID']
+          fallbacks = [m.strip() for m in os.environ.get('OPENROUTER_FALLBACK_MODELS','').split(',') if m.strip()]
+          base = {'model': primary, 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':6000, 'stream':False, 'response_format': {'type':'json_object'}}
+          if fallbacks:
+            chain = [primary] + [m for m in fallbacks if m != primary]
+            base['models'] = chain
+          if primary in {'openrouter/auto-beta','openrouter/auto'}:
+            base['plugins'] = [{'id':'auto-router','cost_tier':'max'}]
 
-          def request(extra=None):
-            payload = dict(base)
-            if extra: payload.update(extra)
-            req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=json.dumps(payload).encode(), headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/' + os.environ['GITHUB_REPOSITORY'], 'X-Title':'PRODX-POS AI Code Review'}, method='POST')
-            try:
-              with urllib.request.urlopen(req, timeout=180) as response: return json.load(response)
-            except urllib.error.HTTPError as exc:
-              detail = exc.read().decode('utf-8', errors='replace')[:2000]
-              if extra and exc.code in {400, 422}: return request()
-              raise SystemExit(f'OpenRouter chat completion failed with HTTP {exc.code}: {detail}')
+          req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=json.dumps(base).encode(), headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/' + os.environ['GITHUB_REPOSITORY'], 'X-Title':'PRODX-POS AI Code Review'}, method='POST')
+          try:
+            with urllib.request.urlopen(req, timeout=180) as response: body = json.load(response)
+          except urllib.error.HTTPError as exc:
+            detail = exc.read().decode('utf-8', errors='replace')[:2000]
+            raise SystemExit(f'OpenRouter chat completion failed with HTTP {exc.code}: {detail}')
 
-          body = request({'response_format': {'type':'json_object'}})
           message = body.get('choices', [{}])[0].get('message', {})
-          candidates = []
-          for value in (message.get('content'), message.get('reasoning')):
-            if isinstance(value, str) and value.strip(): candidates.append(value.strip())
-            elif isinstance(value, list):
-              parts=[]
-              for item in value:
-                if isinstance(item, dict):
-                  text=item.get('text') or item.get('content')
-                  if isinstance(text,str) and text.strip(): parts.append(text.strip())
-              if parts: candidates.append('\n'.join(parts))
-          for item in message.get('reasoning_details') or []:
-            if isinstance(item, dict):
-              text=item.get('text') or item.get('content')
-              if isinstance(text,str) and text.strip(): candidates.append(text.strip())
-
-          def extract_review(text):
-            text = text.strip()
-            if text.startswith('```'):
-              parts = text.split('\n', 1)
-              if len(parts) == 2: text = parts[1].rsplit('```', 1)[0].strip()
-            try:
-              parsed = json.loads(text)
-              if isinstance(parsed, dict) and parsed.get('decision') in {'PASS','WARN','FAIL'} and isinstance(parsed.get('findings'), list): return parsed
-            except (json.JSONDecodeError, AttributeError): pass
-            decoder = json.JSONDecoder()
-            for index, char in enumerate(text):
-              if char != '{': continue
-              try: parsed, _ = decoder.raw_decode(text[index:])
-              except json.JSONDecodeError: continue
-              if isinstance(parsed, dict) and parsed.get('decision') in {'PASS','WARN','FAIL'} and isinstance(parsed.get('findings'), list): return parsed
-            return None
-
-          review = next((r for text in candidates if (r := extract_review(text)) is not None), None)
-          if review is None:
-            raise SystemExit('OpenRouter response did not contain valid review JSON. Model returned no parseable text content.')
+          text = message.get('content')
+          if isinstance(text, list):
+            parts = [item.get('text') or item.get('content') for item in text if isinstance(item, dict)]
+            text = '\n'.join(part for part in parts if isinstance(part, str) and part.strip())
+          if not isinstance(text, str) or not text.strip():
+            raise SystemExit('OpenRouter response did not contain review content.')
+          text = text.strip()
+          if text.startswith('```'):
+            segments = text.split('\n', 1)
+            if len(segments) == 2: text = segments[1].rsplit('```', 1)[0].strip()
+          try:
+            review = json.loads(text)
+          except json.JSONDecodeError as exc:
+            raise SystemExit(f'OpenRouter response was not valid review JSON: {exc}')
+          if review.get('decision') not in {'PASS','WARN','FAIL'} or not isinstance(review.get('findings'), list):
+            raise SystemExit('OpenRouter review JSON failed schema validation.')
           Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
           print(json.dumps({'provider': body.get('provider'), 'model': body.get('model'), 'usage': body.get('usage'), 'decision': review['decision']}, ensure_ascii=False))
           with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out: out.write(f"decision={review['decision']}\n")

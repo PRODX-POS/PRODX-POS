@@ -7,17 +7,17 @@ import { createAIHttpAdapter } from './http-contract';
 
 function provider(onCall: () => void): AIProvider {
   return {
-    name: 'okmd',
+    name: 'test-provider',
     async chat(request) {
       onCall();
-      return { provider: 'okmd', model: request.model, raw: {} };
+      return { provider: 'test-provider', model: request.model, raw: {} };
     },
   };
 }
 
 test('HTTP adapter derives authorization from verified principal and delegates to boundary', async () => {
   let calls = 0;
-  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'okmd'));
+  const core = new AICoreService(createAIProviderRegistry([provider(() => calls++)], 'test-provider'));
   const boundary = new AIBackendBoundary(core);
   const adapter = createAIHttpAdapter();
 
@@ -34,6 +34,6 @@ test('HTTP adapter derives authorization from verified principal and delegates t
     boundary,
   );
 
-  assert.equal(response.provider, 'okmd');
+  assert.equal(response.provider, 'test-provider');
   assert.equal(calls, 1);
 });

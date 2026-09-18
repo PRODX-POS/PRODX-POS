@@ -19,9 +19,9 @@ function provider(name: string): AIProvider {
 }
 
 test('routes chat through the selected provider', async () => {
-  const okmd = provider('okmd');
+  const primary = provider('primary');
   const other = provider('other');
-  const service = new AICoreService(createAIProviderRegistry([okmd, other], 'okmd'));
+  const service = new AICoreService(createAIProviderRegistry([primary, other], 'primary'));
 
   const response = await service.chat({
     provider: 'other',
@@ -33,8 +33,8 @@ test('routes chat through the selected provider', async () => {
 
 test('rejects providers outside the configured policy', async () => {
   const service = new AICoreService(
-    createAIProviderRegistry([provider('okmd'), provider('other')], 'okmd'),
-    { allowedProviders: ['okmd'] },
+    createAIProviderRegistry([provider('primary'), provider('other')], 'primary'),
+    { allowedProviders: ['primary'] },
   );
 
   await assert.rejects(
@@ -45,7 +45,7 @@ test('rejects providers outside the configured policy', async () => {
 
 test('rejects oversized message batches before provider invocation', async () => {
   const service = new AICoreService(
-    createAIProviderRegistry([provider('okmd')], 'okmd'),
+    createAIProviderRegistry([provider('primary')], 'primary'),
     { maxMessages: 1 },
   );
 

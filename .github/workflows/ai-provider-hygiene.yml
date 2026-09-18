@@ -1,0 +1,28 @@
+name: AI Provider Hygiene
+
+on:
+  pull_request:
+    paths:
+      - '**'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  provider-hygiene:
+    name: Retired provider drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Reject retired provider references
+        run: |
+          set -euo pipefail
+          retired="$(printf 'o%smd' k)"
+          endpoint="$(printf 'gen.ai.%s' 'kku.ac.th')"
+          if git grep -n -i -E "${retired}|${endpoint}" -- . ':!docs/legacy/**'; then
+            echo 'Retired AI provider references detected in the repository.' >&2
+            exit 1
+          fi
+          echo 'No retired AI provider references detected.'
