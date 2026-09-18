@@ -56,6 +56,7 @@ async function clean() {
   // Refund rows are immutable in production; integration-test cleanup uses the
   // test database owner to temporarily disable only the immutability trigger.
   await pool.query('ALTER TABLE prodx_refunds DISABLE TRIGGER prodx_refund_immutable_guard');
+  await pool.query('ALTER TABLE prodx_refund_items DISABLE TRIGGER prodx_refund_item_immutable_guard');
   try {
     for (const [sql, params] of [
     ['DELETE FROM prodx_refund_items WHERE store_id=$1', [id.store]],
@@ -77,6 +78,7 @@ async function clean() {
     ] as const) await pool.query(sql, [...params]);
   } finally {
     await pool.query('ALTER TABLE prodx_refunds ENABLE TRIGGER prodx_refund_immutable_guard');
+    await pool.query('ALTER TABLE prodx_refund_items ENABLE TRIGGER prodx_refund_item_immutable_guard');
   }
 }
 
@@ -130,6 +132,20 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
   assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_cash_movements WHERE shift_id=$1 AND type=\'cash_refund\'', [id.shift])).rows[0].n, 1);
   assert.equal((await pool.query('SELECT amount::text FROM prodx_refund_items WHERE store_id=$1 AND refund_id=$2', [id.store, first.refundId])).rows[0].amount, '10.00');
 
+  // Refund-item financial and inventory events are append-only.
+  await assert.rejects(pool.query('UPDATE prodx_refund_items SET amount=0 WHERE refund_id=$1', [first.refundId]));
+  await assert.rejects(pool.query('DELETE FROM prodx_refund_items WHERE refund_id=$1', [first.refundId]));
+
+  // Restock value is derived from the locked order line and cannot exceed the refund amount.
+  const stockBeforeRejectedRestock = (await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1', [id.product])).rows[0].current_stock;
+  await assert.rejects(refund.refund({
+    storeId: id.store, orderId: order.order.id,
+    refundAmount: { amountInCents: 1, currency: 'THB' },
+    reason: 'Mismatched restock value', refundMethod: 'cash', authorizedByUserId: id.user,
+    itemsToRestock: [{ productId: id.product, quantity: 1 }], idempotencyKey: 'refund-mismatch',
+  }));
+  assert.equal((await pool.query('SELECT current_stock FROM prodx_products WHERE id=$1', [id.product])).rows[0].current_stock, stockBeforeRejectedRestock);
+
   // Re-using the same idempotency key with the identical request returns the cached result.
   const cached = await refund.refund({
     storeId: id.store, orderId: order.order.id,
@@ -157,6 +173,23 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
   assert.equal(new Set(concurrentResults.map((result) => result.refundId)).size, 1);
   assert.equal(concurrentResults.filter((result) => result.idempotencyCached).length, 1);
   assert.equal((await pool.query('SELECT count(*)::int n FROM prodx_refunds WHERE store_id=$1 AND order_id=$2', [id.store, order.order.id])).rows[0].n, 2);
+
+  // A fully refunding request must replay the committed 'refunded' status exactly.
+  const finalRefund = await refund.refund({
+    storeId: id.store, orderId: order.order.id,
+    refundAmount: { amountInCents: 500, currency: 'THB' },
+    reason: 'Final refund', refundMethod: 'cash', authorizedByUserId: id.user,
+    idempotencyKey: 'refund-final',
+  });
+  assert.equal(finalRefund.status, 'refunded');
+  const finalCached = await refund.refund({
+    storeId: id.store, orderId: order.order.id,
+    refundAmount: { amountInCents: 500, currency: 'THB' },
+    reason: 'Final refund', refundMethod: 'cash', authorizedByUserId: id.user,
+    idempotencyKey: 'refund-final',
+  });
+  assert.equal(finalCached.idempotencyCached, true);
+  assert.equal(finalCached.status, 'refunded');
 
   // Re-using the same key with different scalar fields must conflict, not silently
   // return the earlier (different) refund.
