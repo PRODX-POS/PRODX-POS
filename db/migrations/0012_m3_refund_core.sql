@@ -43,6 +43,63 @@ CREATE TABLE IF NOT EXISTS prodx_refund_items (
 CREATE INDEX IF NOT EXISTS prodx_refunds_order_idx ON prodx_refunds(store_id, order_id, created_at);
 CREATE INDEX IF NOT EXISTS prodx_refund_items_refund_idx ON prodx_refund_items(store_id, refund_id);
 
+-- Refunds are append-only financial events. Corrections must be represented by
+-- separate compensating events so cash, inventory, audit, and idempotency history
+-- cannot be rewritten in place.
+CREATE OR REPLACE FUNCTION prodx_enforce_refund_immutable()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $
+BEGIN
+  RAISE EXCEPTION 'Refund financial events are immutable' USING ERRCODE = '55000';
+END;
+$;
+
+DROP TRIGGER IF EXISTS prodx_refund_immutable_guard ON prodx_refunds;
+CREATE TRIGGER prodx_refund_immutable_guard
+BEFORE UPDATE OR DELETE ON prodx_refunds
+FOR EACH ROW EXECUTE FUNCTION prodx_enforce_refund_immutable();
+
+-- Refund items must point to an order item and product belonging to the same
+-- order as the parent refund, not merely to the same store.
+CREATE OR REPLACE FUNCTION prodx_enforce_refund_item_integrity()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $
+DECLARE
+  refund_order_id UUID;
+  item_order_id UUID;
+  item_product_id UUID;
+BEGIN
+  SELECT order_id INTO refund_order_id
+  FROM prodx_refunds
+  WHERE id = NEW.refund_id AND store_id = NEW.store_id;
+
+  IF refund_order_id IS NULL THEN
+    RAISE EXCEPTION 'Refund item parent refund was not found in the target store' USING ERRCODE = '23514';
+  END IF;
+
+  SELECT order_id, product_id INTO item_order_id, item_product_id
+  FROM prodx_order_items
+  WHERE id = NEW.order_item_id AND store_id = NEW.store_id;
+
+  IF item_order_id IS NULL THEN
+    RAISE EXCEPTION 'Refund item order item was not found in the target store' USING ERRCODE = '23514';
+  END IF;
+
+  IF item_order_id <> refund_order_id OR item_product_id <> NEW.product_id THEN
+    RAISE EXCEPTION 'Refund item must match the refunded order and product' USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$;
+
+DROP TRIGGER IF EXISTS prodx_refund_item_integrity_guard ON prodx_refund_items;
+CREATE TRIGGER prodx_refund_item_integrity_guard
+BEFORE INSERT OR UPDATE OF refund_id, order_item_id, product_id, store_id ON prodx_refund_items
+FOR EACH ROW EXECUTE FUNCTION prodx_enforce_refund_item_integrity();
+
 -- The refund ceiling is a financial invariant. Enforce it in PostgreSQL as well as
 -- in the service so concurrent/direct SQL writers cannot exceed the order balance.
 CREATE OR REPLACE FUNCTION prodx_enforce_refund_balance()
