@@ -37,6 +37,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function requestWithBearer<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+  if (!token.trim()) {
+    throw new Error('Authentication session token is required.');
+  }
+  return request<T>(path, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token.trim()}`,
+      ...init.headers,
+    },
+  });
+}
+
 export const productionAuthApi: IAuthApi = {
   login: (req: LoginRequest) =>
     request<SessionContext>('/auth/login', {
@@ -44,7 +57,7 @@ export const productionAuthApi: IAuthApi = {
       body: JSON.stringify(req),
     }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
-  verifySession: () => request<SessionContext | null>('/auth/session'),
+  verifySession: (token: string) => requestWithBearer<SessionContext | null>('/auth/session', token),
   getStores: (orgSlug: string) =>
     request<readonly Store[]>(`/organizations/${encodeURIComponent(orgSlug)}/stores`),
 };
