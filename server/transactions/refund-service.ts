@@ -23,6 +23,8 @@ const toCents = (money: Money, field: string): bigint => {
   return BigInt(money.amountInCents);
 };
 const numeric = (cents: bigint): string => `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`;
+const roundDivide = (numerator: bigint, denominator: bigint): bigint =>
+  (numerator + denominator / 2n) / denominator;
 const dbCents = (value: unknown): bigint => {
   const text = String(value);
   const withDecimals = /^(\d+)\.(\d{2})$/.exec(text);
@@ -164,8 +166,8 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
           const allocatedQuantity = Math.min(remaining, available);
           const totalLineCents = dbCents(orderItem.line_total);
           const cumulativeQuantity = previousQuantity + allocatedQuantity;
-          const cumulativeAllocated = totalLineCents * BigInt(cumulativeQuantity) / BigInt(orderItem.quantity);
-          const previouslyAllocated = totalLineCents * BigInt(previousQuantity) / BigInt(orderItem.quantity);
+          const cumulativeAllocated = roundDivide(totalLineCents * BigInt(cumulativeQuantity), BigInt(orderItem.quantity));
+          const previouslyAllocated = roundDivide(totalLineCents * BigInt(previousQuantity), BigInt(orderItem.quantity));
           const itemAmount = cumulativeAllocated - previouslyAllocated;
 
           restockAmountTotal += itemAmount;
