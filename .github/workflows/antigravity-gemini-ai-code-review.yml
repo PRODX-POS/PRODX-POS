@@ -1,9 +1,6 @@
 name: Antigravity Gemini AI Code Review
 
 on:
-  push:
-    branches:
-      - chore/antigravity-gemini-ai-review
   pull_request:
     types: [opened, synchronize, reopened]
   workflow_dispatch:
@@ -23,16 +20,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
           PR_EVENT_NUMBER: ${{ github.event.pull_request.number || '' }}
         run: |
           set -euo pipefail
-          if [ -n "${PR_EVENT_NUMBER:-}" ]; then
-            pr="$PR_EVENT_NUMBER"
-          else
-            pr="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number')"
-          fi
-          test -n "$pr"
+          test -n "${PR_EVENT_NUMBER:-}"
+          pr="$PR_EVENT_NUMBER"
           head_repo="$(gh pr view "$pr" --repo "$REPO" --json headRepositoryOwner --jq '.headRepositoryOwner.login')/$(gh pr view "$pr" --repo "$REPO" --json headRepository --jq '.headRepository.name')"
           test "$head_repo" = "$REPO"
           echo "number=$pr" >> "$GITHUB_OUTPUT"
@@ -45,10 +37,21 @@ jobs:
           test -n "${GEMINI_API_KEY:-}"
           echo "GEMINI_API_KEY configured"
 
-      - name: Install Antigravity CLI
+      - name: Install pinned Antigravity CLI
         run: |
           set -euo pipefail
-          curl -fsSL https://antigravity.google/cli/install.sh | bash
+          version="1.2.7"
+          url="https://github.com/google-antigravity/antigravity-cli/releases/download/$version/agy_cli_linux_x64.tar.gz"
+          expected_sha256="e410dd56d8c213ef12643d3ff5eaaab57a17e05bbf72e9415322f23879fc4a18"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          curl -fsSL "$url" -o "$tmpdir/agy.tar.gz"
+          printf '%s  %s\n' "$expected_sha256" "$tmpdir/agy.tar.gz" | sha256sum -c -
+          mkdir -p "$HOME/.local/bin" "$tmpdir/extracted"
+          tar -xzf "$tmpdir/agy.tar.gz" -C "$tmpdir/extracted"
+          agy_bin="$(find "$tmpdir/extracted" -type f -name agy -print -quit)"
+          test -n "$agy_bin"
+          install -m 0755 "$agy_bin" "$HOME/.local/bin/agy"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/agy" --version
 
@@ -83,14 +86,28 @@ jobs:
           set -euo pipefail
           gh pr diff "$PR" --repo "$REPO" > pr.diff
           test -s pr.diff
-          # Review only source/config diffs; never execute or checkout PR code.
           python - <<'PY'
           from pathlib import Path
           import re
-          p = Path("pr.diff")
-          s = p.read_text(errors="replace")
-          s = re.sub(r'(?i)(api[_-]?key|token|secret|password|authorization)(\s*[:=]\s*)[^\s\n]+', r'\1\2[REDACTED]', s)
-          s = re.sub(r'(?i)-----BEGIN [^-]+-----.*?-----END [^-]+-----', '[REDACTED_PRIVATE_KEY]', s, flags=re.S)
+
+          source = Path("pr.diff").read_text(errors="replace")
+          lines = source.splitlines(keepends=True)
+          out = []
+          current_path = None
+          sensitive = re.compile(r"(?i)(^|/)(?:\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx|crt|cer|der))$")
+          for line in lines:
+              if line.startswith("diff --git "):
+                  parts = line.split()
+                  current_path = parts[2][2:] if len(parts) >= 3 and parts[2].startswith("a/") else None
+              if current_path and sensitive.search(current_path):
+                  if line.startswith("diff --git ") or line.startswith("--- ") or line.startswith("+++ "):
+                      out.append(line)
+                  continue
+              out.append(line)
+
+          s = "".join(out)
+          s = re.sub(r"(?i)(api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|token|secret|password|authorization)(\s*[:=]\s*)[^\s\n]+", r"\1\2[REDACTED]", s)
+          s = re.sub(r"(?i)-----BEGIN [^-]+-----.*?-----END [^-]+-----", "[REDACTED_PRIVATE_KEY]", s, flags=re.S)
           max_bytes = 120000
           if len(s.encode()) > max_bytes:
               s = s.encode()[:max_bytes].decode("utf-8", "ignore") + "\n[DIFF_TRUNCATED]\n"
@@ -157,7 +174,6 @@ jobs:
           fi
           jq -e 'type == "object" and (.verdict == "PASS" or .verdict == "WARN" or .verdict == "FAIL") and (.findings | type == "array")' review.json >/dev/null
           jq . review.json
-          # A non-zero agy exit is acceptable only when a complete schema-valid review was returned.
           test "$agy_exit" -eq 0 || echo "Antigravity returned non-zero with a valid structured review; preserving the review result."
 
       - name: Publish review to PR
@@ -179,7 +195,7 @@ jobs:
             echo "### Findings"
             jq -r 'if (.findings|length)==0 then "No findings." else (.findings[] | "- **[" + .severity + "]** " + .file + (if .line then ":" + .line else "" end) + " — " + .issue + "\n  - Evidence: " + .evidence + "\n  - Recommendation: " + .recommendation) end' review.json
             echo
-            echo "_Reviewed with Antigravity CLI + Gemini 3.8 Flash Low; diff was sanitized and size-capped._"
+            echo "_Reviewed with pinned Antigravity CLI 1.2.7 + Gemini 3.8 Flash Low; diff was sanitized and size-capped._"
           } > review-comment.md
           gh pr comment "$PR" --repo "$REPO" --body-file review-comment.md
           test "$verdict" != "FAIL"
