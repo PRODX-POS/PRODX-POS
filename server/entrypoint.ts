@@ -7,6 +7,7 @@ import { createTransactionalPostgresExecutor } from './db/transaction';
 import { registerCheckoutRoute } from './http/checkout-route';
 import { createApp } from './http/createApp';
 import { registerRefundRoute } from './http/refund-route';
+import { registerPaymentLifecycleRoute } from './http/payment-lifecycle-route';
 
 export const createProductionApp = () => {
   const pool = createPostgresPool();
@@ -25,6 +26,7 @@ export const createProductionApp = () => {
     configureRoutes: (configuredApp) => {
       registerCheckoutRoute(configuredApp, transactions);
       registerRefundRoute(configuredApp, transactions);
+      registerPaymentLifecycleRoute(configuredApp, transactions);
     },
   });
 
