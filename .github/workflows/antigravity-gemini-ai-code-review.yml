@@ -48,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.gemini/antigravity-cli"
-          printf '%s\n' '{"modelProvider":"gemini"}' > "$HOME/.gemini/antigravity-cli/settings.json"
+          printf '%s\n' '{"modelProvider":"gemini","model":"gemini-2.5-flash"}' > "$HOME/.gemini/antigravity-cli/settings.json"
 
       - name: Gemini smoke test
         env:
