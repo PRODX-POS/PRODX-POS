@@ -26,7 +26,7 @@ const isValidMoney = (value: unknown): value is { amountInCents: number; currenc
   const money = value as Record<string, unknown>;
   return Number.isSafeInteger(money.amountInCents) &&
     Number(money.amountInCents) > 0 && Number(money.amountInCents) <= MAX_MONEY_CENTS &&
-    typeof money.currency === 'string' && money.currency.trim().length > 0;
+    typeof money.currency === 'string' && /^[A-Za-z]{3}$/.test(money.currency.trim());
 };
 
 const isValidRestockItem = (value: unknown): value is RefundBodyItem => {
@@ -75,7 +75,7 @@ export const registerRefundRoute = (
       const result = await service.refund({
         storeId: context.principal.storeId,
         orderId: body.orderId,
-        refundAmount: body.refundAmount,
+        refundAmount: { ...body.refundAmount, currency: body.refundAmount.currency.trim().toUpperCase() },
         reason: body.reason,
         refundMethod: body.refundMethod,
         authorizedByUserId: context.principal.userId,

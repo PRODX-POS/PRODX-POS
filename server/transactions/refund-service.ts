@@ -44,6 +44,7 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
   async refund(request: RefundRequest): Promise<RefundResponse> {
     if (!request.storeId || !request.orderId || !request.authorizedByUserId || !request.idempotencyKey.trim()) throw new RefundValidationError('Store, order, authorization and idempotency key are required.');
     const amount = toCents(request.refundAmount, 'refund amount');
+    if (!/^[A-Z]{3}$/.test(request.refundAmount.currency)) throw new RefundValidationError('Refund currency must be a three-letter uppercase code.');
     if (!request.reason.trim()) throw new RefundValidationError('Refund reason is required.');
     if (request.refundMethod !== 'cash') throw new RefundProviderUnavailableError('Card and QR refunds require a configured payment-provider adapter; the server will fail closed until one is configured.');
 

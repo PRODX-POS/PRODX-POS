@@ -53,23 +53,6 @@ BEGIN
   END IF;
 END $$;
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint c
-    JOIN pg_class t ON t.oid = c.conrelid
-    JOIN pg_namespace n ON n.oid = t.relnamespace
-    WHERE c.conname = 'prodx_refunds_committed_method_valid'
-      AND t.relname = 'prodx_refunds'
-      AND n.nspname = current_schema()
-  ) THEN
-    ALTER TABLE prodx_refunds
-      ADD CONSTRAINT prodx_refunds_committed_method_valid
-      CHECK (method = 'cash');
-  END IF;
-END $$;
-
 ALTER TABLE prodx_cash_movements
   ADD COLUMN IF NOT EXISTS refund_id UUID;
 
@@ -123,6 +106,10 @@ BEGIN
 
   IF v_order.currency <> NEW.currency THEN
     RAISE EXCEPTION 'Refund currency must match the order currency' USING ERRCODE = '23514';
+  END IF;
+
+  IF NEW.method <> 'cash' THEN
+    RAISE EXCEPTION 'Card and QR refunds require a configured provider settlement' USING ERRCODE = '23514';
   END IF;
 
   SELECT COUNT(*) INTO v_membership_count
