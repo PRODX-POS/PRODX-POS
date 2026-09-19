@@ -37,7 +37,7 @@ import {
   subtractMoney,
   formatMoney,
 } from '../../domain/money';
-import { createProductionOrderTransactionApi } from '../../adapters/productionOrderTransactionApi';
+import { createOrderTransactionApi } from '../../adapters/orderTransactionApiFactory';
 import {
   Banknote,
   CreditCard,
@@ -153,7 +153,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   title,
 }) => {
   const { session } = useAuth();
-  const productionOrderApi = createProductionOrderTransactionApi(session?.token ?? '');
+  const productionOrderApi = createOrderTransactionApi(session?.token ?? '');
   const cart = useCart();
   const { isOnline, queueOutboxItem } = useOffline();
   const {
