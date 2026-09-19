@@ -114,15 +114,18 @@ test('PostgreSQL refund is atomic, idempotent, bounded by order total, and resto
     [id.payment, id.org, id.store, order.order.id],
   );
 
-  // Refund must not proceed when an order contains a payment recorded in another currency.
-  await pool.query('UPDATE prodx_payments SET currency=$1 WHERE id=$2', ['USD', id.payment]);
+  // Pending payment rows do not count toward a captured refundable balance.
+  await pool.query('UPDATE prodx_payments SET status=$1 WHERE id=$2', ['pending', id.payment]);
   await assert.rejects(refund.refund({
     storeId: id.store, orderId: order.order.id,
     refundAmount: { amountInCents: 1000, currency: 'THB' },
-    reason: 'Payment currency mismatch', refundMethod: 'cash', authorizedByUserId: id.user,
-    idempotencyKey: 'refund-payment-currency',
+    reason: 'Pending payment', refundMethod: 'cash', authorizedByUserId: id.user,
+    idempotencyKey: 'refund-pending-payment',
   }));
-  await pool.query('UPDATE prodx_payments SET currency=$1 WHERE id=$2', ['THB', id.payment]);
+  await pool.query('UPDATE prodx_payments SET status=$1 WHERE id=$2', ['captured', id.payment]);
+
+  // The database must reject a payment currency mutation before it can corrupt refund eligibility.
+  await assert.rejects(pool.query('UPDATE prodx_payments SET currency=$1 WHERE id=$2', ['USD', id.payment]));
 
   const first = await refund.refund({
     storeId: id.store, orderId: order.order.id,
