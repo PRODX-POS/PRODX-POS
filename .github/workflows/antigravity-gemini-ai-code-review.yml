@@ -1,6 +1,8 @@
 name: Antigravity Gemini AI Code Review
 
 on:
+  push:
+    branches: [chore/antigravity-gemini-ai-review]
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
   issue_comment:
