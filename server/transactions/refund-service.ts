@@ -4,6 +4,17 @@ import type { RefundItemRestock } from '../../src/adapters/types';
 import type { TransactionalSqlExecutor } from '../db/transaction';
 import { createSupervisorAuthorizationService, SupervisorAuthorizationError } from '../auth/supervisor-authorization';
 
+type SupervisorAuthorizationDb = {
+  query<T extends Record<string, unknown>>(sql: string, parameters?: readonly unknown[]): Promise<readonly T[]>;
+};
+
+const supervisorAuthorizationDb = (tx: TransactionalSqlExecutor): SupervisorAuthorizationDb => ({
+  async query<T extends Record<string, unknown>>(sql, parameters = []) {
+    const result = await tx.query<T>(sql, parameters);
+    return result.rows;
+  },
+});
+
 export class RefundValidationError extends Error { readonly code = 'REFUND_VALIDATION_FAILED'; }
 export class RefundConflictError extends Error { readonly code = 'REFUND_CONFLICT'; }
 export class RefundProviderUnavailableError extends Error { readonly code = 'REFUND_PROVIDER_UNAVAILABLE'; }
@@ -86,7 +97,7 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
       let supervisorUserId = request.authorizedByUserId;
       if (request.supervisorAuthorizationToken && request.requesterUserId && request.requesterSessionId) {
         try {
-          supervisorUserId = (await createSupervisorAuthorizationService(tx).consume({
+          supervisorUserId = (await createSupervisorAuthorizationService(supervisorAuthorizationDb(tx)).consume({
             token: request.supervisorAuthorizationToken,
             organizationId: String(order.organization_id),
             storeId: request.storeId,
