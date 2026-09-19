@@ -23,3 +23,12 @@ Application AI requests must remain behind the authenticated backend boundary so
 ## Verification
 
 Provider tests use mocked implementations and never require a real provider API key.
+
+Run the standard verification checks before changing the provider boundary:
+
+```bash
+npm run lint
+npm run server:check
+npm run server:test
+npm run build
+```
