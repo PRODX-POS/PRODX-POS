@@ -8,6 +8,7 @@ import { registerCheckoutRoute } from './http/checkout-route';
 import { createApp } from './http/createApp';
 import { registerRefundRoute } from './http/refund-route';
 import { registerPaymentLifecycleRoute } from './http/payment-lifecycle-route';
+import { registerSyncRoute } from './http/sync-route';
 
 export const createProductionApp = () => {
   const pool = createPostgresPool();
@@ -27,6 +28,7 @@ export const createProductionApp = () => {
       registerCheckoutRoute(configuredApp, transactions);
       registerRefundRoute(configuredApp, transactions);
       registerPaymentLifecycleRoute(configuredApp, transactions);
+      registerSyncRoute(configuredApp, transactions);
     },
   });
 
