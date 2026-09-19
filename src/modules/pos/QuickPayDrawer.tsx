@@ -21,7 +21,7 @@ import { FullTaxInvoiceModal } from '../../components/receipt/FullTaxInvoiceModa
 import { playScannerSound } from '../../services/soundService';
 import { triggerHaptic } from '../../services/hapticService';
 import { customerDisplayService } from '../../services/customerDisplayChannel';
-import { orderApi } from '../../adapters/mockAdapter';
+import { createOrderTransactionApi } from '../../adapters/orderTransactionApiFactory';
 import {
   PaymentMethod,
   TenderPayment,
@@ -72,6 +72,7 @@ export const QuickPayDrawer: React.FC<QuickPayDrawerProps> = ({
   onOrderCompleted,
 }) => {
   const { session, staffUsers, getStaffPin } = useAuth();
+  const productionOrderApi = createOrderTransactionApi(session?.token ?? '');
   const { items, totals, customer, clearCart } = useCart();
   const { isOnline, queueOutboxItem } = useOffline();
   const { printerConfig, printReceipt, kickCashDrawer } = useReceiptPrinter();
@@ -295,7 +296,7 @@ export const QuickPayDrawer: React.FC<QuickPayDrawerProps> = ({
         });
       } else {
         // Live server checkout
-        const response = await orderApi.createOrder(checkoutPayload);
+        const response = await productionOrderApi.createOrder(checkoutPayload);
         finalOrder = response.order;
 
         addToast({

@@ -193,3 +193,24 @@ jobs:
             echo "Direct mock authentication import detected in AuthContext."
             exit 1
           fi
+
+
+      - name: Verify offline sync context does not directly import mock sync adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -n "syncApi.*mockAdapter" src/context/OfflineContext.tsx; then
+            echo "Direct mock sync adapter import detected in production offline context."
+            exit 1
+          fi
+      - name: Verify POS checkout does not directly import mock transaction adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -R --line-number --include='*.ts' --include='*.tsx' \
+            "from '../../adapters/mockAdapter'" \
+            src/modules/pos/PaymentConfirmationModal.tsx \
+            src/modules/pos/QuickPayDrawer.tsx; then
+            echo "Direct mock order adapter import detected in production checkout UI."
+            exit 1
+          fi

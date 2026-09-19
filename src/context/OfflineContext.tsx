@@ -8,10 +8,12 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { OutboxItem } from '../domain/sync';
-import { syncApi, mockState } from '../adapters/mockAdapter';
+import { mockState } from '../adapters/mockAdapter';
+import { createSyncApi } from '../adapters/syncApiFactory';
 import { Order } from '../domain/order';
 import { useToast } from './ToastContext';
 import { useLanguage } from './LanguageContext';
+import { useAuth } from './AuthContext';
 
 export type SyncLatencyQuality = 'optimal' | 'good' | 'moderate' | 'high' | 'poor' | 'offline';
 
@@ -65,6 +67,8 @@ export function computeLatencyQuality(ms: number | null, isOnline: boolean): Syn
 
 export const OfflineProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { addToast } = useToast();
+  const { session } = useAuth();
+  const syncApi = createSyncApi(session?.token ?? '');
   const { language } = useLanguage();
   const [browserOnline, setBrowserOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
