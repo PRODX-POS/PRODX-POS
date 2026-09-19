@@ -17,6 +17,7 @@ type RefundBody = {
   refundMethod: 'cash' | 'card' | 'qr_digital';
   itemsToRestock?: readonly RefundBodyItem[];
   idempotencyKey: string;
+  supervisorAuthorizationToken: string;
 };
 
 const MAX_MONEY_CENTS = 999_999_999_999;
@@ -47,6 +48,7 @@ const isValidRefundBody = (value: unknown): value is RefundBody => {
     typeof body.reason === 'string' && body.reason.trim().length > 0 &&
     (body.refundMethod === 'cash' || body.refundMethod === 'card' || body.refundMethod === 'qr_digital') &&
     typeof body.idempotencyKey === 'string' && body.idempotencyKey.trim().length > 0 &&
+    typeof body.supervisorAuthorizationToken === 'string' && body.supervisorAuthorizationToken.trim().length > 0 &&
     isValidRestockList(body.itemsToRestock)
   );
 };
@@ -79,6 +81,9 @@ export const registerRefundRoute = (
         reason: body.reason,
         refundMethod: body.refundMethod,
         authorizedByUserId: context.principal.userId,
+        requesterUserId: context.principal.userId,
+        requesterSessionId: context.principal.sessionId,
+        supervisorAuthorizationToken: body.supervisorAuthorizationToken,
         itemsToRestock: body.itemsToRestock,
         idempotencyKey: body.idempotencyKey,
       });
