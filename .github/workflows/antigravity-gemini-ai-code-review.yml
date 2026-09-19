@@ -41,6 +41,7 @@ jobs:
           COMMENT_PR: ${{ github.event.issue.number }}
           DISPATCH_PR: ${{ inputs.pr_number }}
           PUSH_BRANCH: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           pr_number="${EVENT_PR:-}"
