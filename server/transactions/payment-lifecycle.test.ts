@@ -6,8 +6,8 @@ const executor=(payment: Record<string,unknown>, attempts: Record<string,unknown
   const tx={query:async(sql:string)=>{
     if(sql.includes('FROM prodx_payment_attempts')) return {rows:attempts};
     if(sql.includes('UPDATE prodx_payments')) { payment.status='captured'; return {rows:[payment]}; }
-    if(sql.includes('FROM prodx_payments')) return {rows:[payment]};
     if(sql.includes('INSERT INTO prodx_payment_attempts')) return {rows:[{id:'attempt-1',idempotency_key:'idem-1'}]};
+    if(sql.includes('FROM prodx_payments')) return {rows:[payment]};
     return {rows:[]};
   }};
   return {transaction:async(fn:any)=>fn(tx)};
