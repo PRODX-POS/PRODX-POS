@@ -159,6 +159,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL_ID: ${{ steps.model.outputs.model_id }}
           OPENROUTER_FALLBACK_MODELS: ${{ vars.OPENROUTER_AI_REVIEW_FALLBACK_MODELS }}
+          OPENROUTER_FREE_FALLBACK_MODEL: ${{ vars.OPENROUTER_AI_REVIEW_FREE_FALLBACK_MODEL }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
           set -euo pipefail
@@ -179,6 +180,12 @@ jobs:
           for model in [primary, *fallbacks]:
               if model not in candidates:
                   candidates.append(model)
+          # A zero-credit account can still use OpenRouter's free router.
+          # Try it only after configured paid/primary candidates fail, so normal
+          # accounts retain their preferred quality and routing behavior.
+          free_fallback = os.environ.get('OPENROUTER_FREE_FALLBACK_MODEL', '').strip() or 'openrouter/free'
+          if free_fallback not in candidates:
+              candidates.append(free_fallback)
 
           system = '''You are the independent security, architecture, database, CI/CD, and financial-integrity reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return only a JSON object matching the supplied schema. FAIL is required for CRITICAL or HIGH findings. Do not put JSON inside markdown fences.'''
           user = f'''PR #{os.environ['PR_NUMBER']}
@@ -220,9 +227,16 @@ jobs:
           }
 
           def redact(value: str) -> str:
+              try:
+                  parsed = json.loads(value)
+                  message = parsed.get('error', {}).get('message')
+                  if isinstance(message, str):
+                      return message[:400]
+              except json.JSONDecodeError:
+                  pass
               value = re.sub(r'Bearer\s+[^\s]+', 'Bearer [REDACTED]', value, flags=re.I)
               value = re.sub(r'(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+', r'\1=[REDACTED]', value)
-              return value[:4000]
+              return value[:400]
 
           def payload(model: str, structured: bool) -> dict:
               body = {
@@ -232,7 +246,7 @@ jobs:
                       {'role': 'user', 'content': user + ("\nReturn strict JSON only." if not structured else '')},
                   ],
                   'temperature': 0,
-                  'max_tokens': 6000,
+                  'max_tokens': 1200 if model == 'openrouter/free' else 6000,
                   'stream': False,
               }
               if structured:
