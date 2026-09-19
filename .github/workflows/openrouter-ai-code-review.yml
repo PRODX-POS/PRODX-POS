@@ -187,7 +187,11 @@ jobs:
               model.strip()
               for model in os.environ.get('OPENROUTER_FREE_FALLBACK_MODELS', '').split(',')
               if model.strip()
-          ] or ['openrouter/free', 'arcee-ai/trinity-mini:free']
+          ] or [
+              'openrouter/free',
+              'poolside/laguna-s-2.1:free',
+              'nvidia/nemotron-3-ultra-550b-a55b:free',
+          ]
           for free_fallback in free_fallbacks:
               if free_fallback not in candidates:
                   candidates.append(free_fallback)
