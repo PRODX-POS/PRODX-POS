@@ -6,6 +6,26 @@ ALTER TABLE prodx_refunds
   ADD COLUMN IF NOT EXISTS currency CHAR(3),
   ADD COLUMN IF NOT EXISTS result_status TEXT NOT NULL DEFAULT 'server_confirmed';
 
+ALTER TABLE prodx_payments
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'captured';
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE c.conname = 'prodx_payments_status_valid'
+      AND t.relname = 'prodx_payments'
+      AND n.nspname = current_schema()
+  ) THEN
+    ALTER TABLE prodx_payments
+      ADD CONSTRAINT prodx_payments_status_valid
+      CHECK (status IN ('pending', 'captured', 'settled', 'failed', 'voided'));
+  END IF;
+END $$;
+
 UPDATE prodx_refunds r
 SET currency = o.currency
 FROM prodx_orders o
@@ -30,6 +50,23 @@ BEGIN
     ALTER TABLE prodx_refunds
       ADD CONSTRAINT prodx_refunds_result_status_valid
       CHECK (result_status IN ('server_confirmed', 'refunded'));
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE c.conname = 'prodx_refunds_committed_method_valid'
+      AND t.relname = 'prodx_refunds'
+      AND n.nspname = current_schema()
+  ) THEN
+    ALTER TABLE prodx_refunds
+      ADD CONSTRAINT prodx_refunds_committed_method_valid
+      CHECK (method = 'cash');
   END IF;
 END $$;
 
@@ -101,7 +138,9 @@ BEGIN
   SELECT COALESCE(SUM(amount), 0), COUNT(*) FILTER (WHERE currency <> v_order.currency)
     INTO v_payment_total, v_payment_currency_mismatches
   FROM prodx_payments
-  WHERE store_id = NEW.store_id AND order_id = NEW.order_id;
+  WHERE store_id = NEW.store_id
+    AND order_id = NEW.order_id
+    AND status IN ('captured', 'settled');
   IF v_payment_currency_mismatches <> 0 OR v_payment_total < v_order.grand_total_amount THEN
     RAISE EXCEPTION 'Refund order does not have a fully captured payment balance' USING ERRCODE = '23514';
   END IF;

@@ -87,7 +87,8 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
       const currency = String(order.currency).trim();
       const recordedPayments = (await tx.query(`SELECT COALESCE(SUM(amount),0)::text AS amount,
           COUNT(*) FILTER (WHERE currency <> $3) AS mismatched_currency_count
-        FROM prodx_payments WHERE store_id=$1 AND order_id=$2`, [request.storeId, request.orderId, currency])).rows[0] as { amount: string; mismatched_currency_count: string | number };
+        FROM prodx_payments
+        WHERE store_id=$1 AND order_id=$2 AND status IN ('captured', 'settled')`, [request.storeId, request.orderId, currency])).rows[0] as { amount: string; mismatched_currency_count: string | number };
       if (Number(recordedPayments.mismatched_currency_count) > 0) throw new RefundConflictError('The order contains a payment recorded in a currency different from the order currency.');
       if (dbCents(recordedPayments.amount) < dbCents(order.grand_total_amount)) throw new RefundConflictError('The order does not have a fully recorded payment balance.');
       if (currency !== request.refundAmount.currency) throw new RefundValidationError('Refund currency does not match the order.');
