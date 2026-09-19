@@ -23,10 +23,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          BRANCH: ${{ github.ref_name }}
+          BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          PR_EVENT_NUMBER: ${{ github.event.pull_request.number || '' }}
         run: |
           set -euo pipefail
-          pr="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number')"
+          if [ -n "${PR_EVENT_NUMBER:-}" ]; then
+            pr="$PR_EVENT_NUMBER"
+          else
+            pr="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number')"
+          fi
           test -n "$pr"
           head_repo="$(gh pr view "$pr" --repo "$REPO" --json headRepositoryOwner --jq '.headRepositoryOwner.login')/$(gh pr view "$pr" --repo "$REPO" --json headRepository --jq '.headRepository.name')"
           test "$head_repo" = "$REPO"
