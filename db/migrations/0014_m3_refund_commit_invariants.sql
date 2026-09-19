@@ -1,6 +1,7 @@
 -- PRODX POS M3.2 database-bound refund commit invariants
 -- Refunds are committed only when their required payment, cash, audit, and
 -- inventory effects are present in the same transaction.
+-- Non-cash provider refunds remain fail-closed until a provider settlement ledger exists.
 
 ALTER TABLE prodx_refunds
   ADD COLUMN IF NOT EXISTS currency CHAR(3),
