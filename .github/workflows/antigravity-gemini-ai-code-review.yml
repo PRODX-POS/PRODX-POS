@@ -8,11 +8,13 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
+  issues: write
 
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Resolve open PR
         id: pr
@@ -24,6 +26,8 @@ jobs:
           set -euo pipefail
           pr="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number')"
           test -n "$pr"
+          head_repo="$(gh pr view "$pr" --repo "$REPO" --json headRepositoryOwner --jq '.headRepositoryOwner.login')/$(gh pr view "$pr" --repo "$REPO" --json headRepository --jq '.headRepository.name')"
+          test "$head_repo" = "$REPO"
           echo "number=$pr" >> "$GITHUB_OUTPUT"
 
       - name: Verify Gemini credential
@@ -63,7 +67,7 @@ jobs:
           echo "$output" | jq -e '.status == "SUCCESS"' >/dev/null
           echo "$output" | jq -e '.response | contains("OK")' >/dev/null
 
-      - name: Fetch PR diff
+      - name: Fetch and sanitize PR diff
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -72,4 +76,67 @@ jobs:
           set -euo pipefail
           gh pr diff "$PR" --repo "$REPO" > pr.diff
           test -s pr.diff
-          wc -c pr.diff
+          # Review only source/config diffs; never execute or checkout PR code.
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("pr.diff")
+          s = p.read_text(errors="replace")
+          s = re.sub(r'(?i)(api[_-]?key|token|secret|password|authorization)(\s*[:=]\s*)[^\s\n]+', r'\1\2[REDACTED]', s)
+          s = re.sub(r'(?i)-----BEGIN [^-]+-----.*?-----END [^-]+-----', '[REDACTED_PRIVATE_KEY]', s, flags=re.S)
+          max_bytes = 120000
+          if len(s.encode()) > max_bytes:
+              s = s.encode()[:max_bytes].decode("utf-8", "ignore") + "\n[DIFF_TRUNCATED]\n"
+          Path("pr.diff.sanitized").write_text(s)
+          PY
+          wc -c pr.diff.sanitized
+
+      - name: Run production review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          cat > prompt.txt <<'EOF'
+          You are the adversarial production reviewer for PRODX POS, a retail POS system.
+          Review ONLY the supplied sanitized unified diff. Do not assume tests passed unless the diff proves it.
+          Focus on financial integrity, inventory integrity, server authority, authentication/authorization,
+          auditability, idempotency/race conditions, offline sync correctness, PostgreSQL transaction boundaries,
+          secrets/security, API wiring, error handling, observability, and regression risk.
+
+          Return ONLY valid JSON with this exact shape:
+          {"verdict":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"P0|P1|P2|P3","file":"...","line":"...","issue":"...","evidence":"...","recommendation":"..."}]}
+          Use FAIL for any release-blocking correctness/security issue, WARN for non-blocking concerns,
+          and PASS only when no material issue is found. Do not invent files, lines, behavior, or test results.
+          EOF
+          printf '\n--- SANITIZED PR DIFF ---\n' >> prompt.txt
+          cat pr.diff.sanitized >> prompt.txt
+          output="$(agy --model gemini-3.8-flash-low --mode plan --sandbox --output-format json --print-timeout 15m -p "$(cat prompt.txt)")"
+          echo "$output" > agy-output.json
+          echo "$output" | jq -e '.status == "SUCCESS"' >/dev/null
+          echo "$output" | jq -r '.response' > review.json
+          jq -e 'type == "object" and (.verdict == "PASS" or .verdict == "WARN" or .verdict == "FAIL") and (.findings | type == "array")' review.json >/dev/null
+          jq . review.json
+
+      - name: Publish review to PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          verdict="$(jq -r '.verdict' review.json)"
+          summary="$(jq -r '.summary' review.json)"
+          {
+            echo "## Antigravity Gemini Production Review"
+            echo
+            echo "**Verdict:** $verdict"
+            echo
+            echo "$summary"
+            echo
+            echo "### Findings"
+            jq -r 'if (.findings|length)==0 then "No findings." else (.findings[] | "- **[" + .severity + "]** " + .file + (if .line then ":" + .line else "" end) + " — " + .issue + "\n  - Evidence: " + .evidence + "\n  - Recommendation: " + .recommendation) end' review.json
+            echo
+            echo "_Reviewed with Antigravity CLI + Gemini 3.8 Flash Low; diff was sanitized and size-capped._"
+          } > review-comment.md
+          gh pr comment "$PR" --repo "$REPO" --body-file review-comment.md
+          test "$verdict" != "FAIL"
