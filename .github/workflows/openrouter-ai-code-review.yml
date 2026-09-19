@@ -1,4 +1,5 @@
 name: OpenRouter AI Code Review
+# Free-router fallback is intentionally last in the candidate chain.
 
 on:
   pull_request_target:
