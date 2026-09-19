@@ -68,6 +68,12 @@ export const registerRefundRoute = (
         return;
       }
 
+      const sessionId = 'sessionId' in context.principal && typeof context.principal.sessionId === 'string' ? context.principal.sessionId : null;
+      if (!sessionId) {
+        response.status(500).json({ error: { code: 'SESSION_CONTEXT_MISSING', message: 'Authenticated session context is required.', requestId: request.id } });
+        return;
+      }
+
       const rawBody: unknown = request.body;
       if (!isValidRefundBody(rawBody)) {
         response.status(400).json({ error: { code: 'REFUND_VALIDATION_FAILED', message: 'The refund request body is malformed.', requestId: request.id } });
@@ -82,7 +88,7 @@ export const registerRefundRoute = (
         refundMethod: body.refundMethod,
         authorizedByUserId: context.principal.userId,
         requesterUserId: context.principal.userId,
-        requesterSessionId: context.principal.sessionId,
+        requesterSessionId: sessionId,
         supervisorAuthorizationToken: body.supervisorAuthorizationToken,
         itemsToRestock: body.itemsToRestock,
         idempotencyKey: body.idempotencyKey,
