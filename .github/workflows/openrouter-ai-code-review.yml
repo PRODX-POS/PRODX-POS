@@ -282,8 +282,11 @@ jobs:
                   return 599, {}, redact(str(exc))
 
           def parse_review(body: dict):
-              message = body.get('choices', [{}])[0].get('message', {})
+              choice = body.get('choices', [{}])[0]
+              message = choice.get('message', {})
               text = message.get('content')
+              if not text:
+                  text = message.get('reasoning') or choice.get('text') or body.get('output_text')
               if isinstance(text, list):
                   text = '\n'.join(
                       item.get('text') or item.get('content')
@@ -293,6 +296,8 @@ jobs:
               if not isinstance(text, str) or not text.strip():
                   raise ValueError('OpenRouter response did not contain review content.')
               text = text.strip()
+              if text.startswith('<think>') and '</think>' in text:
+                  text = text.split('</think>', 1)[1].strip()
               if text.startswith('```'):
                   text = text.split('\n', 1)[1].rsplit('```', 1)[0].strip()
               review = json.loads(text)
