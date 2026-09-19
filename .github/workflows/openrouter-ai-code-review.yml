@@ -125,7 +125,7 @@ jobs:
             --header "Authorization: Bearer $OPENROUTER_API_KEY" \
             --header 'Accept: application/json' \
             https://openrouter.ai/api/v1/models)"
-          model_id="${PREFERRED_MODEL_ID:-openrouter/auto}"
+          model_id="${PREFERRED_MODEL_ID:-openrouter/auto-beta}"
           if [[ "$model_id" != 'openrouter/auto-beta' && "$model_id" != 'openrouter/auto' ]] && ! printf '%s' "$models" | jq -e --arg id "$model_id" '.data[] | select(.id == $id)' >/dev/null; then
             echo "Configured OpenRouter review model is unavailable: $model_id" >&2
             exit 1
@@ -236,8 +236,9 @@ jobs:
                   'stream': False,
               }
               if structured:
-                  body['response_format'] = {'type': 'json_schema', 'json_schema': review_schema}
-                  body['provider'] = {'require_parameters': True}
+                  # Keep the request compatible with the proven OpenRouter path.
+                  # The prompt and local parser still enforce the review contract.
+                  body['response_format'] = {'type': 'json_object'}
               if model == 'openrouter/auto-beta':
                   body['plugins'] = [{'id': 'auto-beta-router', 'cost_tier': 'high'}]
               elif model == 'openrouter/auto':
