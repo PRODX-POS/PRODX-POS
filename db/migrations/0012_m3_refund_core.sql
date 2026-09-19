@@ -106,14 +106,18 @@ DECLARE
   order_total NUMERIC(12,2);
   refunded_total NUMERIC(12,2);
 BEGIN
-  SELECT grand_total_amount INTO order_total
+  PERFORM 1
   FROM prodx_orders
   WHERE id = NEW.order_id AND store_id = NEW.store_id
   FOR UPDATE;
 
-  IF order_total IS NULL THEN
+  IF NOT FOUND THEN
     RAISE EXCEPTION ''Refund order was not found in the target store'' USING ERRCODE = ''23514'';
   END IF;
+
+  SELECT grand_total_amount INTO order_total
+  FROM prodx_orders
+  WHERE id = NEW.order_id AND store_id = NEW.store_id;
 
   SELECT COALESCE(SUM(amount), 0) INTO refunded_total
   FROM prodx_refunds
