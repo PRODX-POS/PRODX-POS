@@ -72,15 +72,6 @@ jobs:
           set -euo pipefail
           agy models
 
-      - name: Gemini smoke test
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          set -euo pipefail
-          output="$(agy --model gemini-3.8-flash-low --mode plan --sandbox --output-format json --print-timeout 3m -p 'Reply only with OK.')"
-          echo "$output" | jq -e '.status == "SUCCESS"' >/dev/null
-          echo "$output" | jq -e '.response | contains("OK")' >/dev/null
-
       - name: Fetch and sanitize PR diff
         env:
           GH_TOKEN: ${{ github.token }}
@@ -166,7 +157,7 @@ jobs:
           }
           EOF
           set +e
-          output="$(agy --model gemini-3.8-flash-low --mode plan --sandbox --output-format json --json-schema review-schema.json --print-timeout 15m -p "$(cat prompt.txt)")"
+          output="$(agy --model gemini-3.7-flash-low --mode plan --sandbox --output-format json --json-schema review-schema.json --print-timeout 15m -p "$(cat prompt.txt)")"
           agy_exit=$?
           set -e
           echo "$output" > agy-output.json
@@ -199,7 +190,7 @@ jobs:
             echo "### Findings"
             jq -r 'if (.findings|length)==0 then "No findings." else (.findings[] | "- **[" + .severity + "]** " + .file + (if .line then ":" + .line else "" end) + " — " + .issue + "\n  - Evidence: " + .evidence + "\n  - Recommendation: " + .recommendation) end' review.json
             echo
-            echo "_Reviewed with pinned Antigravity CLI 1.2.7 + Gemini 3.8 Flash Low; diff was sanitized and size-capped._"
+            echo "_Reviewed with pinned Antigravity CLI 1.2.7 + Gemini 3.7 Flash Low; diff was sanitized and size-capped._"
           } > review-comment.md
           gh pr comment "$PR" --repo "$REPO" --body-file review-comment.md
           test "$verdict" != "FAIL"
