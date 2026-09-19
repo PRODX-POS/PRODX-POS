@@ -23,6 +23,7 @@ const toCents = (money: Money, field: string): bigint => {
   return BigInt(money.amountInCents);
 };
 const numeric = (cents: bigint): string => `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`;
+// PostgreSQL ROUND for non-negative monetary cents: ties round up.
 const roundDivide = (numerator: bigint, denominator: bigint): bigint =>
   (numerator + denominator / 2n) / denominator;
 const dbCents = (value: unknown): bigint => {
