@@ -62,7 +62,10 @@ export const registerSyncRoute = (
         return;
       }
 
-      if (!item.idempotencyKey?.trim() || item.idempotencyKey !== item.payload?.['idempotencyKey']) {
+      const payloadIdempotencyKey = typeof item.payload === 'object' && item.payload !== null
+        ? (item.payload as Record<string, unknown>).idempotencyKey
+        : undefined;
+      if (!item.idempotencyKey?.trim() || item.idempotencyKey !== payloadIdempotencyKey) {
         response.status(400).json({
           error: {
             code: 'SYNC_IDEMPOTENCY_KEY_MISMATCH',
