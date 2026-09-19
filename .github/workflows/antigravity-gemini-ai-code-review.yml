@@ -117,12 +117,48 @@ jobs:
           EOF
           printf '\n--- SANITIZED PR DIFF ---\n' >> prompt.txt
           cat pr.diff.sanitized >> prompt.txt
-          output="$(agy --model gemini-3.8-flash-low --mode plan --sandbox --output-format json --print-timeout 15m -p "$(cat prompt.txt)")"
+          cat > review-schema.json <<'EOF'
+          {
+            "type":"object",
+            "additionalProperties":false,
+            "required":["verdict","summary","findings"],
+            "properties":{
+              "verdict":{"type":"string","enum":["PASS","WARN","FAIL"]},
+              "summary":{"type":"string"},
+              "findings":{
+                "type":"array",
+                "items":{
+                  "type":"object",
+                  "additionalProperties":false,
+                  "required":["severity","file","line","issue","evidence","recommendation"],
+                  "properties":{
+                    "severity":{"type":"string","enum":["P0","P1","P2","P3"]},
+                    "file":{"type":"string"},
+                    "line":{"type":"string"},
+                    "issue":{"type":"string"},
+                    "evidence":{"type":"string"},
+                    "recommendation":{"type":"string"}
+                  }
+                }
+              }
+            }
+          }
+          EOF
+          set +e
+          output="$(agy --model gemini-3.8-flash-low --mode plan --sandbox --output-format json --json-schema review-schema.json --print-timeout 15m -p "$(cat prompt.txt)")"
+          agy_exit=$?
+          set -e
           echo "$output" > agy-output.json
-          echo "$output" | jq -e '.status == "SUCCESS"' >/dev/null
-          echo "$output" | jq -r '.response' > review.json
+          test -n "$output"
+          if echo "$output" | jq -e '.structured_output | type == "object"' >/dev/null 2>&1; then
+            echo "$output" | jq '.structured_output' > review.json
+          else
+            echo "$output" | jq -r '.response' > review.json
+          fi
           jq -e 'type == "object" and (.verdict == "PASS" or .verdict == "WARN" or .verdict == "FAIL") and (.findings | type == "array")' review.json >/dev/null
           jq . review.json
+          # A non-zero agy exit is acceptable only when a complete schema-valid review was returned.
+          test "$agy_exit" -eq 0 || echo "Antigravity returned non-zero with a valid structured review; preserving the review result."
 
       - name: Publish review to PR
         env:
