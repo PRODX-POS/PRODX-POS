@@ -129,6 +129,7 @@ jobs:
           EOF
           printf '\n--- SANITIZED PR DIFF ---\n' >> prompt.txt
           cat pr.diff.sanitized >> prompt.txt
+
           cat > review-schema.json <<'EOF'
           {
             "type":"object",
@@ -156,17 +157,34 @@ jobs:
             }
           }
           EOF
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          prompt = Path("prompt.txt").read_text()
+          event = {"event":"user","message":{"content":prompt}}
+          Path("prompt.ndjson").write_text(json.dumps(event, ensure_ascii=False) + "\n")
+          PY
+
           set +e
-          output="$(agy --model gemini-3.7-flash-low --mode plan --sandbox --output-format json --json-schema review-schema.json --print-timeout 15m -p "$(cat prompt.txt)")"
+          agy --model gemini-3.7-flash-low --mode plan --sandbox             --input-format stream-json --output-format stream-json             --json-schema review-schema.json --print-timeout 15m             < prompt.ndjson > agy-output.ndjson
           agy_exit=$?
           set -e
-          echo "$output" > agy-output.json
-          test -n "$output"
-          if echo "$output" | jq -e '.structured_output | type == "object"' >/dev/null 2>&1; then
-            echo "$output" | jq '.structured_output' > review.json
+
+          test -s agy-output.ndjson
+          jq -e 'select(.event == "result")' agy-output.ndjson >/dev/null
+
+          jq -s '
+            map(select(.event == "result") | .result)
+            | last
+          ' agy-output.ndjson > agy-result.json
+
+          if jq -e '.structured_output | type == "object"' agy-result.json >/dev/null 2>&1; then
+            jq '.structured_output' agy-result.json > review.json
           else
-            echo "$output" | jq -r '.response' > review.json
+            jq -r '.response' agy-result.json > review.json
           fi
+
           jq -e 'type == "object" and (.verdict == "PASS" or .verdict == "WARN" or .verdict == "FAIL") and (.findings | type == "array")' review.json >/dev/null
           jq . review.json
           test "$agy_exit" -eq 0 || echo "Antigravity returned non-zero with a valid structured review; preserving the review result."
