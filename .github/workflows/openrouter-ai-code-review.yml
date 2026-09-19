@@ -159,7 +159,7 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_MODEL_ID: ${{ steps.model.outputs.model_id }}
           OPENROUTER_FALLBACK_MODELS: ${{ vars.OPENROUTER_AI_REVIEW_FALLBACK_MODELS }}
-          OPENROUTER_FREE_FALLBACK_MODEL: ${{ vars.OPENROUTER_AI_REVIEW_FREE_FALLBACK_MODEL }}
+          OPENROUTER_FREE_FALLBACK_MODELS: ${{ vars.OPENROUTER_AI_REVIEW_FREE_FALLBACK_MODELS }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
         run: |
           set -euo pipefail
@@ -183,9 +183,14 @@ jobs:
           # A zero-credit account can still use OpenRouter's free router.
           # Try it only after configured paid/primary candidates fail, so normal
           # accounts retain their preferred quality and routing behavior.
-          free_fallback = os.environ.get('OPENROUTER_FREE_FALLBACK_MODEL', '').strip() or 'openrouter/free'
-          if free_fallback not in candidates:
-              candidates.append(free_fallback)
+          free_fallbacks = [
+              model.strip()
+              for model in os.environ.get('OPENROUTER_FREE_FALLBACK_MODELS', '').split(',')
+              if model.strip()
+          ] or ['openrouter/free', 'arcee-ai/trinity-mini:free']
+          for free_fallback in free_fallbacks:
+              if free_fallback not in candidates:
+                  candidates.append(free_fallback)
 
           system = '''You are the independent security, architecture, database, CI/CD, and financial-integrity reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return only a JSON object matching the supplied schema. FAIL is required for CRITICAL or HIGH findings. Do not put JSON inside markdown fences.'''
           user = f'''PR #{os.environ['PR_NUMBER']}
