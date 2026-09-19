@@ -32,6 +32,12 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: SqlExecut
       return;
     }
 
+    const sessionId = 'sessionId' in context.principal && typeof context.principal.sessionId === 'string' ? context.principal.sessionId : null;
+    if (!sessionId) {
+      response.status(500).json({ error: { code: 'SESSION_CONTEXT_MISSING', message: 'Authenticated session context is required.' } });
+      return;
+    }
+
     if (!valid(request.body)) {
       response.status(400).json({ error: { code: 'SUPERVISOR_AUTH_VALIDATION_FAILED', message: 'Malformed supervisor authorization request.' } });
       return;
@@ -42,7 +48,7 @@ export const registerSupervisorAuthorizationRoute = (app: Express, db: SqlExecut
         organizationId: context.principal.organizationId,
         storeId: context.principal.storeId,
         requesterUserId: context.principal.userId,
-        requesterSessionId: context.principal.sessionId,
+        requesterSessionId: sessionId,
         action: request.body.action,
         orderId: request.body.orderId,
         supervisorUsername: request.body.supervisorUsername,
