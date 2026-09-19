@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - chore/antigravity-gemini-ai-review
+  pull_request_target:
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
