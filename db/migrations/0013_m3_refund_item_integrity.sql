@@ -16,15 +16,33 @@ ALTER TABLE prodx_refund_items
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_refunds_id_store_order_unique') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE c.conname = 'prodx_refunds_id_store_order_unique'
+      AND t.relname = 'prodx_refunds' AND n.nspname = current_schema()
+  ) THEN
     ALTER TABLE prodx_refunds
       ADD CONSTRAINT prodx_refunds_id_store_order_unique UNIQUE (id, store_id, order_id);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_order_items_id_store_order_unique') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE c.conname = 'prodx_order_items_id_store_order_unique'
+      AND t.relname = 'prodx_order_items' AND n.nspname = current_schema()
+  ) THEN
     ALTER TABLE prodx_order_items
       ADD CONSTRAINT prodx_order_items_id_store_order_unique UNIQUE (id, store_id, order_id);
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_order_items_id_store_product_unique') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE c.conname = 'prodx_order_items_id_store_product_unique'
+      AND t.relname = 'prodx_order_items' AND n.nspname = current_schema()
+  ) THEN
     ALTER TABLE prodx_order_items
       ADD CONSTRAINT prodx_order_items_id_store_product_unique UNIQUE (id, store_id, product_id);
   END IF;
@@ -32,21 +50,39 @@ END $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_refund_items_refund_order_fk') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE c.conname = 'prodx_refund_items_refund_order_fk'
+      AND t.relname = 'prodx_refund_items' AND n.nspname = current_schema()
+  ) THEN
     ALTER TABLE prodx_refund_items
       ADD CONSTRAINT prodx_refund_items_refund_order_fk
       FOREIGN KEY (refund_id, store_id, order_id)
       REFERENCES prodx_refunds(id, store_id, order_id)
       ON DELETE RESTRICT;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_refund_items_order_item_order_fk') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE c.conname = 'prodx_refund_items_order_item_order_fk'
+      AND t.relname = 'prodx_refund_items' AND n.nspname = current_schema()
+  ) THEN
     ALTER TABLE prodx_refund_items
       ADD CONSTRAINT prodx_refund_items_order_item_order_fk
       FOREIGN KEY (order_item_id, store_id, order_id)
       REFERENCES prodx_order_items(id, store_id, order_id)
       ON DELETE RESTRICT;
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'prodx_refund_items_order_item_product_fk') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+    WHERE c.conname = 'prodx_refund_items_order_item_product_fk'
+      AND t.relname = 'prodx_refund_items' AND n.nspname = current_schema()
+  ) THEN
     ALTER TABLE prodx_refund_items
       ADD CONSTRAINT prodx_refund_items_order_item_product_fk
       FOREIGN KEY (order_item_id, store_id, product_id)
@@ -64,6 +100,8 @@ AS 'DECLARE
   cumulative_quantity INTEGER;
   line_total_cents BIGINT;
   expected_amount NUMERIC(12,2);
+  refund_amount NUMERIC(12,2);
+  previous_refund_item_amount NUMERIC(12,2);
 BEGIN
   SELECT quantity INTO ordered_quantity
   FROM prodx_order_items
@@ -100,6 +138,16 @@ BEGIN
 
   IF NEW.amount <> expected_amount THEN
     RAISE EXCEPTION ''Refund item amount does not match the authoritative order-line allocation'' USING ERRCODE = ''23514'';
+  END IF;
+
+  SELECT amount INTO refund_amount
+  FROM prodx_refunds
+  WHERE id = NEW.refund_id AND store_id = NEW.store_id;
+  SELECT COALESCE(SUM(amount), 0) INTO previous_refund_item_amount
+  FROM prodx_refund_items
+  WHERE refund_id = NEW.refund_id AND store_id = NEW.store_id;
+  IF previous_refund_item_amount + NEW.amount > refund_amount THEN
+    RAISE EXCEPTION ''Refund item allocations exceed the parent refund amount'' USING ERRCODE = ''23514'';
   END IF;
 
   RETURN NEW;

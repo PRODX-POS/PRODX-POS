@@ -51,7 +51,8 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
     const requestedItemsFingerprint = [...restock].map((item) => ({ productId: item.productId, quantity: item.quantity })).sort((a, b) => a.productId.localeCompare(b.productId));
 
     return db.transaction(async (tx) => {
-      const existing = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason, r.authorized_by_user_id, o.currency, o.status
+      const existing = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason, r.authorized_by_user_id,
+          r.currency, r.result_status AS status
         FROM prodx_refunds r JOIN prodx_orders o ON o.id = r.order_id AND o.store_id = r.store_id
         WHERE r.store_id=$1 AND r.idempotency_key=$2 LIMIT 1`, [request.storeId, request.idempotencyKey])).rows[0] as
         | { id: string; order_id: string; amount: string; method: string; reason: string; authorized_by_user_id: string; currency: string; status: 'server_confirmed' | 'refunded' }
@@ -95,17 +96,23 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
       const refundedBefore = dbCents(alreadyRefunded.amount);
       const orderTotal = dbCents(order.grand_total_amount);
       if (refundedBefore + amount > orderTotal) throw new RefundConflictError('Refund amount exceeds the remaining refundable order balance.');
+      const resultStatus: RefundResponse['status'] = refundedBefore + amount === orderTotal ? 'refunded' : 'server_confirmed';
 
       const shift = (await tx.query(`SELECT id FROM prodx_shifts WHERE id=$1 AND store_id=$2 AND status='open' FOR UPDATE`, [order.shift_id, request.storeId])).rows[0] as { id: string } | undefined;
       if (!shift) throw new RefundConflictError('The originating shift is not open; cash refund cannot be committed.');
 
       const refundId = crypto.randomUUID();
       const inserted = (await tx.query(`INSERT INTO prodx_refunds
-        (id,organization_id,store_id,order_id,amount,method,reason,authorized_by_user_id,idempotency_key)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(store_id,idempotency_key) DO NOTHING
-        RETURNING id, order_id, amount::text`, [refundId, order.organization_id, request.storeId, request.orderId, numeric(amount), request.refundMethod, request.reason.trim(), request.authorizedByUserId, request.idempotencyKey])).rows[0];
+        (id,organization_id,store_id,order_id,amount,currency,result_status,method,reason,authorized_by_user_id,idempotency_key)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(store_id,idempotency_key) DO NOTHING
+        RETURNING id, order_id, amount::text`, [
+          refundId, order.organization_id, request.storeId, request.orderId, numeric(amount),
+          currency, resultStatus, request.refundMethod, request.reason.trim(),
+          request.authorizedByUserId, request.idempotencyKey,
+        ])).rows[0];
       if (!inserted) {
-        const concurrent = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason, r.authorized_by_user_id, o.currency, o.status
+        const concurrent = (await tx.query(`SELECT r.id, r.order_id, r.amount::text AS amount, r.method, r.reason, r.authorized_by_user_id,
+            r.currency, r.result_status AS status
           FROM prodx_refunds r JOIN prodx_orders o ON o.id = r.order_id AND o.store_id = r.store_id
           WHERE r.store_id=$1 AND r.idempotency_key=$2 LIMIT 1`, [request.storeId, request.idempotencyKey])).rows[0] as
           | { id: string; order_id: string; amount: string; method: string; reason: string; authorized_by_user_id: string; currency: string; status: 'server_confirmed' | 'refunded' }
@@ -184,12 +191,12 @@ export const createRefundService = (db: TransactionalSqlExecutor) => ({
           [crypto.randomUUID(), order.organization_id, request.storeId, allocation.productId, allocation.quantity, stock.current_stock, refundId, request.authorizedByUserId]);
       }
       await tx.query(`INSERT INTO prodx_cash_movements
-        (id,organization_id,store_id,shift_id,type,amount,reason,performed_by_user_id,currency)
-        VALUES($1,$2,$3,$4,'cash_refund',$5,$6,$7,$8)`,
-        [crypto.randomUUID(), order.organization_id, request.storeId, shift.id, numeric(amount), `Refund for Order #${order.order_number}: ${request.reason.trim()}`, request.authorizedByUserId, currency]);
+        (id,organization_id,store_id,shift_id,refund_id,type,amount,reason,performed_by_user_id,currency)
+        VALUES($1,$2,$3,$4,$5,'cash_refund',$6,$7,$8,$9)`,
+        [crypto.randomUUID(), order.organization_id, request.storeId, shift.id, refundId, numeric(amount),
+          `Refund for Order #${order.order_number}: ${request.reason.trim()}`, request.authorizedByUserId, currency]);
 
-      const refundedAfter = refundedBefore + amount;
-      const status = refundedAfter === orderTotal ? 'refunded' : 'server_confirmed';
+      const status = resultStatus;
       await tx.query(`UPDATE prodx_orders SET status=$1 WHERE id=$2 AND store_id=$3`, [status, request.orderId, request.storeId]);
       await tx.query(`INSERT INTO prodx_audit_log
         (id,organization_id,store_id,register_id,user_id,action,severity,details)

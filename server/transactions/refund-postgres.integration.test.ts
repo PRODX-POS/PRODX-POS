@@ -58,6 +58,7 @@ async function clean() {
   try {
     for (const [sql, params] of [
     ['DELETE FROM prodx_refund_items WHERE store_id=$1', [id.store]],
+    ['DELETE FROM prodx_cash_movements WHERE refund_id IN (SELECT id FROM prodx_refunds WHERE store_id=$1)', [id.store]],
     ['DELETE FROM prodx_refunds WHERE store_id=$1', [id.store]],
     ['DELETE FROM prodx_cash_movements WHERE shift_id=$1', [id.shift]],
     ['DELETE FROM prodx_audit_log WHERE store_id=$1', [id.store]],
