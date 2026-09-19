@@ -131,10 +131,13 @@ BEGIN
     AND store_id = NEW.store_id
     AND order_id = NEW.order_id;
 
+  -- Allocate whole cents by flooring cumulative allocations. This keeps every
+  -- partial allocation deterministic while guaranteeing the final allocation
+  -- reconciles exactly to the authoritative line total.
   expected_amount := (
-    (line_total_cents * cumulative_quantity / ordered_quantity)
-    - (line_total_cents * previous_quantity / ordered_quantity)
-  )::NUMERIC / 100;
+    FLOOR(line_total_cents::NUMERIC * cumulative_quantity / ordered_quantity)
+    - FLOOR(line_total_cents::NUMERIC * previous_quantity / ordered_quantity)
+  ) / 100;
 
   IF NEW.amount <> expected_amount THEN
     RAISE EXCEPTION ''Refund item amount does not match the authoritative order-line allocation'' USING ERRCODE = ''23514'';
