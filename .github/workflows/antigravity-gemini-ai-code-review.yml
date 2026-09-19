@@ -64,7 +64,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
-          agy --model gemini-3.5-flash --mode plan --sandbox --output-format json --print-timeout 3m -p 'Reply only with OK.' > agy-smoke.json
+          agy --model gemini-3.8-flash-low --mode plan --sandbox --output-format json --print-timeout 3m -p 'Reply only with OK.' > agy-smoke.json
           jq -e '.status == "SUCCESS"' agy-smoke.json >/dev/null
           echo "ANTIGRAVITY_GEMINI=PASS" >> "$GITHUB_STEP_SUMMARY"
 
