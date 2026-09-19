@@ -329,6 +329,25 @@ jobs:
               output.write(f"decision={result['decision']}\n")
           PY
 
+      - name: Post OpenRouter failure diagnostic
+        if: always() && steps.review.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          diagnostic = {'message': 'OpenRouter review failed before a decision was produced.'}
+          if Path('openrouter-error.json').exists():
+              diagnostic = json.loads(Path('openrouter-error.json').read_text(encoding='utf-8'))
+          body = '<!-- prodx-openrouter-diagnostic -->\n## OpenRouter AI Review diagnostic\n\nThe review request failed before a PASS/WARN/FAIL decision.\n\n```json\n' + json.dumps(diagnostic, indent=2)[:8000] + '\n```'
+          Path('openrouter-failure-comment.json').write_text(json.dumps({'body': body}), encoding='utf-8')
+          PY
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --input openrouter-failure-comment.json --header 'Accept: application/vnd.github+json' >/dev/null
+
       - name: Post OpenRouter review to pull request
         if: always() && steps.review.outcome == 'success'
         env:
