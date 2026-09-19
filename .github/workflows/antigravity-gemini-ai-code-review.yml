@@ -50,13 +50,21 @@ jobs:
           mkdir -p "$HOME/.gemini/antigravity-cli"
           printf '%s\n' '{"modelProvider":"gemini","model":"gemini-2.5-flash"}' > "$HOME/.gemini/antigravity-cli/settings.json"
 
+      - name: List Gemini models
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.local/bin:$PATH"
+          agy models
+
       - name: Gemini smoke test
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           set -euo pipefail
           export PATH="$HOME/.local/bin:$PATH"
-          agy --mode plan --sandbox --output-format json --print-timeout 3m -p 'Reply only with OK.' > agy-smoke.json
+          agy --model gemini-3.5-flash --mode plan --sandbox --output-format json --print-timeout 3m -p 'Reply only with OK.' > agy-smoke.json
           jq -e '.status == "SUCCESS"' agy-smoke.json >/dev/null
           echo "ANTIGRAVITY_GEMINI=PASS" >> "$GITHUB_STEP_SUMMARY"
 
