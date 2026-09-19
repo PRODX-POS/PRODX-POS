@@ -1,15 +1,15 @@
 import crypto from 'node:crypto';
 import type { Money } from '../../src/domain/money';
 import type { RefundItemRestock } from '../../src/adapters/types';
-import type { TransactionalSqlExecutor } from '../db/transaction';
+import type { SqlQueryExecutor, TransactionalSqlExecutor } from '../db/transaction';
 import { createSupervisorAuthorizationService, SupervisorAuthorizationError } from '../auth/supervisor-authorization';
 
 type SupervisorAuthorizationDb = {
   query<T extends Record<string, unknown>>(sql: string, parameters?: readonly unknown[]): Promise<readonly T[]>;
 };
 
-const supervisorAuthorizationDb = (tx: TransactionalSqlExecutor): SupervisorAuthorizationDb => ({
-  async query<T extends Record<string, unknown>>(sql, parameters = []) {
+const supervisorAuthorizationDb = (tx: SqlQueryExecutor): SupervisorAuthorizationDb => ({
+  async query<T extends Record<string, unknown>>(sql: string, parameters: readonly unknown[] = []) {
     const result = await tx.query<T>(sql, parameters);
     return result.rows;
   },
