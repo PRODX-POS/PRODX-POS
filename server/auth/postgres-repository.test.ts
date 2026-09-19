@@ -13,10 +13,10 @@ test('credential lookup maps authoritative user and credential state', async () 
     },
   };
   const repository = createPostgresAuthenticationRepository(db);
-  const result = await repository.findCredentialByUsername('cashier');
+  const result = await repository.findCredentialByUsername('cashier', 'org-1');
   assert.deepEqual(result, { userId: 'user-1', organizationId: 'org-1', username: 'cashier', status: 'active',
     credentialType: 'password', secretHash: 'scrypt$hash', failedAttempts: 2, lockedUntil: null });
-  assert.deepEqual(calls[0].parameters, ['cashier']);
+  assert.deepEqual(calls[0].parameters, ['cashier', 'org-1']);
   assert.match(calls[0].sql, /lower\(u\.username\) = lower\(\$1\)/);
 });
 
