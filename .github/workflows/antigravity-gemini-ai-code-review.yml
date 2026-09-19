@@ -49,13 +49,13 @@ jobs:
           printf '%s  %s\n' "$expected_sha256" "$tmpdir/agy.tar.gz" | sha256sum -c -
           mkdir -p "$HOME/.local/bin" "$tmpdir/extracted"
           tar -xzf "$tmpdir/agy.tar.gz" -C "$tmpdir/extracted"
-          agy_bin="$(find "$tmpdir/extracted" \( -type f -o -type l \) -name agy -print -quit)"
-          if [ -z "$agy_bin" ]; then
+          cli_bin="$(find "$tmpdir/extracted" \( -type f -o -type l \) \( -name agy -o -name antigravity \) -print -quit)"
+          if [ -z "$cli_bin" ]; then
             echo "Archive contents:"
             find "$tmpdir/extracted" -maxdepth 3 -print
             exit 1
           fi
-          install -m 0755 "$(readlink -f "$agy_bin")" "$HOME/.local/bin/agy"
+          install -m 0755 "$(readlink -f "$cli_bin")" "$HOME/.local/bin/agy"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/agy" --version
 
