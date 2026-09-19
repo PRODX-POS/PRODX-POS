@@ -246,7 +246,7 @@ jobs:
                       {'role': 'user', 'content': user + ("\nReturn strict JSON only." if not structured else '')},
                   ],
                   'temperature': 0,
-                  'max_tokens': 1200 if model == 'openrouter/free' else 6000,
+                  'max_tokens': 6000,
                   'stream': False,
               }
               if structured:
