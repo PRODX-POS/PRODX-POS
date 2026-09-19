@@ -116,48 +116,100 @@ jobs:
           python3 - <<'PY'
           import json, os, urllib.request, urllib.error
           from pathlib import Path
+
           diff = Path('sanitized.diff').read_text(encoding='utf-8')
           excluded = Path('excluded-files.txt').read_text(encoding='utf-8')
-          system = '''You are the independent security, architecture, database, CI/CD, and financial-integrity reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return ONLY valid JSON with exactly this shape: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH. Do not put the JSON inside markdown fences. Do not output any other text.'''
-          user = f'PR #{os.environ["PR_NUMBER"]}\nSensitive paths excluded:\n{excluded}\n\nSanitized diff:\n```diff\n{diff}\n```'
+          system = '''You are the independent security, architecture, database, CI/CD, and financial-integrity reviewer for PRODX-POS. Review only the supplied pull-request diff. Do not recommend weakening security, tenant isolation, database constraints, auditability, idempotency, offline/server-authority guarantees, authentication, authorization, or financial correctness. Return ONLY valid JSON with exactly this shape: {"decision":"PASS|WARN|FAIL","summary":"...","findings":[{"severity":"CRITICAL|HIGH|MEDIUM|LOW","file":"path","line":0,"title":"...","reason":"...","recommendation":"..."}]}. FAIL is required for CRITICAL or HIGH. Do not output any other text.'''.
+          user = f'PR #{os.environ["PR_NUMBER"]}\nSensitive paths excluded:\n{excluded}\n\nSanitized diff:\n{diff}'
+
           primary = os.environ['OPENROUTER_MODEL_ID']
-          fallbacks = [m.strip() for m in os.environ.get('OPENROUTER_FALLBACK_MODELS','').split(',') if m.strip()]
-          base = {'model': primary, 'messages': [{'role':'system','content':system},{'role':'user','content':user}], 'temperature':0, 'max_tokens':6000, 'stream':False, 'response_format': {'type':'json_object'}}
-          if fallbacks:
-            chain = [primary] + [m for m in fallbacks if m != primary]
-            base['models'] = chain
-          if primary in {'openrouter/auto-beta','openrouter/auto'}:
-            base['plugins'] = [{'id':'auto-router','cost_tier':'max'}]
+          configured = [m.strip() for m in os.environ.get('OPENROUTER_FALLBACK_MODELS','').split(',') if m.strip()]
+          fallbacks = configured or ['openrouter/free']
+          models = [primary] + [m for m in fallbacks if m != primary]
 
-          req = urllib.request.Request('https://openrouter.ai/api/v1/chat/completions', data=json.dumps(base).encode(), headers={'Authorization':'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type':'application/json', 'HTTP-Referer':'https://github.com/' + os.environ['GITHUB_REPOSITORY'], 'X-Title':'PRODX-POS AI Code Review'}, method='POST')
-          try:
-            with urllib.request.urlopen(req, timeout=180) as response: body = json.load(response)
-          except urllib.error.HTTPError as exc:
-            detail = exc.read().decode('utf-8', errors='replace')[:2000]
-            raise SystemExit(f'OpenRouter chat completion failed with HTTP {exc.code}: {detail}')
+          def extract_json(text):
+              text = text.strip()
+              if text.startswith('```'):
+                  parts = text.split('\n', 1)
+                  if len(parts) == 2:
+                      text = parts[1].rsplit('```', 1)[0].strip()
+              try:
+                  return json.loads(text)
+              except json.JSONDecodeError:
+                  start = text.find('{')
+                  end = text.rfind('}')
+                  if start >= 0 and end > start:
+                      return json.loads(text[start:end + 1])
+                  raise
 
-          message = body.get('choices', [{}])[0].get('message', {})
-          text = message.get('content')
-          if isinstance(text, list):
-            parts = [item.get('text') or item.get('content') for item in text if isinstance(item, dict)]
-            text = '\n'.join(part for part in parts if isinstance(part, str) and part.strip())
-          if not isinstance(text, str) or not text.strip():
-            raise SystemExit('OpenRouter response did not contain review content.')
-          text = text.strip()
-          if text.startswith('```'):
-            segments = text.split('\n', 1)
-            if len(segments) == 2: text = segments[1].rsplit('```', 1)[0].strip()
-          try:
-            review = json.loads(text)
-          except json.JSONDecodeError as exc:
-            raise SystemExit(f'OpenRouter response was not valid review JSON: {exc}')
-          if review.get('decision') not in {'PASS','WARN','FAIL'} or not isinstance(review.get('findings'), list):
-            raise SystemExit('OpenRouter review JSON failed schema validation.')
+          errors = []
+          review = None
+          provider_model = None
+
+          for model in models:
+              payload = {
+                  'model': model,
+                  'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}],
+                  'temperature': 0,
+                  'max_tokens': 1600,
+                  'stream': False,
+              }
+              if model in {'openrouter/auto-beta', 'openrouter/auto'}:
+                  payload['plugins'] = [{'id': 'auto-router', 'cost_tier': 'max'}]
+
+              req = urllib.request.Request(
+                  'https://openrouter.ai/api/v1/chat/completions',
+                  data=json.dumps(payload).encode(),
+                  headers={'Authorization': 'Bearer ' + os.environ['OPENROUTER_API_KEY'], 'Content-Type': 'application/json', 'HTTP-Referer': 'https://github.com/' + os.environ['GITHUB_REPOSITORY'], 'X-Title': 'PRODX-POS AI Code Review'},
+                  method='POST',
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=180) as response:
+                      body = json.load(response)
+              except urllib.error.HTTPError as exc:
+                  detail = exc.read().decode('utf-8', errors='replace')[:2000]
+                  errors.append({'model': model, 'status': exc.code, 'error': detail})
+                  continue
+              except Exception as exc:
+                  errors.append({'model': model, 'error': str(exc)})
+                  continue
+
+              message = body.get('choices', [{}])[0].get('message', {})
+              content = message.get('content')
+              if isinstance(content, list):
+                  parts = []
+                  for item in content:
+                      if isinstance(item, dict):
+                          part = item.get('text') or item.get('content')
+                          if isinstance(part, str) and part.strip(): parts.append(part)
+                  content = '\n'.join(parts)
+              if not isinstance(content, str) or not content.strip():
+                  errors.append({'model': model, 'status': 200, 'error': 'OpenRouter response did not contain review content.'})
+                  continue
+              try:
+                  candidate = extract_json(content)
+              except Exception as exc:
+                  errors.append({'model': model, 'status': 200, 'error': f'Invalid review JSON: {exc}'})
+                  continue
+              if candidate.get('decision') not in {'PASS', 'WARN', 'FAIL'} or not isinstance(candidate.get('findings'), list):
+                  errors.append({'model': model, 'status': 200, 'error': 'Review JSON failed decision/findings validation.'})
+                  continue
+              review = candidate
+              provider_model = body.get('model') or model
+              break
+
+          if review is None:
+              Path('openrouter-errors.json').write_text(json.dumps({'errors': errors}, indent=2, ensure_ascii=False), encoding='utf-8')
+              raise SystemExit('All configured OpenRouter review models failed to produce a valid PASS/WARN/FAIL review JSON.')
+
           Path('ai-review.json').write_text(json.dumps(review, indent=2, ensure_ascii=False), encoding='utf-8')
-          print(json.dumps({'provider': body.get('provider'), 'model': body.get('model'), 'usage': body.get('usage'), 'decision': review['decision']}, ensure_ascii=False))
-          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out: out.write(f"decision={review['decision']}\n")
+          Path('openrouter-errors.json').write_text(json.dumps({'errors': errors}, indent=2, ensure_ascii=False), encoding='utf-8')
+          print(json.dumps({'provider': 'OpenRouter', 'model': provider_model, 'decision': review['decision'], 'fallback_used': provider_model != primary}, ensure_ascii=False))
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
+              out.write(f"decision={review['decision']}\n")
+              out.write(f"provider_model={provider_model}\n")
+              out.write(f"fallback_used={'true' if provider_model != primary else 'false'}\n")
           PY
-
       - name: Post OpenRouter review to pull request
         if: always() && steps.review.outcome == 'success'
         env:
