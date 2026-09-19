@@ -37,7 +37,7 @@ import {
   subtractMoney,
   formatMoney,
 } from '../../domain/money';
-import { orderApi } from '../../adapters/mockAdapter';
+import { createProductionOrderTransactionApi } from '../../adapters/productionOrderTransactionApi';
 import {
   Banknote,
   CreditCard,
@@ -153,6 +153,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
   title,
 }) => {
   const { session } = useAuth();
+  const productionOrderApi = createProductionOrderTransactionApi(session?.token ?? '');
   const cart = useCart();
   const { isOnline, queueOutboxItem } = useOffline();
   const {
@@ -499,7 +500,7 @@ export const PaymentConfirmationModal: React.FC<PaymentConfirmationModalProps> =
         });
       } else {
         // Live server checkout
-        const response = await orderApi.createOrder(checkoutPayload);
+        const response = await productionOrderApi.createOrder(checkoutPayload);
         setCompletedOrder(response.order);
         onOrderCompleted?.(response.order);
         clearPaymentTenders();
