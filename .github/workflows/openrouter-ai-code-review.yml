@@ -1,5 +1,4 @@
 name: OpenRouter AI Code Review
-# Free-router fallback is intentionally last in the candidate chain.
 
 on:
   pull_request_target:
@@ -228,9 +227,16 @@ jobs:
           }
 
           def redact(value: str) -> str:
+              try:
+                  parsed = json.loads(value)
+                  message = parsed.get('error', {}).get('message')
+                  if isinstance(message, str):
+                      return message[:400]
+              except json.JSONDecodeError:
+                  pass
               value = re.sub(r'Bearer\s+[^\s]+', 'Bearer [REDACTED]', value, flags=re.I)
               value = re.sub(r'(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+', r'\1=[REDACTED]', value)
-              return value[:800]
+              return value[:400]
 
           def payload(model: str, structured: bool) -> dict:
               body = {
