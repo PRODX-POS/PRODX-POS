@@ -17,13 +17,13 @@ export function createProductionOrderTransactionApi(token: string) {
 
   return {
     async createOrder(request: CheckoutRequest): Promise<CheckoutResponse> {
-      const response = await fetch(\`${requireBaseUrl()}/api/v1/orders/checkout\`, {
+      const response = await fetch(`${requireBaseUrl()}/api/v1/orders/checkout`, {
         method: 'POST',
         credentials: 'include',
         headers: {
           Accept: 'application/json',
           'Content-Type': 'application/json',
-          Authorization: \`Bearer ${requireToken()}\`,
+          Authorization: `Bearer ${requireToken()}`,
         },
         body: JSON.stringify(request),
       });
